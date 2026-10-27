@@ -1,7 +1,7 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
-const server = process.env.SINTONIA_SERVER || "http://localhost:3001";
+const server = process.env.VOXA_SERVER || "http://localhost:3001";
 
 export default defineConfig({
   plugins: [react()],

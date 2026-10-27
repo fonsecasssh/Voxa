@@ -5,7 +5,7 @@ import { openDb } from "./db.ts";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT) || 3001;
-const DB_FILE = process.env.DB_FILE || path.resolve(here, "../data/sintonia.db");
+const DB_FILE = process.env.DB_FILE || path.resolve(here, "../data/voxa.db");
 
 const { http } = createApp({
   db: openDb(DB_FILE),
@@ -14,5 +14,5 @@ const { http } = createApp({
 });
 
 http.listen(PORT, () => {
-  console.log(`Sintonia server on http://localhost:${PORT}`);
+  console.log(`Voxa server on http://localhost:${PORT}`);
 });

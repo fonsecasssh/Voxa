@@ -1,4 +1,4 @@
-# Sintonia
+# Voxa
 
 Servidores, chat em tempo real, voz e amigos — um app no estilo Discord.
 
@@ -25,7 +25,7 @@ npm run build   # gera web/dist
 npm start       # serve API + site em http://localhost:3001
 ```
 
-Variáveis de ambiente: `PORT` (padrão 3001) e `DB_FILE` (padrão `server/data/sintonia.db`).
+Variáveis de ambiente: `PORT` (padrão 3001) e `DB_FILE` (padrão `server/data/voxa.db`).
 
 ## Testes
 

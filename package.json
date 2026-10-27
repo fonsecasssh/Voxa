@@ -1,5 +1,5 @@
 {
-  "name": "sintonia",
+  "name": "voxa",
   "private": true,
   "workspaces": ["server", "web"],
   "scripts": {

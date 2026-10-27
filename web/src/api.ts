@@ -38,7 +38,7 @@ export interface ServerDetails {
   online: string[];
 }
 
-const TOKEN_KEY = "sintonia.token";
+const TOKEN_KEY = "voxa.token";
 
 export function getToken(): string | null {
   try {

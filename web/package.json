@@ -1,5 +1,5 @@
 {
-  "name": "@sintonia/web",
+  "name": "@voxa/web",
   "private": true,
   "type": "module",
   "scripts": {
