@@ -122,7 +122,7 @@ export const api = {
     request<AuthResult>("POST", "/api/auth/register", { username, password, displayName }),
   login: (username: string, password: string) => request<AuthResult>("POST", "/api/auth/login", { username, password }),
   logout: () => request<void>("POST", "/api/auth/logout"),
-  me: () => request<{ user: User; servers: Server[]; status: UserStatus }>("GET", "/api/me"),
+  me: () => request<{ user: User; servers: Server[]; status: UserStatus; activity: Activity | null }>("GET", "/api/me"),
   setPresence: (patch: { status?: UserStatus; activity?: string | null }) =>
     request<{ status: UserStatus; presence: Presence }>("PATCH", "/api/me/presence", patch),
 

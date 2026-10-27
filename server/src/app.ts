@@ -122,7 +122,8 @@ export function createApp({ db, webDist }: AppOptions) {
   });
 
   app.get("/api/me", requireAuth, (req, res) => {
-    res.json({ user: req.user, servers: store.serversForUser(req.user!.id), status: store.getStatus(req.user!.id) });
+    const me = req.user!.id;
+    res.json({ user: req.user, servers: store.serversForUser(me), status: store.getStatus(me), activity: store.getActivity(me) });
   });
 
   app.patch("/api/me/presence", requireAuth, (req, res) => {

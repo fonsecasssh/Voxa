@@ -1,0 +1,29 @@
+{
+  "name": "@voxa/desktop",
+  "productName": "Voxa",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Voxa — servidores, voz e amigos.",
+  "author": "Voxa",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "dev": "node scripts/build.mjs && electron .",
+    "start": "electron .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "dist:win": "node scripts/build.mjs && electron-builder --win --publish never",
+    "release:win": "node scripts/build.mjs && electron-builder --win --publish always"
+  },
+  "dependencies": {
+    "electron-updater": "^6.3.9"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "electron": "33.4.11",
+    "electron-builder": "^25.1.8",
+    "esbuild": "^0.24.0",
+    "typescript": "^5.7.2",
+    "vitest": "^3.0.0"
+  }
+}

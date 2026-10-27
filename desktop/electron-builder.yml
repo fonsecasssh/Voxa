@@ -1,0 +1,30 @@
+# Windows installer (NSIS) and auto-update feed (GitHub Releases).
+appId: app.voxa.desktop
+productName: Voxa
+copyright: Copyright © Voxa
+directories:
+  output: release
+  buildResources: build
+files:
+  - dist/**/*
+  - "!dist/**/*.map"
+  - package.json
+protocols:
+  - name: Voxa
+    schemes: [voxa]
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  icon: build/icon.ico
+  artifactName: Voxa-Setup-${version}.${ext}
+nsis:
+  oneClick: true
+  perMachine: false
+  deleteAppDataOnUninstall: false
+  shortcutName: Voxa
+publish:
+  provider: github
+  owner: fonsecasssh
+  repo: Voxa
+  releaseType: release

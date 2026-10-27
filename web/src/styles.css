@@ -1103,3 +1103,31 @@ label .muted {
 .channel-intro .avatar {
   margin-bottom: 12px;
 }
+
+/* --- desktop update banner --------------------------------------------------------- */
+#root:has(.update-banner) {
+  display: flex;
+  flex-direction: column;
+}
+#root:has(.update-banner) .shell {
+  flex: 1;
+  min-height: 0;
+}
+.update-banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 6px 12px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 14px;
+}
+.update-banner .btn {
+  padding: 4px 12px;
+  background: #fff;
+  color: var(--accent);
+}
+.update-banner .icon-btn {
+  color: #fff;
+}

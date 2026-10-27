@@ -16,6 +16,7 @@ import {
   type UserStatus,
 } from "../api.ts";
 import { navigate } from "../router.ts";
+import { desktop, notify, requestNotificationPermission } from "../desktop.ts";
 import { connectSocket, type AppSocket } from "../socket.ts";
 import { VoiceClient } from "../voice/VoiceClient.ts";
 import { VoiceContext, useVoiceSnapshot } from "../voice/useVoice.ts";
@@ -42,11 +43,31 @@ type ModalKind = "createServer" | "createChannel" | "invite" | null;
 interface Props {
   user: User;
   initialStatus: UserStatus;
+  initialActivity: Activity | null;
   servers: Server[];
   setServers: (update: (s: Server[]) => Server[]) => void;
   serverId?: string;
   channelId?: string;
   onLogout: () => void;
+}
+
+const AUTO_ACTIVITY_KEY = "voxa.autoActivity";
+
+function readAutoActivity(): string | null {
+  try {
+    return localStorage.getItem(AUTO_ACTIVITY_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function writeAutoActivity(name: string | null) {
+  try {
+    if (name) localStorage.setItem(AUTO_ACTIVITY_KEY, name);
+    else localStorage.removeItem(AUTO_ACTIVITY_KEY);
+  } catch {
+    // Storage unavailable: detection then only manages activities set during this session.
+  }
 }
 
 /** Applies a presence snapshot for `ids`: users missing from `known` are offline. */
@@ -59,7 +80,7 @@ function mergePresence(all: Record<string, Presence>, ids: string[], known: Reco
   return next;
 }
 
-export function Shell({ user, initialStatus, servers, setServers, serverId, channelId, onLogout }: Props) {
+export function Shell({ user, initialStatus, initialActivity, servers, setServers, serverId, channelId, onLogout }: Props) {
   const socketRef = useRef<AppSocket | null>(null);
   const [voice, setVoice] = useState<VoiceClient | null>(null);
   const voiceState = useVoiceSnapshot(voice);
@@ -72,7 +93,7 @@ export function Shell({ user, initialStatus, servers, setServers, serverId, chan
   const [dms, setDms] = useState<DmSummary[] | null>(null);
   const [unread, setUnread] = useState<Set<string>>(new Set());
   const [myStatus, setMyStatus] = useState<UserStatus>(initialStatus);
-  const [myActivity, setMyActivity] = useState<Activity | null>(null);
+  const [myActivity, setMyActivity] = useState<Activity | null>(initialActivity);
   const [modal, setModal] = useState<ModalKind>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -124,6 +145,11 @@ export function Shell({ user, initialStatus, servers, setServers, serverId, chan
   // --- socket -----------------------------------------------------------------
   const activeRef = useRef({ serverId, channelId });
   activeRef.current = { serverId, channelId };
+  // Latest values for socket handlers, which are registered once.
+  const dmsRef = useRef(dms);
+  dmsRef.current = dms;
+  const myStatusRef = useRef(myStatus);
+  myStatusRef.current = myStatus;
 
   useEffect(() => {
     const socket = connectSocket(getToken()!);
@@ -164,6 +190,12 @@ export function Shell({ user, initialStatus, servers, setServers, serverId, chan
       const viewing = activeRef.current.channelId === m.channelId && document.visibilityState === "visible";
       if (m.author.id !== user.id && !viewing) {
         setUnread((u) => (u.has(m.channelId) ? u : new Set(u).add(m.channelId)));
+        // Direct messages notify (servers would be too noisy without mentions), unless in "do not disturb".
+        const isDm = dmsRef.current?.some((d) => d.channel.id === m.channelId);
+        if (isDm && myStatusRef.current !== "dnd" && (document.visibilityState !== "visible" || !document.hasFocus())) {
+          notify(m.author.displayName, m.content.slice(0, 200), m.channelId, () => navigate(`/channels/${HOME}/${m.channelId}`));
+          desktop?.flash();
+        }
       }
     });
 
@@ -284,8 +316,41 @@ export function Shell({ user, initialStatus, servers, setServers, serverId, chan
     return () => document.removeEventListener("visibilitychange", clear);
   }, [channelId, unread]);
 
+  // --- desktop app integration ---------------------------------------------------
+  const unreadDms = [...unread].filter((id) => dms?.some((d) => d.channel.id === id)).length;
+  useEffect(() => desktop?.setBadge(unreadDms), [unreadDms]);
+
+  // The desktop app detects running games. It only manages the activity it set itself,
+  // so an activity the user typed by hand is never overwritten or cleared by detection.
+  // Which one it set is remembered across restarts, so a game that closed while the app
+  // was not running still gets cleared on the next launch.
+  const myActivityRef = useRef(myActivity);
+  myActivityRef.current = myActivity;
+  const setPresenceRef = useRef<SetPresence | null>(null);
+
+  useEffect(() => {
+    if (!desktop) return;
+    const apply = (game: string | null) => {
+      const current = myActivityRef.current?.name ?? null;
+      const auto = readAutoActivity();
+      if (current === game) {
+        writeAutoActivity(game);
+        return;
+      }
+      if (current !== null && current !== auto) return; // Typed by hand: leave it alone.
+      writeAutoActivity(game);
+      setPresenceRef.current?.({ activity: game }).catch(() => {});
+    };
+    desktop.getActivity().then(apply);
+    return desktop.onActivity(apply);
+  }, []);
+
+  const [updateVersion, setUpdateVersion] = useState<string | null>(null);
+  useEffect(() => desktop?.onUpdateReady(setUpdateVersion), []);
+
   // --- actions ------------------------------------------------------------------
   const openDm = async (other: User) => {
+    requestNotificationPermission();
     try {
       const { dm: opened } = await api.openDm(other.id);
       setDms((list) => (list?.some((d) => d.channel.id === opened.channel.id) ? list : [opened, ...(list ?? [])]));
@@ -305,6 +370,7 @@ export function Shell({ user, initialStatus, servers, setServers, serverId, chan
       setMyActivity(r.presence.activity);
     }
   };
+  setPresenceRef.current = setPresence;
 
   // --- render -------------------------------------------------------------------
   const typingUsers = channel ? Object.values(typing[channel.id] ?? {}).map((t) => t.user) : [];
@@ -337,7 +403,10 @@ export function Shell({ user, initialStatus, servers, setServers, serverId, chan
         const oldest = messages[channel.id]?.items[0];
         if (oldest) return loadMessages(channel.id, oldest.createdAt);
       }}
-      onSend={(content) => api.sendMessage(channel.id, content).then(() => {})}
+      onSend={(content) => {
+        requestNotificationPermission();
+        return api.sendMessage(channel.id, content).then(() => {});
+      }}
       onTyping={() => socketRef.current?.emit("typing", { channelId: channel.id })}
     />
   );
@@ -402,10 +471,19 @@ export function Shell({ user, initialStatus, servers, setServers, serverId, chan
     );
   }
 
-  const unreadDms = [...unread].filter((id) => dms?.some((d) => d.channel.id === id)).length;
-
   return (
     <VoiceContext.Provider value={voice}>
+      {updateVersion && (
+        <div className="update-banner" role="status">
+          Uma nova versão do Voxa ({updateVersion}) está pronta.
+          <button className="btn primary" onClick={() => desktop?.installUpdate()}>
+            Reiniciar e atualizar
+          </button>
+          <button className="icon-btn" title="Depois" onClick={() => setUpdateVersion(null)}>
+            ✕
+          </button>
+        </div>
+      )}
       <div className={`shell ${current ? "" : "no-members"}`}>
         <ServerRail servers={servers} activeId={serverId} unreadDms={unreadDms} onCreate={() => setModal("createServer")} />
         {body}
