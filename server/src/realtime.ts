@@ -6,12 +6,14 @@
 
 import type { Server as IOServer, Socket } from "socket.io";
 import type { PublicUser, Store } from "./store.ts";
+import { createVoice } from "./voice.ts";
 
 interface SocketData {
   user: PublicUser;
 }
 
 export function registerRealtime(io: IOServer, store: Store) {
+  const voice = createVoice(io, store);
   // Number of open sockets per user; a user is online while this is > 0.
   const connections = new Map<string, number>();
 
@@ -46,6 +48,8 @@ export function registerRealtime(io: IOServer, store: Store) {
       socket.to(`server:${channel.serverId}`).emit("typing", { channelId, user });
     });
 
+    voice.register(socket, user);
+
     socket.on("disconnect", () => {
       const left = (connections.get(user.id) ?? 1) - 1;
       if (left > 0) {
@@ -61,5 +65,6 @@ export function registerRealtime(io: IOServer, store: Store) {
     onlineUserIds(userIds: string[]): string[] {
       return userIds.filter((id) => connections.has(id));
     },
+    voiceState: voice.stateForServer,
   };
 }

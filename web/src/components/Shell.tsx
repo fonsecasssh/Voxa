@@ -10,6 +10,9 @@ import { ChannelSidebar } from "./ChannelSidebar.tsx";
 import { ChatView } from "./ChatView.tsx";
 import { MemberList } from "./MemberList.tsx";
 import { CreateChannelModal, CreateServerModal, InviteModal } from "./Modals.tsx";
+import { VoiceView } from "./VoiceView.tsx";
+import { VoiceClient } from "../voice/VoiceClient.ts";
+import { VoiceContext } from "../voice/useVoice.ts";
 
 const TYPING_MS = 4000;
 
@@ -31,6 +34,7 @@ interface Props {
 
 export function Shell({ user, servers, setServers, serverId, channelId, onLogout }: Props) {
   const socketRef = useRef<AppSocket | null>(null);
+  const [voice, setVoice] = useState<VoiceClient | null>(null);
   const [details, setDetails] = useState<Record<string, ServerDetails>>({});
   const [messages, setMessages] = useState<Record<string, ChannelMessages>>({});
   const [typing, setTyping] = useState<Record<string, Record<string, { user: User; until: number }>>>({});
@@ -75,6 +79,8 @@ export function Shell({ user, servers, setServers, serverId, channelId, onLogout
   useEffect(() => {
     const socket = connectSocket(getToken()!);
     socketRef.current = socket;
+    const voiceClient = new VoiceClient(socket);
+    setVoice(voiceClient);
     let connectedBefore = false;
 
     socket.on("connect", () => {
@@ -132,13 +138,23 @@ export function Shell({ user, servers, setServers, serverId, channelId, onLogout
       });
     });
 
+    socket.on("voice:update", ({ serverId: sid, channelId: cid, members }) => {
+      setDetails((all) => {
+        const d = all[sid];
+        if (!d) return all;
+        return { ...all, [sid]: { ...d, voice: { ...d.voice, [cid]: members } } };
+      });
+    });
+
     socket.on("typing", ({ channelId: cid, user: u }) => {
       setTyping((all) => ({ ...all, [cid]: { ...all[cid], [u.id]: { user: u, until: Date.now() + TYPING_MS } } }));
     });
 
     return () => {
+      voiceClient.leave();
       socket.close();
       socketRef.current = null;
+      setVoice(null);
     };
   }, [loadServer, loadMessages]);
 
@@ -188,6 +204,7 @@ export function Shell({ user, servers, setServers, serverId, channelId, onLogout
   const typingUsers = channel ? Object.values(typing[channel.id] ?? {}).map((t) => t.user) : [];
 
   return (
+    <VoiceContext.Provider value={voice}>
     <div className={`shell ${current ? "" : "no-members"}`}>
       <ServerRail servers={servers} activeId={serverId} onCreate={() => setModal("createServer")} />
 
@@ -216,10 +233,7 @@ export function Shell({ user, servers, setServers, serverId, channelId, onLogout
               onTyping={() => socketRef.current?.emit("typing", { channelId: channel.id })}
             />
           ) : channel?.type === "voice" ? (
-            <main className="main placeholder">
-              <h2>🔊 {channel.name}</h2>
-              <p className="muted">Canais de voz chegam na próxima etapa.</p>
-            </main>
+            <VoiceView channel={channel} members={current.voice[channel.id] ?? []} />
           ) : (
             <main className="main placeholder" />
           )}
@@ -258,7 +272,7 @@ export function Shell({ user, servers, setServers, serverId, channelId, onLogout
             setServers((s) => [...s, server]);
             setDetails((all) => ({
               ...all,
-              [server.id]: { server, channels, members: [user], online: [user.id] },
+              [server.id]: { server, channels, members: [user], online: [user.id], voice: {} },
             }));
             setModal(null);
             navigate(`/channels/${server.id}`);
@@ -282,5 +296,6 @@ export function Shell({ user, servers, setServers, serverId, channelId, onLogout
       )}
       {modal === "invite" && current && <InviteModal server={current.server} onClose={() => setModal(null)} />}
     </div>
+    </VoiceContext.Provider>
   );
 }

@@ -118,6 +118,54 @@ describe("servers, invites and messages", () => {
     guestSocket.close();
   });
 
+  it("tracks voice channels and relays signaling only within one", async () => {
+    const a = await register("voz_a");
+    const b = await register("voz_b");
+    const { body } = await api("POST", "/api/servers", { name: "Voz" }, a.token);
+    const voiceChannel = body.channels.find((c: { type: string }) => c.type === "voice");
+    const textChannel = body.channels.find((c: { type: string }) => c.type === "text");
+    await api("POST", `/api/invites/${body.server.inviteCode}`, undefined, b.token);
+
+    const sa = await socketFor(a.token);
+    const sb = await socketFor(b.token);
+    const join = (s: Socket, channelId: string) =>
+      new Promise<{ error?: string; peers?: { socketId: string }[] }>((r) => s.emit("voice:join", { channelId }, r));
+
+    expect((await join(sa, textChannel.id)).error).toBeTruthy();
+    expect((await join(sa, voiceChannel.id)).peers).toEqual([]);
+
+    const update = next<{ members: { user: { username: string } }[] }>(sa, "voice:update");
+    const joinB = await join(sb, voiceChannel.id);
+    expect(joinB.peers!.map((p) => p.socketId)).toEqual([sa.id]);
+    expect((await update).members.map((m) => m.user.username).sort()).toEqual(["voz_a", "voz_b"]);
+
+    const signal = next<{ from: string; data: unknown }>(sa, "voice:signal");
+    sb.emit("voice:signal", { to: sa.id, data: { description: "offer" } });
+    expect(await signal).toEqual({ from: sb.id, data: { description: "offer" } });
+
+    const muted = next<{ members: { muted: boolean; user: { username: string } }[] }>(sa, "voice:update");
+    sb.emit("voice:state", { muted: true });
+    expect((await muted).members.find((m) => m.user.username === "voz_b")!.muted).toBe(true);
+
+    const details = await api("GET", `/api/servers/${body.server.id}`, undefined, a.token);
+    expect(details.body.voice[voiceChannel.id]).toHaveLength(2);
+
+    // A second socket of the same user takes over the session.
+    const sb2 = await socketFor(b.token);
+    const replaced = next(sb, "voice:replaced");
+    await join(sb2, voiceChannel.id);
+    await replaced;
+
+    // Leaving (here: disconnecting) empties the channel for everyone else.
+    const emptied = next<{ members: unknown[] }>(sa, "voice:update");
+    sb2.close();
+    expect((await emptied).members).toHaveLength(1);
+
+    expect((await api("GET", "/api/rtc-config", undefined, a.token)).body.iceServers.length).toBeGreaterThan(0);
+    sa.close();
+    sb.close();
+  });
+
   it("rejects sockets without a valid token", async () => {
     await expect(socketFor("nope")).rejects.toThrow("unauthorized");
   });

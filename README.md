@@ -25,7 +25,20 @@ npm run build   # gera web/dist
 npm start       # serve API + site em http://localhost:3001
 ```
 
-Variáveis de ambiente: `PORT` (padrão 3001) e `DB_FILE` (padrão `server/data/voxa.db`).
+Variáveis de ambiente:
+
+| Variável | Para quê |
+| --- | --- |
+| `PORT` | Porta HTTP (padrão 3001) |
+| `DB_FILE` | Arquivo do banco (padrão `server/data/voxa.db`) |
+| `STUN_URLS` | Servidores STUN, separados por vírgula (padrão: STUN público do Google) |
+| `TURN_URLS`, `TURN_USERNAME`, `TURN_CREDENTIAL` | Servidor TURN, necessário em produção para quem está atrás de NAT restritivo |
+
+## Voz
+
+A voz usa WebRTC em malha (cada participante conecta direto aos outros), com cancelamento de eco, supressão de ruído e controle de ganho do navegador. O servidor só repassa a sinalização. Funciona bem até ~8 pessoas por canal; acima disso será preciso um SFU (ex.: LiveKit).
+
+O navegador só libera microfone e tela em `https://` ou em `http://localhost`.
 
 ## Testes
 
@@ -37,7 +50,7 @@ npm run typecheck
 ## Roteiro
 
 1. ✅ Contas, servidores, convites, canais de texto, chat em tempo real, "digitando…", online/offline
-2. Voz e compartilhamento de tela (WebRTC)
+2. ✅ Canais de voz, mutar/ensurdecer, indicador de fala, compartilhamento de tela com áudio
 3. Amigos, mensagens diretas, status de jogo
 4. App desktop (Electron)
 5. Deploy em produção

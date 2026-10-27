@@ -1,5 +1,7 @@
 // REST client + the types shared with the server.
 
+import type { VoiceMember } from "./voice/types.ts";
+
 export interface User {
   id: string;
   username: string;
@@ -36,6 +38,8 @@ export interface ServerDetails {
   channels: Channel[];
   members: User[];
   online: string[];
+  /** Voice channel id -> who is in it. */
+  voice: Record<string, VoiceMember[]>;
 }
 
 const TOKEN_KEY = "voxa.token";
@@ -98,6 +102,8 @@ export const api = {
 
   invite: (code: string) => request<{ server: { id: string; name: string }; memberCount: number }>("GET", `/api/invites/${code}`),
   joinInvite: (code: string) => request<{ server: Server }>("POST", `/api/invites/${code}`),
+
+  rtcConfig: () => request<{ iceServers: RTCIceServer[] }>("GET", "/api/rtc-config"),
 
   messages: (channelId: string, before?: number) =>
     request<{ messages: Message[] }>("GET", `/api/channels/${channelId}/messages${before ? `?before=${before}` : ""}`),

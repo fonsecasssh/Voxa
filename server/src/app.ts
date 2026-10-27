@@ -120,7 +120,24 @@ export function createApp({ db, webDist }: AppOptions) {
       channels: store.channels(server.id),
       members: store.members(server.id),
       online: realtime.onlineUserIds(store.members(server.id).map((m) => m.id)),
+      voice: realtime.voiceState(server.id),
     });
+  });
+
+  // ICE servers for WebRTC. STUN finds a public address; TURN relays media when a direct
+  // connection is impossible (strict NATs, corporate networks) — set TURN_* in production.
+  app.get("/api/rtc-config", requireAuth, (_req, res) => {
+    const iceServers: { urls: string | string[]; username?: string; credential?: string }[] = [
+      { urls: (process.env.STUN_URLS || "stun:stun.l.google.com:19302,stun:stun1.l.google.com:19302").split(",") },
+    ];
+    if (process.env.TURN_URLS) {
+      iceServers.push({
+        urls: process.env.TURN_URLS.split(","),
+        username: process.env.TURN_USERNAME,
+        credential: process.env.TURN_CREDENTIAL,
+      });
+    }
+    res.json({ iceServers });
   });
 
   app.get("/api/invites/:code", (req, res) => {
