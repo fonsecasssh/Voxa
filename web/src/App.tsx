@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
-import { api, ApiError, getToken, setToken, type Server, type User } from "./api.ts";
+import { api, ApiError, getToken, setToken, type Server, type User, type UserStatus } from "./api.ts";
 import { parseRoute, usePath } from "./router.ts";
 import { AuthScreen } from "./components/AuthScreen.tsx";
 import { InvitePage } from "./components/InvitePage.tsx";
 import { Shell } from "./components/Shell.tsx";
 
-type Session = { user: User; servers: Server[] };
+type Session = { user: User; servers: Server[]; status: UserStatus };
 
 export function App() {
   const route = parseRoute(usePath());
@@ -41,7 +41,7 @@ export function App() {
     return (
       <InvitePage
         code={route.code}
-        onJoined={(server) =>
+        onJoined={(server: Server) =>
           setSession((s) => (s && !s.servers.some((x) => x.id === server.id) ? { ...s, servers: [...s.servers, server] } : s))
         }
       />
@@ -51,6 +51,7 @@ export function App() {
   return (
     <Shell
       user={session.user}
+      initialStatus={session.status}
       servers={session.servers}
       setServers={(update) => setSession((s) => (s ? { ...s, servers: update(s.servers) } : s))}
       serverId={route.serverId}

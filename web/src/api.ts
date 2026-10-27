@@ -15,11 +15,12 @@ export interface Server {
   inviteCode: string;
 }
 
-export type ChannelType = "text" | "voice";
+export type ChannelType = "text" | "voice" | "dm";
 
 export interface Channel {
   id: string;
-  serverId: string;
+  /** null for direct-message channels. */
+  serverId: string | null;
   name: string;
   type: ChannelType;
   position: number;
@@ -33,11 +34,39 @@ export interface Message {
   createdAt: number;
 }
 
+export type UserStatus = "online" | "idle" | "dnd" | "invisible";
+export type PresenceStatus = "online" | "idle" | "dnd" | "offline";
+
+export interface Activity {
+  name: string;
+  startedAt: number;
+}
+
+export interface Presence {
+  status: PresenceStatus;
+  activity: Activity | null;
+}
+
+export type FriendState = "accepted" | "incoming" | "outgoing";
+
+export interface Friend {
+  user: User;
+  state: FriendState;
+}
+
+export interface DmSummary {
+  channel: Channel;
+  /** The other participant. */
+  user: User;
+  lastMessageAt: number | null;
+}
+
 export interface ServerDetails {
   server: Server;
   channels: Channel[];
   members: User[];
-  online: string[];
+  /** Presence of members who are not offline. */
+  presence: Record<string, Presence>;
   /** Voice channel id -> who is in it. */
   voice: Record<string, VoiceMember[]>;
 }
@@ -93,7 +122,17 @@ export const api = {
     request<AuthResult>("POST", "/api/auth/register", { username, password, displayName }),
   login: (username: string, password: string) => request<AuthResult>("POST", "/api/auth/login", { username, password }),
   logout: () => request<void>("POST", "/api/auth/logout"),
-  me: () => request<{ user: User; servers: Server[] }>("GET", "/api/me"),
+  me: () => request<{ user: User; servers: Server[]; status: UserStatus }>("GET", "/api/me"),
+  setPresence: (patch: { status?: UserStatus; activity?: string | null }) =>
+    request<{ status: UserStatus; presence: Presence }>("PATCH", "/api/me/presence", patch),
+
+  friends: () => request<{ friends: Friend[]; presence: Record<string, Presence> }>("GET", "/api/friends"),
+  addFriend: (username: string) => request<{ state: FriendState; user: User }>("POST", "/api/friends", { username }),
+  acceptFriend: (userId: string) => request<{ state: FriendState }>("POST", `/api/friends/${userId}/accept`),
+  removeFriend: (userId: string) => request<void>("DELETE", `/api/friends/${userId}`),
+
+  dms: () => request<{ dms: DmSummary[]; presence: Record<string, Presence> }>("GET", "/api/dms"),
+  openDm: (userId: string) => request<{ dm: DmSummary }>("POST", "/api/dms", { userId }),
 
   createServer: (name: string) => request<{ server: Server; channels: Channel[] }>("POST", "/api/servers", { name }),
   server: (id: string) => request<ServerDetails>("GET", `/api/servers/${id}`),

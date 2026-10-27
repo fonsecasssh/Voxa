@@ -1,12 +1,14 @@
 import { io, type Socket } from "socket.io-client";
-import type { Channel, Message, User } from "./api.ts";
+import type { Channel, DmSummary, FriendState, Message, Presence, User } from "./api.ts";
 import type { VoiceMember } from "./voice/types.ts";
 
 export interface ServerToClient {
   "message:new": (m: Message) => void;
   "channel:new": (c: Channel) => void;
-  "member:join": (p: { serverId: string; user: User }) => void;
-  presence: (p: { userId: string; online: boolean }) => void;
+  "member:join": (p: { serverId: string; user: User; presence: Presence }) => void;
+  presence: (p: { userId: string; presence: Presence }) => void;
+  "friend:update": (p: { user: User; state: FriendState | null; presence: Presence | null }) => void;
+  "dm:new": (dm: DmSummary) => void;
   typing: (p: { channelId: string; user: User }) => void;
   "voice:update": (p: { serverId: string; channelId: string; members: VoiceMember[] }) => void;
   "voice:signal": (p: { from: string; data: unknown }) => void;

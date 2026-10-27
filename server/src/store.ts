@@ -17,14 +17,31 @@ export interface Server {
   inviteCode: string;
 }
 
-export type ChannelType = "text" | "voice";
+export type ChannelType = "text" | "voice" | "dm";
 
 export interface Channel {
   id: string;
-  serverId: string;
+  /** null for direct-message channels. */
+  serverId: string | null;
   name: string;
   type: ChannelType;
   position: number;
+}
+
+export type UserStatus = "online" | "idle" | "dnd" | "invisible";
+
+export type FriendState = "accepted" | "incoming" | "outgoing";
+
+export interface Friend {
+  user: PublicUser;
+  state: FriendState;
+}
+
+export interface DmSummary {
+  channel: Channel;
+  /** The other participant. */
+  user: PublicUser;
+  lastMessageAt: number | null;
 }
 
 export interface Message {
@@ -52,7 +69,7 @@ const toServer = (r: Row): Server => ({
 
 const toChannel = (r: Row): Channel => ({
   id: r.id as string,
-  serverId: r.server_id as string,
+  serverId: (r.server_id as string | null) ?? null,
   name: r.name as string,
   type: r.type as ChannelType,
   position: r.position as number,
@@ -65,6 +82,9 @@ const toMessage = (r: Row): Message => ({
   content: r.content as string,
   createdAt: r.created_at as number,
 });
+
+/** Two user ids in canonical order, matching the (user_low, user_high) columns. */
+const pair = (a: string, b: string): [string, string] => (a < b ? [a, b] : [b, a]);
 
 export function createStore(db: DB) {
   return {
@@ -100,6 +120,141 @@ export function createStore(db: DB) {
 
     deleteSession(token: string): void {
       db.prepare("DELETE FROM sessions WHERE token = ?").run(token);
+    },
+
+    userById(id: string): PublicUser | null {
+      const r = db.prepare("SELECT * FROM users WHERE id = ?").get(id) as Row | undefined;
+      return r ? toUser(r) : null;
+    },
+
+    userByUsername(username: string): PublicUser | null {
+      const r = db.prepare("SELECT * FROM users WHERE username = ?").get(username) as Row | undefined;
+      return r ? toUser(r) : null;
+    },
+
+    getStatus(userId: string): UserStatus {
+      const r = db.prepare("SELECT status FROM users WHERE id = ?").get(userId) as Row | undefined;
+      return (r?.status as UserStatus) ?? "online";
+    },
+
+    setStatus(userId: string, status: UserStatus): void {
+      db.prepare("UPDATE users SET status = ? WHERE id = ?").run(status, userId);
+    },
+
+    getActivity(userId: string): { name: string; startedAt: number } | null {
+      const r = db.prepare("SELECT activity_name, activity_started_at FROM users WHERE id = ?").get(userId) as Row | undefined;
+      return r?.activity_name ? { name: r.activity_name as string, startedAt: r.activity_started_at as number } : null;
+    },
+
+    setActivity(userId: string, activity: { name: string; startedAt: number } | null): void {
+      db.prepare("UPDATE users SET activity_name = ?, activity_started_at = ? WHERE id = ?")
+        .run(activity?.name ?? null, activity?.startedAt ?? null, userId);
+    },
+
+    // --- friends ----------------------------------------------------------
+    friendship(a: string, b: string): { status: "pending" | "accepted"; requesterId: string } | null {
+      const [low, high] = pair(a, b);
+      const r = db.prepare("SELECT * FROM friendships WHERE user_low = ? AND user_high = ?").get(low, high) as Row | undefined;
+      return r ? { status: r.status as "pending" | "accepted", requesterId: r.requester_id as string } : null;
+    },
+
+    requestFriend(from: string, to: string): void {
+      const [low, high] = pair(from, to);
+      db.prepare(
+        "INSERT INTO friendships (user_low, user_high, requester_id, status, created_at) VALUES (?, ?, ?, 'pending', ?)",
+      ).run(low, high, from, Date.now());
+    },
+
+    acceptFriend(a: string, b: string): void {
+      const [low, high] = pair(a, b);
+      db.prepare("UPDATE friendships SET status = 'accepted' WHERE user_low = ? AND user_high = ?").run(low, high);
+    },
+
+    /** Removes a friendship or a pending request in either direction. Returns whether one existed. */
+    removeFriendship(a: string, b: string): boolean {
+      const [low, high] = pair(a, b);
+      return db.prepare("DELETE FROM friendships WHERE user_low = ? AND user_high = ?").run(low, high).changes > 0;
+    },
+
+    friendsOf(userId: string): Friend[] {
+      const rows = db
+        .prepare(
+          `SELECT u.*, f.status AS f_status, f.requester_id FROM friendships f
+           JOIN users u ON u.id = CASE WHEN f.user_low = ? THEN f.user_high ELSE f.user_low END
+           WHERE f.user_low = ? OR f.user_high = ?
+           ORDER BY u.display_name COLLATE NOCASE`,
+        )
+        .all(userId, userId, userId) as Row[];
+      return rows.map((r) => ({
+        user: toUser(r),
+        state: r.f_status === "accepted" ? "accepted" : r.requester_id === userId ? "outgoing" : "incoming",
+      }));
+    },
+
+    friendIds(userId: string): string[] {
+      return (
+        db
+          .prepare(
+            `SELECT CASE WHEN user_low = ? THEN user_high ELSE user_low END AS id FROM friendships
+             WHERE (user_low = ? OR user_high = ?) AND status = 'accepted'`,
+          )
+          .all(userId, userId, userId) as Row[]
+      ).map((r) => r.id as string);
+    },
+
+    sharesServer(a: string, b: string): boolean {
+      return (
+        db
+          .prepare("SELECT 1 FROM members m1 JOIN members m2 ON m1.server_id = m2.server_id WHERE m1.user_id = ? AND m2.user_id = ?")
+          .get(a, b) !== undefined
+      );
+    },
+
+    // --- direct messages ----------------------------------------------------
+    /** The DM channel between two users, created on first use. */
+    openDm(a: string, b: string): { channel: Channel; created: boolean } {
+      const [low, high] = pair(a, b);
+      const existing = db
+        .prepare("SELECT c.* FROM dms d JOIN channels c ON c.id = d.channel_id WHERE d.user_low = ? AND d.user_high = ?")
+        .get(low, high) as Row | undefined;
+      if (existing) return { channel: toChannel(existing), created: false };
+
+      const channel: Channel = { id: randomUUID(), serverId: null, name: "", type: "dm", position: 0 };
+      db.exec("BEGIN");
+      try {
+        db.prepare("INSERT INTO channels (id, server_id, name, type, position, created_at) VALUES (?, NULL, '', 'dm', 0, ?)")
+          .run(channel.id, Date.now());
+        db.prepare("INSERT INTO dms (channel_id, user_low, user_high) VALUES (?, ?, ?)").run(channel.id, low, high);
+        db.exec("COMMIT");
+      } catch (err) {
+        db.exec("ROLLBACK");
+        throw err;
+      }
+      return { channel, created: true };
+    },
+
+    dmParticipants(channelId: string): [string, string] | null {
+      const r = db.prepare("SELECT user_low, user_high FROM dms WHERE channel_id = ?").get(channelId) as Row | undefined;
+      return r ? [r.user_low as string, r.user_high as string] : null;
+    },
+
+    dmsForUser(userId: string): DmSummary[] {
+      const rows = db
+        .prepare(
+          `SELECT c.*, u.id AS u_id, u.username, u.display_name,
+                  (SELECT MAX(created_at) FROM messages m WHERE m.channel_id = c.id) AS last_at
+           FROM dms d
+           JOIN channels c ON c.id = d.channel_id
+           JOIN users u ON u.id = CASE WHEN d.user_low = ? THEN d.user_high ELSE d.user_low END
+           WHERE d.user_low = ? OR d.user_high = ?
+           ORDER BY COALESCE(last_at, c.created_at) DESC`,
+        )
+        .all(userId, userId, userId) as Row[];
+      return rows.map((r) => ({
+        channel: toChannel(r),
+        user: { id: r.u_id as string, username: r.username as string, displayName: r.display_name as string },
+        lastMessageAt: (r.last_at as number | null) ?? null,
+      }));
     },
 
     // --- servers & membership ---------------------------------------------

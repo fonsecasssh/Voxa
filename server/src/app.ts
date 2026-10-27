@@ -5,7 +5,7 @@ import path from "node:path";
 import { Server as IOServer } from "socket.io";
 import { hashPassword, verifyPassword } from "./auth.ts";
 import type { DB } from "./db.ts";
-import { createStore, type ChannelType, type PublicUser, type Store } from "./store.ts";
+import { createStore, type ChannelType, type DmSummary, type PublicUser, type Store, type UserStatus } from "./store.ts";
 import { registerRealtime } from "./realtime.ts";
 
 export class HttpError extends Error {
@@ -26,6 +26,7 @@ declare module "express-serve-static-core" {
 }
 
 const USERNAME_RE = /^[a-zA-Z0-9_.]{3,32}$/;
+const STATUSES: UserStatus[] = ["online", "idle", "dnd", "invisible"];
 
 function str(value: unknown, field: string, min: number, max: number): string {
   if (typeof value !== "string") throw new HttpError(400, `Campo "${field}" é obrigatório.`);
@@ -70,9 +71,28 @@ export function createApp({ db, webDist }: AppOptions) {
 
   const requireChannelAccess = (req: Request, channelId: string) => {
     const channel = store.channelById(channelId);
-    if (!channel || !store.isMember(channel.serverId, req.user!.id)) throw new HttpError(404, "Canal não encontrado.");
+    if (!channel || !realtime.canAccess(channel, req.user!.id)) throw new HttpError(404, "Canal não encontrado.");
     return channel;
   };
+
+  /** Tells both users how their relationship now looks from their own side. */
+  const emitFriendUpdate = (a: PublicUser, b: PublicUser) => {
+    for (const [me, other] of [
+      [a, b],
+      [b, a],
+    ]) {
+      const f = store.friendship(me.id, other.id);
+      const state = !f ? null : f.status === "accepted" ? "accepted" : f.requesterId === me.id ? "outgoing" : "incoming";
+      io.to(`user:${me.id}`).emit("friend:update", {
+        user: other,
+        state,
+        presence: state === "accepted" ? realtime.presenceOf(other.id) : null,
+      });
+    }
+  };
+
+  const dmFor = (summary: { channel: DmSummary["channel"] }, viewer: string): DmSummary =>
+    store.dmsForUser(viewer).find((d) => d.channel.id === summary.channel.id)!;
 
   // --- auth -----------------------------------------------------------------
   app.post("/api/auth/register", async (req, res) => {
@@ -102,7 +122,87 @@ export function createApp({ db, webDist }: AppOptions) {
   });
 
   app.get("/api/me", requireAuth, (req, res) => {
-    res.json({ user: req.user, servers: store.serversForUser(req.user!.id) });
+    res.json({ user: req.user, servers: store.serversForUser(req.user!.id), status: store.getStatus(req.user!.id) });
+  });
+
+  app.patch("/api/me/presence", requireAuth, (req, res) => {
+    const me = req.user!.id;
+    const { status, activity } = req.body ?? {};
+    if (status !== undefined) {
+      if (!STATUSES.includes(status)) throw new HttpError(400, "Status inválido.");
+      store.setStatus(me, status);
+    }
+    if (activity !== undefined) {
+      realtime.setActivity(me, activity === null || activity === "" ? null : str(activity, "atividade", 1, 128));
+    } else {
+      realtime.broadcastPresence(me);
+    }
+    res.json({ status: store.getStatus(me), presence: realtime.presenceOf(me) });
+  });
+
+  // --- friends ----------------------------------------------------------------
+  app.get("/api/friends", requireAuth, (req, res) => {
+    const friends = store.friendsOf(req.user!.id);
+    res.json({
+      friends,
+      presence: realtime.presenceMap(friends.filter((f) => f.state === "accepted").map((f) => f.user.id)),
+    });
+  });
+
+  app.post("/api/friends", requireAuth, (req, res) => {
+    const me = req.user!;
+    const target = store.userByUsername(str(req.body?.username, "usuário", 1, 32).replace(/^@/, ""));
+    if (!target) throw new HttpError(404, "Não encontramos ninguém com esse usuário.");
+    if (target.id === me.id) throw new HttpError(400, "Você não pode adicionar a si mesmo.");
+    const f = store.friendship(me.id, target.id);
+    if (f?.status === "accepted") throw new HttpError(409, "Vocês já são amigos.");
+    if (f?.requesterId === me.id) throw new HttpError(409, "Você já enviou um pedido para essa pessoa.");
+    // They had already asked us: sending one back simply accepts it.
+    if (f) store.acceptFriend(me.id, target.id);
+    else store.requestFriend(me.id, target.id);
+    emitFriendUpdate(me, target);
+    res.status(201).json({ state: f ? "accepted" : "outgoing", user: target });
+  });
+
+  app.post("/api/friends/:userId/accept", requireAuth, (req, res) => {
+    const me = req.user!;
+    const other = store.userById(req.params.userId as string);
+    const f = other && store.friendship(me.id, other.id);
+    if (!other || !f || f.status !== "pending" || f.requesterId !== other.id) {
+      throw new HttpError(404, "Pedido de amizade não encontrado.");
+    }
+    store.acceptFriend(me.id, other.id);
+    emitFriendUpdate(me, other);
+    res.json({ state: "accepted" });
+  });
+
+  app.delete("/api/friends/:userId", requireAuth, (req, res) => {
+    const me = req.user!;
+    const other = store.userById(req.params.userId as string);
+    if (!other || !store.removeFriendship(me.id, other.id)) throw new HttpError(404, "Amizade não encontrada.");
+    emitFriendUpdate(me, other);
+    res.status(204).end();
+  });
+
+  // --- direct messages ----------------------------------------------------------
+  app.get("/api/dms", requireAuth, (req, res) => {
+    const dms = store.dmsForUser(req.user!.id);
+    res.json({ dms, presence: realtime.presenceMap(dms.map((d) => d.user.id)) });
+  });
+
+  app.post("/api/dms", requireAuth, (req, res) => {
+    const me = req.user!;
+    const other = typeof req.body?.userId === "string" ? store.userById(req.body.userId) : null;
+    if (!other || other.id === me.id) throw new HttpError(404, "Usuário não encontrado.");
+    // Like Discord: you can message friends and people you share a server with.
+    if (store.friendship(me.id, other.id)?.status !== "accepted" && !store.sharesServer(me.id, other.id)) {
+      throw new HttpError(403, "Vocês precisam ser amigos ou estar no mesmo servidor.");
+    }
+    const { channel, created } = store.openDm(me.id, other.id);
+    if (created) {
+      for (const id of [me.id, other.id]) io.to(`user:${id}`).emit("dm:new", dmFor({ channel }, id));
+    }
+    res.status(created ? 201 : 200).json({ dm: dmFor({ channel }, me.id) });
   });
 
   // --- servers --------------------------------------------------------------
@@ -119,7 +219,7 @@ export function createApp({ db, webDist }: AppOptions) {
       server,
       channels: store.channels(server.id),
       members: store.members(server.id),
-      online: realtime.onlineUserIds(store.members(server.id).map((m) => m.id)),
+      presence: realtime.presenceMap(store.members(server.id).map((m) => m.id)),
       voice: realtime.voiceState(server.id),
     });
   });
@@ -151,7 +251,11 @@ export function createApp({ db, webDist }: AppOptions) {
     if (!server) throw new HttpError(404, "Convite inválido.");
     if (store.addMember(server.id, req.user!.id)) {
       io.in(`user:${req.user!.id}`).socketsJoin(`server:${server.id}`);
-      io.to(`server:${server.id}`).emit("member:join", { serverId: server.id, user: req.user });
+      io.to(`server:${server.id}`).emit("member:join", {
+        serverId: server.id,
+        user: req.user,
+        presence: realtime.presenceOf(req.user!.id),
+      });
     }
     res.json({ server });
   });
@@ -178,10 +282,10 @@ export function createApp({ db, webDist }: AppOptions) {
 
   app.post("/api/channels/:id/messages", requireAuth, (req, res) => {
     const channel = requireChannelAccess(req, req.params.id as string);
-    if (channel.type !== "text") throw new HttpError(400, "Esse canal não aceita mensagens.");
+    if (channel.type === "voice") throw new HttpError(400, "Esse canal não aceita mensagens.");
     const content = str(req.body?.content, "mensagem", 1, 4000);
     const message = store.insertMessage(channel.id, req.user!, content);
-    io.to(`server:${channel.serverId}`).emit("message:new", message);
+    io.to(realtime.channelRooms(channel)).emit("message:new", message);
     res.status(201).json({ message });
   });
 

@@ -1,4 +1,5 @@
-import type { Channel, ServerDetails, User } from "../api.ts";
+import type { ReactNode } from "react";
+import type { Channel, ServerDetails } from "../api.ts";
 import { navigate } from "../router.ts";
 import { useVoice } from "../voice/useVoice.ts";
 import type { VoiceMember } from "../voice/types.ts";
@@ -7,14 +8,13 @@ import { Avatar } from "./Avatar.tsx";
 interface Props {
   details: ServerDetails;
   activeChannelId?: string;
-  user: User;
   isOwner: boolean;
   onCreateChannel: () => void;
   onInvite: () => void;
-  onLogout: () => void;
+  footer: ReactNode;
 }
 
-export function ChannelSidebar({ details, activeChannelId, user, isOwner, onCreateChannel, onInvite, onLogout }: Props) {
+export function ChannelSidebar({ details, activeChannelId, isOwner, onCreateChannel, onInvite, footer }: Props) {
   const [voice, vs] = useVoice();
   const groups = [
     { label: "Canais de texto", type: "text" as const, icon: "#" },
@@ -22,11 +22,9 @@ export function ChannelSidebar({ details, activeChannelId, user, isOwner, onCrea
   ];
 
   const open = (c: Channel) => {
-    if (c.type === "voice") voice?.join(c.id, c.serverId);
-    navigate(`/channels/${c.serverId}/${c.id}`);
+    if (c.type === "voice") voice?.join(c.id, details.server.id);
+    navigate(`/channels/${details.server.id}/${c.id}`);
   };
-
-  const connectedChannel = vs.status !== "idle" ? details.channels.find((c) => c.id === vs.channelId) : undefined;
 
   return (
     <aside className="sidebar">
@@ -65,61 +63,7 @@ export function ChannelSidebar({ details, activeChannelId, user, isOwner, onCrea
         ))}
       </div>
 
-      {vs.error && <div className="voice-error">{vs.error}</div>}
-
-      {vs.status !== "idle" && (
-        <div className="voice-panel">
-          <div className="voice-panel-info">
-            <strong className={vs.status === "connected" ? "ok" : "pending"}>
-              {vs.status === "connected" ? "Voz conectada" : "Conectando…"}
-            </strong>
-            <button
-              className="link small ellipsis"
-              onClick={() => connectedChannel && navigate(`/channels/${connectedChannel.serverId}/${connectedChannel.id}`)}
-            >
-              {connectedChannel ? `${connectedChannel.name} / ${details.server.name}` : "Outro servidor"}
-            </button>
-          </div>
-          <button
-            className={`icon-btn ${vs.localScreen ? "on" : ""}`}
-            title={vs.localScreen ? "Parar de transmitir" : "Compartilhar tela"}
-            disabled={vs.status !== "connected"}
-            onClick={() => (vs.localScreen ? voice?.stopScreenShare() : voice?.startScreenShare())}
-          >
-            🖥
-          </button>
-          <button className="icon-btn danger" title="Desconectar" onClick={() => voice?.leave()}>
-            ✆
-          </button>
-        </div>
-      )}
-
-      <footer className="user-panel">
-        <Avatar name={user.displayName} id={user.id} size={32} online />
-        <div className="user-names">
-          <strong className="ellipsis">{user.displayName}</strong>
-          <span className="muted small ellipsis">@{user.username}</span>
-        </div>
-        <button
-          className={`icon-btn ${vs.muted || vs.deafened ? "off" : ""}`}
-          title={vs.muted ? "Ativar microfone" : "Desativar microfone"}
-          aria-pressed={vs.muted}
-          onClick={() => voice?.setMuted(!vs.muted)}
-        >
-          {vs.muted || vs.deafened ? "🔇" : "🎙"}
-        </button>
-        <button
-          className={`icon-btn ${vs.deafened ? "off" : ""}`}
-          title={vs.deafened ? "Ativar áudio" : "Desativar áudio"}
-          aria-pressed={vs.deafened}
-          onClick={() => voice?.setDeafened(!vs.deafened)}
-        >
-          {vs.deafened ? "🔕" : "🎧"}
-        </button>
-        <button className="icon-btn" title="Sair da conta" onClick={onLogout}>
-          ⏻
-        </button>
-      </footer>
+      {footer}
     </aside>
   );
 }

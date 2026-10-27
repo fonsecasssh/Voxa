@@ -53,7 +53,8 @@ export function createVoice(io: IOServer, store: Store) {
       const reply = typeof ack === "function" ? ack : () => {};
       const channelId = (payload as { channelId?: unknown })?.channelId;
       const channel = typeof channelId === "string" ? store.channelById(channelId) : null;
-      if (!channel || channel.type !== "voice" || !socket.rooms.has(`server:${channel.serverId}`)) {
+      const serverId = channel?.type === "voice" ? channel.serverId : null;
+      if (!channel || !serverId || !socket.rooms.has(`server:${serverId}`)) {
         return reply({ error: "Canal de voz não encontrado." });
       }
 
@@ -68,12 +69,12 @@ export function createVoice(io: IOServer, store: Store) {
       const peers = membersOf(channel.id);
       if (!channels.has(channel.id)) channels.set(channel.id, new Map());
       channels.get(channel.id)!.set(socket.id, member);
-      bySocket.set(socket.id, { channelId: channel.id, serverId: channel.serverId, member });
+      bySocket.set(socket.id, { channelId: channel.id, serverId, member });
       byUser.set(user.id, socket.id);
       socket.join(`voice:${channel.id}`);
 
       reply({ channelId: channel.id, self: member, peers });
-      broadcast(channel.serverId, channel.id);
+      broadcast(serverId, channel.id);
     });
 
     socket.on("voice:leave", () => leave(socket.id));

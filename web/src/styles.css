@@ -272,11 +272,26 @@ label .muted {
   border-radius: 50%;
   border: 3px solid var(--bg-sidebar);
 }
-.presence-dot.on {
+.presence-dot.online {
   background: var(--online);
 }
-.presence-dot.off {
+.presence-dot.idle {
+  background: #faa61a;
+}
+.presence-dot.dnd {
+  background: var(--danger);
+}
+.presence-dot.offline {
   background: var(--offline);
+}
+.presence-dot.inline {
+  position: static;
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border: none;
+  flex-shrink: 0;
+  margin-top: 5px;
 }
 
 /* --- sidebar ------------------------------------------------------------------ */
@@ -755,4 +770,336 @@ label .muted {
 }
 .round-btn.danger {
   background: var(--danger);
+}
+
+/* --- home, friends, DMs, status --------------------------------------------------------- */
+.block {
+  display: block;
+}
+.pad-x {
+  padding: 4px 8px;
+}
+.form-ok {
+  color: var(--online);
+  font-size: 14px;
+}
+.badge {
+  margin-left: auto;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  display: inline-grid;
+  place-items: center;
+}
+.rail-item.home {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--bg-main);
+  display: grid;
+  place-items: center;
+  transition: border-radius 0.15s, background 0.15s;
+}
+.rail-item.home:hover,
+.rail-item.home.active {
+  border-radius: 16px;
+  background: var(--accent);
+}
+.home-logo {
+  font-weight: 900;
+  font-size: 22px;
+  letter-spacing: -0.04em;
+}
+.rail-badge {
+  position: absolute;
+  right: -4px;
+  bottom: -4px;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  border-radius: 10px;
+  border: 3px solid var(--bg-rail);
+  background: var(--danger);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+  display: grid;
+  place-items: center;
+  box-sizing: content-box;
+}
+.rail-divider {
+  width: 32px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--border);
+}
+.friends-link {
+  margin-bottom: 4px;
+}
+.channel.dm {
+  padding: 6px 8px;
+  gap: 10px;
+}
+.channel.dm .presence-dot {
+  border-color: var(--bg-sidebar);
+}
+.channel.dm:hover .presence-dot {
+  border-color: var(--bg-hover);
+}
+.channel.dm.active .presence-dot {
+  border-color: var(--bg-active);
+}
+.dm-names,
+.member-names {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+  line-height: 1.25;
+  text-align: left;
+}
+.channel.unread {
+  color: var(--text);
+  font-weight: 700;
+}
+.unread-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text);
+  flex-shrink: 0;
+}
+
+.member {
+  width: 100%;
+  border: none;
+  background: none;
+  text-align: left;
+}
+.member-name {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.members .presence-dot {
+  border-color: var(--bg-sidebar);
+}
+
+.user-panel {
+  position: relative;
+}
+.user-card {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 4px;
+  border: none;
+  background: none;
+  border-radius: 6px;
+  text-align: left;
+}
+.user-card:hover {
+  background: var(--bg-hover);
+}
+.status-menu {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: calc(100% + 8px);
+  background: #18191f;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  z-index: 5;
+}
+.status-menu hr {
+  margin: 8px 0;
+}
+.status-option {
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px;
+  border: none;
+  background: none;
+  border-radius: 6px;
+  text-align: left;
+  font-size: 14px;
+}
+.status-option:hover {
+  background: var(--accent);
+}
+.status-option:hover .muted {
+  color: #e6e3ff;
+}
+.status-option.current {
+  background: var(--bg-active);
+}
+.status-option.danger {
+  color: #ff8a8c;
+}
+.status-option.danger:hover {
+  background: var(--danger);
+  color: #fff;
+}
+.game-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px;
+}
+.game-form .btn {
+  padding: 6px 12px;
+  font-size: 13px;
+}
+
+.friends-header {
+  gap: 8px;
+  overflow-x: auto;
+}
+.friends-header .divider {
+  width: 1px;
+  height: 24px;
+  background: var(--border);
+  margin: 0 8px;
+  flex-shrink: 0;
+}
+.tab {
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  padding: 4px 10px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  font-weight: 500;
+}
+.tab:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.tab.active {
+  background: var(--bg-active);
+  color: var(--text);
+}
+.tab .badge {
+  margin-left: 0;
+}
+.tab.add {
+  background: var(--online);
+  color: #fff;
+}
+.tab.add.active {
+  background: transparent;
+  color: var(--online);
+}
+.friends-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 20px 20px;
+}
+.friends-body > .group-label {
+  padding-left: 0;
+}
+.empty-state {
+  padding: 40px 0;
+  text-align: center;
+}
+.friend-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 8px;
+  border-top: 1px solid var(--border);
+  border-radius: 8px;
+}
+.friend-row:hover {
+  background: var(--bg-hover);
+  border-top-color: transparent;
+}
+.friend-row .presence-dot {
+  border-color: var(--bg-main);
+}
+.friend-row:hover .presence-dot {
+  border-color: var(--bg-hover);
+}
+.friend-names {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.friend-actions {
+  display: flex;
+  gap: 8px;
+}
+.round-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: none;
+  background: var(--bg-sidebar);
+  color: var(--text-muted);
+  font-size: 15px;
+}
+.round-icon:hover {
+  color: var(--text);
+}
+.round-icon.ok:hover {
+  color: var(--online);
+}
+.round-icon.danger:hover {
+  color: var(--danger);
+}
+.add-friend {
+  max-width: 720px;
+  padding-top: 12px;
+}
+.add-friend h2 {
+  font-size: 16px;
+  text-transform: uppercase;
+}
+.add-friend-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 6px;
+  border-radius: 10px;
+  background: var(--bg-input);
+  border: 1px solid transparent;
+}
+.add-friend-row:focus-within {
+  border-color: var(--accent);
+}
+.add-friend-row.ok {
+  border-color: var(--online);
+}
+.add-friend-row.fail {
+  border-color: var(--danger);
+}
+.add-friend-row input {
+  background: none;
+  border: none;
+}
+.add-friend-row .btn {
+  white-space: nowrap;
+  padding: 8px 14px;
+}
+.chat-header .avatar {
+  margin-right: 4px;
+}
+.channel-intro .avatar {
+  margin-bottom: 12px;
 }

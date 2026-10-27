@@ -40,6 +40,10 @@ A voz usa WebRTC em malha (cada participante conecta direto aos outros), com can
 
 O navegador só libera microfone e tela em `https://` ou em `http://localhost`.
 
+## Banco de dados
+
+O esquema evolui por migrações numeradas em `server/src/db.ts` (registradas em `PRAGMA user_version`). Ao atualizar o Voxa, o banco existente é migrado automaticamente na inicialização, sem perder dados. Faça backup do arquivo `.db` antes de atualizar em produção.
+
 ## Testes
 
 ```bash
@@ -51,6 +55,6 @@ npm run typecheck
 
 1. ✅ Contas, servidores, convites, canais de texto, chat em tempo real, "digitando…", online/offline
 2. ✅ Canais de voz, mutar/ensurdecer, indicador de fala, compartilhamento de tela com áudio
-3. Amigos, mensagens diretas, status de jogo
+3. ✅ Amigos (pedidos, aceitar, recusar), mensagens diretas com não lidas, status (disponível, ausente, não perturbe, invisível) e "Jogando X"
 4. App desktop (Electron)
 5. Deploy em produção

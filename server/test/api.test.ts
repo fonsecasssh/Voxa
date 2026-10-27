@@ -109,7 +109,8 @@ describe("servers, invites and messages", () => {
 
     const details = await api("GET", `/api/servers/${server.id}`, undefined, guest.token);
     expect(details.body.members).toHaveLength(2);
-    expect(details.body.online.sort()).toEqual([owner.user.id, guest.user.id].sort());
+    expect(Object.keys(details.body.presence).sort()).toEqual([owner.user.id, guest.user.id].sort());
+    expect(details.body.presence[owner.user.id].status).toBe("online");
 
     const history = await api("GET", `/api/channels/${textChannel.id}/messages`, undefined, guest.token);
     expect(history.body.messages.map((m: { content: string }) => m.content)).toEqual(["olá!"]);

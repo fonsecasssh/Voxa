@@ -7,6 +7,8 @@ const TYPING_THROTTLE_MS = 2500;
 
 interface Props {
   channel: Channel;
+  /** The other person, for direct messages. */
+  dmUser?: User;
   messages?: Message[];
   hasMore: boolean;
   typingUsers: User[];
@@ -32,7 +34,9 @@ function typingText(users: User[]): string {
   return "Várias pessoas estão digitando…";
 }
 
-export function ChatView({ channel, messages, hasMore, typingUsers, onLoadOlder, onSend, onTyping }: Props) {
+export function ChatView({ channel, dmUser, messages, hasMore, typingUsers, onLoadOlder, onSend, onTyping }: Props) {
+  const title = dmUser ? dmUser.displayName : channel.name;
+  const placeholder = dmUser ? `Conversar com @${dmUser.username}` : `Conversar em #${channel.name}`;
   const listRef = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
   const prevHeight = useRef<number | null>(null);
@@ -97,8 +101,12 @@ export function ChatView({ channel, messages, hasMore, typingUsers, onLoadOlder,
   return (
     <main className="main chat">
       <header className="chat-header">
-        <span className="channel-icon">#</span>
-        <strong>{channel.name}</strong>
+        {dmUser ? (
+          <Avatar name={dmUser.displayName} id={dmUser.id} size={24} />
+        ) : (
+          <span className="channel-icon">#</span>
+        )}
+        <strong>{title}</strong>
       </header>
 
       <div
@@ -119,9 +127,21 @@ export function ChatView({ channel, messages, hasMore, typingUsers, onLoadOlder,
               </button>
             ) : (
               <div className="channel-intro">
-                <div className="channel-intro-icon">#</div>
-                <h2>Boas-vindas a #{channel.name}!</h2>
-                <p className="muted">Este é o começo do canal.</p>
+                {dmUser ? (
+                  <>
+                    <Avatar name={dmUser.displayName} id={dmUser.id} size={72} />
+                    <h2>{dmUser.displayName}</h2>
+                    <p className="muted">
+                      Este é o começo do seu histórico de mensagens diretas com <strong>@{dmUser.username}</strong>.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <div className="channel-intro-icon">#</div>
+                    <h2>Boas-vindas a #{channel.name}!</h2>
+                    <p className="muted">Este é o começo do canal.</p>
+                  </>
+                )}
               </div>
             )}
             {messages.map((m, i) => {
@@ -156,7 +176,7 @@ export function ChatView({ channel, messages, hasMore, typingUsers, onLoadOlder,
         <textarea
           rows={1}
           value={draft}
-          placeholder={`Conversar em #${channel.name}`}
+          placeholder={placeholder}
           maxLength={4000}
           onChange={(e) => onChange(e.target.value)}
           onKeyDown={onKeyDown}

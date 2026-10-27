@@ -2,9 +2,25 @@ import type { Server } from "../api.ts";
 import { navigate } from "../router.ts";
 import { Avatar } from "./Avatar.tsx";
 
-export function ServerRail({ servers, activeId, onCreate }: { servers: Server[]; activeId?: string; onCreate: () => void }) {
+interface Props {
+  servers: Server[];
+  activeId?: string;
+  unreadDms: number;
+  onCreate: () => void;
+}
+
+export function ServerRail({ servers, activeId, unreadDms, onCreate }: Props) {
   return (
     <nav className="rail" aria-label="Servidores">
+      <button
+        className={`rail-item home ${activeId === "@me" ? "active" : ""}`}
+        title="Mensagens diretas"
+        onClick={() => navigate("/channels/@me")}
+      >
+        <span className="home-logo">V</span>
+        {unreadDms > 0 && <span className="rail-badge">{unreadDms}</span>}
+      </button>
+      <div className="rail-divider" />
       {servers.map((s) => (
         <button
           key={s.id}

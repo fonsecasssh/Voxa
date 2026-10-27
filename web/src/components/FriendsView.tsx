@@ -1,0 +1,173 @@
+import { useState, type FormEvent } from "react";
+import { api, type Friend, type Presence, type User } from "../api.ts";
+import { Avatar, presenceText } from "./Avatar.tsx";
+
+type Tab = "online" | "all" | "pending" | "add";
+
+interface Props {
+  friends: Friend[] | null;
+  presence: Record<string, Presence>;
+  onOpenDm: (user: User) => void;
+}
+
+export function FriendsView({ friends, presence, onOpenDm }: Props) {
+  const [tab, setTab] = useState<Tab>("online");
+  const [error, setError] = useState<string | null>(null);
+  const list = friends ?? [];
+  const pending = list.filter((f) => f.state !== "accepted");
+  const accepted = list.filter((f) => f.state === "accepted");
+  const online = accepted.filter((f) => (presence[f.user.id]?.status ?? "offline") !== "offline");
+
+  const act = async (fn: () => Promise<unknown>) => {
+    setError(null);
+    try {
+      await fn();
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  };
+
+  const shown = tab === "online" ? online : tab === "all" ? accepted : pending;
+  const tabs: { id: Tab; label: string; count?: number }[] = [
+    { id: "online", label: "Online" },
+    { id: "all", label: "Todos" },
+    { id: "pending", label: "Pendentes", count: pending.filter((f) => f.state === "incoming").length },
+  ];
+
+  return (
+    <main className="main friends-view">
+      <header className="chat-header friends-header">
+        <span className="channel-icon">👥</span>
+        <strong>Amigos</strong>
+        <span className="divider" />
+        {tabs.map((t) => (
+          <button key={t.id} className={`tab ${tab === t.id ? "active" : ""}`} onClick={() => setTab(t.id)}>
+            {t.label}
+            {!!t.count && <span className="badge">{t.count}</span>}
+          </button>
+        ))}
+        <button className={`tab add ${tab === "add" ? "active" : ""}`} onClick={() => setTab("add")}>
+          Adicionar amigo
+        </button>
+      </header>
+
+      <div className="friends-body">
+        {tab === "add" ? (
+          <AddFriend />
+        ) : (
+          <>
+            <div className="group-label">
+              {tab === "online" ? "Online" : tab === "all" ? "Todos os amigos" : "Pendentes"} — {shown.length}
+            </div>
+            {error && <div className="form-error">{error}</div>}
+            {friends === null ? (
+              <p className="muted">Carregando…</p>
+            ) : shown.length === 0 ? (
+              <p className="muted empty-state">
+                {tab === "pending"
+                  ? "Nenhum pedido de amizade pendente."
+                  : tab === "online"
+                    ? "Nenhum amigo online agora."
+                    : "Você ainda não tem amigos aqui. Que tal adicionar alguém?"}
+              </p>
+            ) : (
+              shown.map((f) => (
+                <div key={f.user.id} className="friend-row">
+                  <Avatar
+                    name={f.user.displayName}
+                    id={f.user.id}
+                    size={36}
+                    status={f.state === "accepted" ? (presence[f.user.id]?.status ?? "offline") : undefined}
+                  />
+                  <div className="friend-names">
+                    <strong className="ellipsis">
+                      {f.user.displayName} <span className="muted small">@{f.user.username}</span>
+                    </strong>
+                    <span className="muted small ellipsis">
+                      {f.state === "incoming"
+                        ? "Pedido de amizade recebido"
+                        : f.state === "outgoing"
+                          ? "Pedido de amizade enviado"
+                          : presenceText(presence[f.user.id])}
+                    </span>
+                  </div>
+                  <div className="friend-actions">
+                    {f.state === "accepted" && (
+                      <button className="round-icon" title="Enviar mensagem" onClick={() => onOpenDm(f.user)}>
+                        💬
+                      </button>
+                    )}
+                    {f.state === "incoming" && (
+                      <button className="round-icon ok" title="Aceitar" onClick={() => act(() => api.acceptFriend(f.user.id))}>
+                        ✓
+                      </button>
+                    )}
+                    <button
+                      className="round-icon danger"
+                      title={f.state === "accepted" ? "Desfazer amizade" : f.state === "incoming" ? "Recusar" : "Cancelar pedido"}
+                      onClick={() => {
+                        if (f.state === "accepted" && !confirm(`Desfazer amizade com ${f.user.displayName}?`)) return;
+                        act(() => api.removeFriend(f.user.id));
+                      }}
+                    >
+                      ✕
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
+          </>
+        )}
+      </div>
+    </main>
+  );
+}
+
+function AddFriend() {
+  const [username, setUsername] = useState("");
+  const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      const r = await api.addFriend(username.trim());
+      setResult({
+        ok: true,
+        text:
+          r.state === "accepted"
+            ? `Agora você e ${r.user.displayName} são amigos!`
+            : `Pedido enviado para ${r.user.displayName}.`,
+      });
+      setUsername("");
+    } catch (err) {
+      setResult({ ok: false, text: (err as Error).message });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <form className="add-friend" onSubmit={submit}>
+      <h2>Adicionar amigo</h2>
+      <p className="muted">Você pode adicionar amigos pelo nome de usuário deles.</p>
+      <div className={`add-friend-row ${result ? (result.ok ? "ok" : "fail") : ""}`}>
+        <input
+          value={username}
+          onChange={(e) => {
+            setUsername(e.target.value);
+            setResult(null);
+          }}
+          placeholder="Digite o nome de usuário"
+          aria-label="Nome de usuário"
+          autoFocus
+        />
+        <button className="btn primary" disabled={busy || !username.trim()}>
+          Enviar pedido
+        </button>
+      </div>
+      {result && <p className={result.ok ? "form-ok" : "form-error"}>{result.text}</p>}
+    </form>
+  );
+}

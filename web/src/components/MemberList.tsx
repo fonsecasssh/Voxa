@@ -1,11 +1,19 @@
-import type { User } from "../api.ts";
+import type { Presence, User } from "../api.ts";
 import { Avatar } from "./Avatar.tsx";
 
-export function MemberList({ members, online, ownerId }: { members: User[]; online: string[]; ownerId: string }) {
-  const onlineSet = new Set(online);
+interface Props {
+  members: User[];
+  presence: Record<string, Presence>;
+  ownerId: string;
+  selfId: string;
+  onOpenDm: (user: User) => void;
+}
+
+export function MemberList({ members, presence, ownerId, selfId, onOpenDm }: Props) {
+  const isOnline = (m: User) => (presence[m.id]?.status ?? "offline") !== "offline";
   const sections = [
-    { label: "Online", users: members.filter((m) => onlineSet.has(m.id)) },
-    { label: "Offline", users: members.filter((m) => !onlineSet.has(m.id)) },
+    { label: "Online", users: members.filter(isOnline) },
+    { label: "Offline", users: members.filter((m) => !isOnline(m)) },
   ];
 
   return (
@@ -17,17 +25,30 @@ export function MemberList({ members, online, ownerId }: { members: User[]; onli
               <div className="group-label">
                 {s.label} — {s.users.length}
               </div>
-              {s.users.map((m) => (
-                <div key={m.id} className={`member ${onlineSet.has(m.id) ? "" : "offline"}`}>
-                  <Avatar name={m.displayName} id={m.id} size={32} online={onlineSet.has(m.id)} />
-                  <span className="ellipsis">{m.displayName}</span>
-                  {m.id === ownerId && (
-                    <span className="crown" title="Dono do servidor">
-                      👑
+              {s.users.map((m) => {
+                const p = presence[m.id];
+                return (
+                  <button
+                    key={m.id}
+                    className={`member ${isOnline(m) ? "" : "offline"}`}
+                    title={m.id === selfId ? undefined : `Enviar mensagem para ${m.displayName}`}
+                    onClick={() => m.id !== selfId && onOpenDm(m)}
+                  >
+                    <Avatar name={m.displayName} id={m.id} size={32} status={p?.status ?? "offline"} />
+                    <span className="member-names">
+                      <span className="member-name">
+                        <span className="ellipsis">{m.displayName}</span>
+                        {m.id === ownerId && (
+                          <span className="crown" title="Dono do servidor">
+                            👑
+                          </span>
+                        )}
+                      </span>
+                      {p?.activity && <span className="muted small ellipsis">Jogando {p.activity.name}</span>}
                     </span>
-                  )}
-                </div>
-              ))}
+                  </button>
+                );
+              })}
             </section>
           ),
       )}

@@ -79,7 +79,7 @@ export function VoiceView({ channel, members }: { channel: Channel; members: Voi
               ? "Ninguém na voz agora."
               : `${members.map((m) => m.user.displayName).join(", ")} ${members.length === 1 ? "está" : "estão"} aqui.`}
           </p>
-          <button className="btn primary" onClick={() => voice?.join(channel.id, channel.serverId)}>
+          <button className="btn primary" onClick={() => channel.serverId && voice?.join(channel.id, channel.serverId)}>
             Entrar na voz
           </button>
         </div>

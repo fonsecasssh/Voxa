@@ -3,25 +3,63 @@
 // Rooms:
 //   user:<id>    every socket of one user (so REST handlers can reach them)
 //   server:<id>  everyone who is a member of that server
+//
+// Presence is what others see: the status the user picked (online / idle / do
+// not disturb), "offline" while they have no open connection or chose to
+// appear invisible, and an optional activity ("Jogando Valorant"). It goes to
+// everyone who shares a server with the user, and to their friends.
 
 import type { Server as IOServer, Socket } from "socket.io";
-import type { PublicUser, Store } from "./store.ts";
+import type { Channel, PublicUser, Store } from "./store.ts";
 import { createVoice } from "./voice.ts";
 
 interface SocketData {
   user: PublicUser;
 }
 
+export interface Activity {
+  name: string;
+  startedAt: number;
+}
+
+export interface Presence {
+  status: "online" | "idle" | "dnd" | "offline";
+  activity: Activity | null;
+}
+
+const OFFLINE: Presence = { status: "offline", activity: null };
+
 export function registerRealtime(io: IOServer, store: Store) {
   const voice = createVoice(io, store);
-  // Number of open sockets per user; a user is online while this is > 0.
+  // Number of open sockets per user; a user is connected while this is > 0.
   const connections = new Map<string, number>();
 
-  const broadcastPresence = (userId: string, online: boolean) => {
-    for (const server of store.serversForUser(userId)) {
-      io.to(`server:${server.id}`).emit("presence", { userId, online });
-    }
+  const presenceOf = (userId: string): Presence => {
+    if (!connections.has(userId)) return OFFLINE;
+    const status = store.getStatus(userId);
+    if (status === "invisible") return OFFLINE;
+    return { status, activity: store.getActivity(userId) };
   };
+
+  /** Rooms that should hear about this user's presence. */
+  const audience = (userId: string) => [
+    `user:${userId}`,
+    ...store.serversForUser(userId).map((s) => `server:${s.id}`),
+    ...store.friendIds(userId).map((id) => `user:${id}`),
+  ];
+
+  const broadcastPresence = (userId: string) => {
+    io.to(audience(userId)).emit("presence", { userId, presence: presenceOf(userId) });
+  };
+
+  /** Rooms that receive a channel's messages and typing indicators. */
+  const channelRooms = (channel: Channel): string[] => {
+    if (channel.serverId) return [`server:${channel.serverId}`];
+    return (store.dmParticipants(channel.id) ?? []).map((id) => `user:${id}`);
+  };
+
+  const canAccess = (channel: Channel, userId: string): boolean =>
+    channel.serverId ? store.isMember(channel.serverId, userId) : !!store.dmParticipants(channel.id)?.includes(userId);
 
   io.use((socket, next) => {
     const token = socket.handshake.auth?.token;
@@ -38,14 +76,14 @@ export function registerRealtime(io: IOServer, store: Store) {
 
     const count = (connections.get(user.id) ?? 0) + 1;
     connections.set(user.id, count);
-    if (count === 1) broadcastPresence(user.id, true);
+    if (count === 1) broadcastPresence(user.id);
 
     socket.on("typing", (payload: unknown) => {
       const channelId = (payload as { channelId?: unknown })?.channelId;
       if (typeof channelId !== "string") return;
       const channel = store.channelById(channelId);
-      if (!channel || !socket.rooms.has(`server:${channel.serverId}`)) return;
-      socket.to(`server:${channel.serverId}`).emit("typing", { channelId, user });
+      if (!channel || channel.type === "voice" || !canAccess(channel, user.id)) return;
+      socket.to(channelRooms(channel)).except(`user:${user.id}`).emit("typing", { channelId, user });
     });
 
     voice.register(socket, user);
@@ -57,14 +95,31 @@ export function registerRealtime(io: IOServer, store: Store) {
         return;
       }
       connections.delete(user.id);
-      broadcastPresence(user.id, false);
+      broadcastPresence(user.id);
     });
   });
 
   return {
-    onlineUserIds(userIds: string[]): string[] {
-      return userIds.filter((id) => connections.has(id));
+    /** Presence of the given users, leaving out those who are offline. */
+    presenceMap(userIds: string[]): Record<string, Presence> {
+      const out: Record<string, Presence> = {};
+      for (const id of userIds) {
+        const p = presenceOf(id);
+        if (p.status !== "offline") out[id] = p;
+      }
+      return out;
     },
+    presenceOf,
+    broadcastPresence,
+    setActivity(userId: string, name: string | null) {
+      const current = store.getActivity(userId);
+      if (name === null) store.setActivity(userId, null);
+      // Keep the start time when the same activity is reported again (the desktop app re-sends it).
+      else if (current?.name !== name) store.setActivity(userId, { name, startedAt: Date.now() });
+      broadcastPresence(userId);
+    },
+    channelRooms,
+    canAccess,
     voiceState: voice.stateForServer,
   };
 }

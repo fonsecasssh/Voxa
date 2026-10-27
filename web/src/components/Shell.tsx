@@ -1,20 +1,36 @@
-// The logged-in app: server rail, channel list, chat and member list.
-// Owns the socket and the per-server / per-channel caches it keeps fresh.
+// The logged-in app: server rail, sidebars, chat / voice / friends views and member list.
+// Owns the socket and keeps the caches below fresh from its events.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, getToken, type Message, type Server, type ServerDetails, type User } from "../api.ts";
+import {
+  api,
+  getToken,
+  type Activity,
+  type DmSummary,
+  type Friend,
+  type Message,
+  type Presence,
+  type Server,
+  type ServerDetails,
+  type User,
+  type UserStatus,
+} from "../api.ts";
 import { navigate } from "../router.ts";
 import { connectSocket, type AppSocket } from "../socket.ts";
+import { VoiceClient } from "../voice/VoiceClient.ts";
+import { VoiceContext, useVoiceSnapshot } from "../voice/useVoice.ts";
 import { ServerRail } from "./ServerRail.tsx";
 import { ChannelSidebar } from "./ChannelSidebar.tsx";
+import { HomeSidebar } from "./HomeSidebar.tsx";
+import { SidebarFooter, type SetPresence } from "./SidebarFooter.tsx";
 import { ChatView } from "./ChatView.tsx";
+import { FriendsView } from "./FriendsView.tsx";
 import { MemberList } from "./MemberList.tsx";
-import { CreateChannelModal, CreateServerModal, InviteModal } from "./Modals.tsx";
 import { VoiceView } from "./VoiceView.tsx";
-import { VoiceClient } from "../voice/VoiceClient.ts";
-import { VoiceContext } from "../voice/useVoice.ts";
+import { CreateChannelModal, CreateServerModal, InviteModal } from "./Modals.tsx";
 
 const TYPING_MS = 4000;
+const HOME = "@me";
 
 interface ChannelMessages {
   items: Message[];
@@ -25,6 +41,7 @@ type ModalKind = "createServer" | "createChannel" | "invite" | null;
 
 interface Props {
   user: User;
+  initialStatus: UserStatus;
   servers: Server[];
   setServers: (update: (s: Server[]) => Server[]) => void;
   serverId?: string;
@@ -32,12 +49,30 @@ interface Props {
   onLogout: () => void;
 }
 
-export function Shell({ user, servers, setServers, serverId, channelId, onLogout }: Props) {
+/** Applies a presence snapshot for `ids`: users missing from `known` are offline. */
+function mergePresence(all: Record<string, Presence>, ids: string[], known: Record<string, Presence>) {
+  const next = { ...all };
+  for (const id of ids) {
+    if (known[id]) next[id] = known[id];
+    else delete next[id];
+  }
+  return next;
+}
+
+export function Shell({ user, initialStatus, servers, setServers, serverId, channelId, onLogout }: Props) {
   const socketRef = useRef<AppSocket | null>(null);
   const [voice, setVoice] = useState<VoiceClient | null>(null);
+  const voiceState = useVoiceSnapshot(voice);
+
   const [details, setDetails] = useState<Record<string, ServerDetails>>({});
   const [messages, setMessages] = useState<Record<string, ChannelMessages>>({});
   const [typing, setTyping] = useState<Record<string, Record<string, { user: User; until: number }>>>({});
+  const [presence, setPresenceMap] = useState<Record<string, Presence>>({});
+  const [friends, setFriends] = useState<Friend[] | null>(null);
+  const [dms, setDms] = useState<DmSummary[] | null>(null);
+  const [unread, setUnread] = useState<Set<string>>(new Set());
+  const [myStatus, setMyStatus] = useState<UserStatus>(initialStatus);
+  const [myActivity, setMyActivity] = useState<Activity | null>(null);
   const [modal, setModal] = useState<ModalKind>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -51,10 +86,24 @@ export function Shell({ user, servers, setServers, serverId, channelId, onLogout
     api
       .server(id)
       .then(
-        (d) => setDetails((all) => ({ ...all, [id]: d })),
+        (d) => {
+          setDetails((all) => ({ ...all, [id]: d }));
+          setPresenceMap((all) => mergePresence(all, d.members.map((m) => m.id), d.presence));
+        },
         (err) => setLoadError((err as Error).message),
       )
       .finally(() => inFlight.current.delete(key));
+  }, []);
+
+  const loadSocial = useCallback(() => {
+    api.friends().then(({ friends: list, presence: p }) => {
+      setFriends(list);
+      setPresenceMap((all) => mergePresence(all, list.filter((f) => f.state === "accepted").map((f) => f.user.id), p));
+    });
+    api.dms().then(({ dms: list, presence: p }) => {
+      setDms(list);
+      setPresenceMap((all) => mergePresence(all, list.map((d) => d.user.id), p));
+    });
   }, []);
 
   const loadMessages = useCallback(async (id: string, before?: number) => {
@@ -82,13 +131,15 @@ export function Shell({ user, servers, setServers, serverId, channelId, onLogout
     const voiceClient = new VoiceClient(socket);
     setVoice(voiceClient);
     let connectedBefore = false;
+    loadSocial();
 
     socket.on("connect", () => {
       // After a reconnect we may have missed events: refresh what's on screen.
       if (connectedBefore) {
         const { serverId: s, channelId: c } = activeRef.current;
-        if (s) loadServer(s);
+        if (s && s !== HOME) loadServer(s);
         if (c) loadMessages(c);
+        loadSocial();
       }
       connectedBefore = true;
     });
@@ -104,38 +155,52 @@ export function Shell({ user, servers, setServers, serverId, channelId, onLogout
         const { [m.author.id]: _, ...rest } = all[m.channelId];
         return { ...all, [m.channelId]: rest };
       });
+      setDms((list) => {
+        const dm = list?.find((d) => d.channel.id === m.channelId);
+        if (!list || !dm) return list;
+        // Most recent conversation first.
+        return [{ ...dm, lastMessageAt: m.createdAt }, ...list.filter((d) => d !== dm)];
+      });
+      const viewing = activeRef.current.channelId === m.channelId && document.visibilityState === "visible";
+      if (m.author.id !== user.id && !viewing) {
+        setUnread((u) => (u.has(m.channelId) ? u : new Set(u).add(m.channelId)));
+      }
     });
 
     socket.on("channel:new", (c) => {
+      const sid = c.serverId;
+      if (!sid) return;
       setDetails((all) => {
-        const d = all[c.serverId];
+        const d = all[sid];
         if (!d || d.channels.some((x) => x.id === c.id)) return all;
-        return { ...all, [c.serverId]: { ...d, channels: [...d.channels, c] } };
+        return { ...all, [sid]: { ...d, channels: [...d.channels, c] } };
       });
     });
 
-    socket.on("member:join", ({ serverId: sid, user: u }) => {
+    socket.on("member:join", ({ serverId: sid, user: u, presence: p }) => {
       setDetails((all) => {
         const d = all[sid];
         if (!d || d.members.some((x) => x.id === u.id)) return all;
-        return { ...all, [sid]: { ...d, members: [...d.members, u], online: [...d.online, u.id] } };
+        return { ...all, [sid]: { ...d, members: [...d.members, u] } };
       });
+      setPresenceMap((all) => mergePresence(all, [u.id], p.status === "offline" ? {} : { [u.id]: p }));
     });
 
-    socket.on("presence", ({ userId, online }) => {
-      setDetails((all) => {
-        const next: typeof all = {};
-        for (const [sid, d] of Object.entries(all)) {
-          const has = d.online.includes(userId);
-          next[sid] =
-            online && !has && d.members.some((m) => m.id === userId)
-              ? { ...d, online: [...d.online, userId] }
-              : !online && has
-                ? { ...d, online: d.online.filter((x) => x !== userId) }
-                : d;
-        }
-        return next;
+    socket.on("presence", ({ userId, presence: p }) => {
+      setPresenceMap((all) => mergePresence(all, [userId], p.status === "offline" ? {} : { [userId]: p }));
+      if (userId === user.id && p.status !== "offline") setMyActivity(p.activity);
+    });
+
+    socket.on("friend:update", ({ user: u, state, presence: p }) => {
+      setFriends((list) => {
+        const rest = (list ?? []).filter((f) => f.user.id !== u.id);
+        return state ? [...rest, { user: u, state }].sort((a, b) => a.user.displayName.localeCompare(b.user.displayName)) : rest;
       });
+      if (p && p.status !== "offline") setPresenceMap((all) => ({ ...all, [u.id]: p }));
+    });
+
+    socket.on("dm:new", (dm) => {
+      setDms((list) => (list?.some((d) => d.channel.id === dm.channel.id) ? list : [dm, ...(list ?? [])]));
     });
 
     socket.on("voice:update", ({ serverId: sid, channelId: cid, members }) => {
@@ -156,7 +221,7 @@ export function Shell({ user, servers, setServers, serverId, channelId, onLogout
       socketRef.current = null;
       setVoice(null);
     };
-  }, [loadServer, loadMessages]);
+  }, [loadServer, loadMessages, loadSocial, user.id]);
 
   // Expire typing indicators.
   useEffect(() => {
@@ -176,17 +241,18 @@ export function Shell({ user, servers, setServers, serverId, channelId, onLogout
   }, []);
 
   // --- routing ----------------------------------------------------------------
-  const current = serverId ? details[serverId] : undefined;
+  const isHome = serverId === HOME;
+  const current = serverId && !isHome ? details[serverId] : undefined;
 
   useEffect(() => setLoadError(null), [serverId]);
 
   useEffect(() => {
     if (!serverId) {
-      if (servers.length) navigate(`/channels/${servers[0].id}`, true);
+      navigate(`/channels/${HOME}`, true);
       return;
     }
-    if (!details[serverId] && !loadError) loadServer(serverId);
-  }, [serverId, servers, details, loadError, loadServer]);
+    if (!isHome && !details[serverId] && !loadError) loadServer(serverId);
+  }, [serverId, isHome, details, loadError, loadServer]);
 
   useEffect(() => {
     if (!current || channelId) return;
@@ -194,108 +260,188 @@ export function Shell({ user, servers, setServers, serverId, channelId, onLogout
     if (first) navigate(`/channels/${current.server.id}/${first.id}`, true);
   }, [current, channelId]);
 
-  const channel = current?.channels.find((c) => c.id === channelId);
+  const dm = isHome ? dms?.find((d) => d.channel.id === channelId) : undefined;
+  const channel = dm?.channel ?? current?.channels.find((c) => c.id === channelId);
 
   useEffect(() => {
-    if (channel?.type === "text" && !messages[channel.id]) loadMessages(channel.id).catch(() => {});
+    if (channel && channel.type !== "voice" && !messages[channel.id]) loadMessages(channel.id).catch(() => {});
   }, [channel, messages, loadMessages]);
 
-  // --- render -----------------------------------------------------------------
+  // Reading a conversation clears its unread mark (also when coming back to the tab).
+  useEffect(() => {
+    if (!channelId) return;
+    const clear = () => {
+      if (document.visibilityState !== "visible") return;
+      setUnread((u) => {
+        if (!u.has(channelId)) return u;
+        const next = new Set(u);
+        next.delete(channelId);
+        return next;
+      });
+    };
+    clear();
+    document.addEventListener("visibilitychange", clear);
+    return () => document.removeEventListener("visibilitychange", clear);
+  }, [channelId, unread]);
+
+  // --- actions ------------------------------------------------------------------
+  const openDm = async (other: User) => {
+    try {
+      const { dm: opened } = await api.openDm(other.id);
+      setDms((list) => (list?.some((d) => d.channel.id === opened.channel.id) ? list : [opened, ...(list ?? [])]));
+      navigate(`/channels/${HOME}/${opened.channel.id}`);
+    } catch (err) {
+      alert((err as Error).message);
+    }
+  };
+
+  const setPresence: SetPresence = async (patch) => {
+    const r = await api.setPresence(patch);
+    setMyStatus(r.status);
+    // While invisible the server reports us as offline with no activity, but the activity is kept.
+    if (patch.activity !== undefined) {
+      setMyActivity(patch.activity ? (r.presence.activity ?? { name: patch.activity, startedAt: Date.now() }) : null);
+    } else if (r.status !== "invisible") {
+      setMyActivity(r.presence.activity);
+    }
+  };
+
+  // --- render -------------------------------------------------------------------
   const typingUsers = channel ? Object.values(typing[channel.id] ?? {}).map((t) => t.user) : [];
+  const voiceServer = voiceState.serverId ? details[voiceState.serverId] : undefined;
+  const voiceChannel = voiceServer?.channels.find((c) => c.id === voiceState.channelId);
 
-  return (
-    <VoiceContext.Provider value={voice}>
-    <div className={`shell ${current ? "" : "no-members"}`}>
-      <ServerRail servers={servers} activeId={serverId} onCreate={() => setModal("createServer")} />
+  const footer = (
+    <SidebarFooter
+      user={user}
+      status={myStatus}
+      activity={myActivity}
+      setPresence={setPresence}
+      voiceLocation={
+        voiceServer && voiceChannel
+          ? { label: `${voiceChannel.name} / ${voiceServer.server.name}`, path: `/channels/${voiceServer.server.id}/${voiceChannel.id}` }
+          : null
+      }
+      onLogout={onLogout}
+    />
+  );
 
-      {current ? (
-        <>
-          <ChannelSidebar
-            details={current}
-            activeChannelId={channelId}
-            user={user}
-            isOwner={current.server.ownerId === user.id}
-            onCreateChannel={() => setModal("createChannel")}
-            onInvite={() => setModal("invite")}
-            onLogout={onLogout}
-          />
-          {channel?.type === "text" ? (
-            <ChatView
-              channel={channel}
-              messages={messages[channel.id]?.items}
-              hasMore={messages[channel.id]?.hasMore ?? false}
-              typingUsers={typingUsers}
-              onLoadOlder={() => {
-                const oldest = messages[channel.id]?.items[0];
-                if (oldest) return loadMessages(channel.id, oldest.createdAt);
-              }}
-              onSend={(content) => api.sendMessage(channel.id, content).then(() => {})}
-              onTyping={() => socketRef.current?.emit("typing", { channelId: channel.id })}
-            />
-          ) : channel?.type === "voice" ? (
+  const chat = channel && channel.type !== "voice" && (
+    <ChatView
+      channel={channel}
+      dmUser={dm?.user}
+      messages={messages[channel.id]?.items}
+      hasMore={messages[channel.id]?.hasMore ?? false}
+      typingUsers={typingUsers}
+      onLoadOlder={() => {
+        const oldest = messages[channel.id]?.items[0];
+        if (oldest) return loadMessages(channel.id, oldest.createdAt);
+      }}
+      onSend={(content) => api.sendMessage(channel.id, content).then(() => {})}
+      onTyping={() => socketRef.current?.emit("typing", { channelId: channel.id })}
+    />
+  );
+
+  let body;
+  if (isHome) {
+    body = (
+      <>
+        <HomeSidebar
+          dms={dms}
+          presence={presence}
+          unread={unread}
+          activeChannelId={channelId}
+          pendingCount={friends?.filter((f) => f.state === "incoming").length ?? 0}
+          footer={footer}
+        />
+        {channelId ? (
+          (chat ?? (
+            <main className="main placeholder">
+              <p className="muted">{dms === null ? "Carregando…" : "Conversa não encontrada."}</p>
+            </main>
+          ))
+        ) : (
+          <FriendsView friends={friends} presence={presence} onOpenDm={openDm} />
+        )}
+      </>
+    );
+  } else if (current) {
+    body = (
+      <>
+        <ChannelSidebar
+          details={current}
+          activeChannelId={channelId}
+          isOwner={current.server.ownerId === user.id}
+          onCreateChannel={() => setModal("createChannel")}
+          onInvite={() => setModal("invite")}
+          footer={footer}
+        />
+        {chat ||
+          (channel?.type === "voice" ? (
             <VoiceView channel={channel} members={current.voice[channel.id] ?? []} />
           ) : (
             <main className="main placeholder" />
-          )}
-          <MemberList members={current.members} online={current.online} ownerId={current.server.ownerId} />
-        </>
-      ) : (
-        <>
-          <aside className="sidebar">
-            <div className="user-panel-spacer" />
-          </aside>
-          <main className="main placeholder">
-            {loadError ? (
-              <p className="muted">{loadError}</p>
-            ) : serverId ? (
-              <p className="muted">Carregando…</p>
-            ) : (
-              <>
-                <h2>Olá, {user.displayName}!</h2>
-                <p className="muted">Crie um servidor ou entre em um com um link de convite.</p>
-                <button className="btn primary" onClick={() => setModal("createServer")}>
-                  Criar servidor
-                </button>
-                <button className="link small" onClick={onLogout}>
-                  Sair da conta
-                </button>
-              </>
-            )}
-          </main>
-        </>
-      )}
+          ))}
+        <MemberList
+          members={current.members}
+          presence={presence}
+          ownerId={current.server.ownerId}
+          selfId={user.id}
+          onOpenDm={openDm}
+        />
+      </>
+    );
+  } else {
+    body = (
+      <>
+        <aside className="sidebar">{footer}</aside>
+        <main className="main placeholder">
+          <p className="muted">{loadError ?? "Carregando…"}</p>
+        </main>
+      </>
+    );
+  }
 
-      {modal === "createServer" && (
-        <CreateServerModal
-          onClose={() => setModal(null)}
-          onCreated={({ server, channels }) => {
-            setServers((s) => [...s, server]);
-            setDetails((all) => ({
-              ...all,
-              [server.id]: { server, channels, members: [user], online: [user.id], voice: {} },
-            }));
-            setModal(null);
-            navigate(`/channels/${server.id}`);
-          }}
-        />
-      )}
-      {modal === "createChannel" && current && (
-        <CreateChannelModal
-          serverId={current.server.id}
-          onClose={() => setModal(null)}
-          onCreated={(c) => {
-            setDetails((all) => {
-              const d = all[c.serverId];
-              if (!d || d.channels.some((x) => x.id === c.id)) return all;
-              return { ...all, [c.serverId]: { ...d, channels: [...d.channels, c] } };
-            });
-            setModal(null);
-            navigate(`/channels/${c.serverId}/${c.id}`);
-          }}
-        />
-      )}
-      {modal === "invite" && current && <InviteModal server={current.server} onClose={() => setModal(null)} />}
-    </div>
+  const unreadDms = [...unread].filter((id) => dms?.some((d) => d.channel.id === id)).length;
+
+  return (
+    <VoiceContext.Provider value={voice}>
+      <div className={`shell ${current ? "" : "no-members"}`}>
+        <ServerRail servers={servers} activeId={serverId} unreadDms={unreadDms} onCreate={() => setModal("createServer")} />
+        {body}
+
+        {modal === "createServer" && (
+          <CreateServerModal
+            onClose={() => setModal(null)}
+            onCreated={({ server, channels }) => {
+              setServers((s) => [...s, server]);
+              setDetails((all) => ({
+                ...all,
+                [server.id]: { server, channels, members: [user], presence: {}, voice: {} },
+              }));
+              setModal(null);
+              navigate(`/channels/${server.id}`);
+            }}
+          />
+        )}
+        {modal === "createChannel" && current && (
+          <CreateChannelModal
+            serverId={current.server.id}
+            onClose={() => setModal(null)}
+            onCreated={(c) => {
+              const sid = current.server.id;
+              setDetails((all) => {
+                const d = all[sid];
+                if (!d || d.channels.some((x) => x.id === c.id)) return all;
+                return { ...all, [sid]: { ...d, channels: [...d.channels, c] } };
+              });
+              setModal(null);
+              navigate(`/channels/${sid}/${c.id}`);
+            }}
+          />
+        )}
+        {modal === "invite" && current && <InviteModal server={current.server} onClose={() => setModal(null)} />}
+      </div>
     </VoiceContext.Provider>
   );
 }
