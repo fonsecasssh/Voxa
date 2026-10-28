@@ -30,6 +30,8 @@ interface Note {
   d: number;
   /** Glide to this frequency over the note. */
   to?: number;
+  /** Starts at another pitch and slides into f quickly: the round "bloop" of chat apps. */
+  slide?: { from: number; d: number };
   wave?: OscillatorType;
   /** Relative gain. */
   g?: number;
@@ -157,6 +159,27 @@ const SOUNDS: Record<SoundName, Sound> = {
   },
 };
 
+export type SoundStyle = "classic" | "voxa";
+
+/**
+ * "Clássico": the familiar chat-app style — short, round sine "bloops" that slide up
+ * when something starts and down when it ends, no reverb. Overrides the call and
+ * toggle sounds; the rest are shared with the "Voxa" (bells) style above.
+ */
+const bloop = (from: number, f: number, t: number, d: number, g = 0.95): Note => ({ f, t, d, g, slide: { from, d: 0.045 }, attack: 0.006 });
+const ROUND = { from: 2800, to: 2800, d: 0.01 };
+
+const CLASSIC: Partial<Record<SoundName, Sound>> = {
+  join: { notes: [bloop(587.3, 698.5, 0, 0.13), bloop(880, 1046.5, 0.085, 0.2)], filter: ROUND },
+  leave: { notes: [bloop(1046.5, 880, 0, 0.13), bloop(698.5, 587.3, 0.085, 0.22)], filter: ROUND },
+  userJoin: { notes: [bloop(554.4, 659.3, 0, 0.11, 0.75), bloop(740, 880, 0.07, 0.17, 0.75)], filter: ROUND },
+  userLeave: { notes: [bloop(880, 740, 0, 0.11, 0.75), bloop(659.3, 554.4, 0.07, 0.17, 0.75)], filter: ROUND },
+  mute: { notes: [{ f: 392, t: 0, d: 0.12, g: 0.9, slide: { from: 740, d: 0.07 } }], filter: ROUND },
+  unmute: { notes: [{ f: 784, t: 0, d: 0.12, g: 0.9, slide: { from: 415, d: 0.07 } }], filter: ROUND },
+  deafen: { notes: [bloop(784, 523.3, 0, 0.09, 0.85), bloop(523.3, 349.2, 0.075, 0.12, 0.85)], filter: ROUND },
+  undeafen: { notes: [bloop(349.2, 523.3, 0, 0.09, 0.85), bloop(523.3, 784, 0.075, 0.12, 0.85)], filter: ROUND },
+};
+
 export const SOUND_LABELS: Record<SoundName, string> = {
   join: "Entrar na voz",
   leave: "Sair da voz",
@@ -217,8 +240,8 @@ function panner(c: BaseAudioContext, pan: number | undefined, into: AudioNode): 
  * Schedules a sound on any audio context (live, or offline to render a preview)
  * starting at `when`, and returns its output node and the time it has fully died away.
  */
-export function renderSound(c: BaseAudioContext, out: AudioNode, name: SoundName, volume: number, when: number) {
-  const s = SOUNDS[name];
+export function renderSound(c: BaseAudioContext, out: AudioNode, name: SoundName, volume: number, when: number, style: SoundStyle = "classic") {
+  const s = (style === "classic" && CLASSIC[name]) || SOUNDS[name];
   // Everything ends in `bus`, so disconnecting it releases the whole sound (reverb included).
   const bus = c.createGain();
   bus.connect(out);
@@ -263,7 +286,12 @@ export function renderSound(c: BaseAudioContext, out: AudioNode, name: SoundName
       const osc = c.createOscillator();
       osc.type = n.wave ?? "sine";
       osc.detune.value = cents;
-      osc.frequency.setValueAtTime(n.f * mult, start);
+      if (n.slide) {
+        osc.frequency.setValueAtTime(n.slide.from * mult, start);
+        osc.frequency.exponentialRampToValueAtTime(n.f * mult, start + n.slide.d);
+      } else {
+        osc.frequency.setValueAtTime(n.f * mult, start);
+      }
       if (n.to) osc.frequency.exponentialRampToValueAtTime(n.to * mult, stop);
       if (n.fm) {
         const mod = c.createOscillator();
@@ -330,11 +358,11 @@ function context(): AudioContext | null {
 
 /** Plays a sound now (unless sounds are off). `force` plays it anyway, for the settings preview. */
 export function playSound(name: SoundName, { force = false } = {}) {
-  const { sounds, soundVolume } = appSettings.get();
+  const { sounds, soundVolume, soundStyle } = appSettings.get();
   if ((!sounds && !force) || soundVolume <= 0) return;
   window.dispatchEvent(new CustomEvent("voxa:sound", { detail: name }));
   const c = context();
   if (!c) return;
-  const { output, end } = renderSound(c, c.destination, name, soundVolume, c.currentTime + 0.01);
+  const { output, end } = renderSound(c, c.destination, name, soundVolume, c.currentTime + 0.01, soundStyle);
   setTimeout(() => output.disconnect(), (end - c.currentTime + 0.2) * 1000);
 }

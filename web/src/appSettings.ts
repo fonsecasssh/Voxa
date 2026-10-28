@@ -18,9 +18,11 @@ export interface AppSettings {
   sounds: boolean;
   /** 0..1 */
   soundVolume: number;
+  /** "classic": round chat-app bloops; "voxa": bell chords with reverb. */
+  soundStyle: "classic" | "voxa";
 }
 
-export const DEFAULT_APP_SETTINGS: AppSettings = { theme: "galaxia", sounds: true, soundVolume: 0.6 };
+export const DEFAULT_APP_SETTINGS: AppSettings = { theme: "galaxia", sounds: true, soundVolume: 0.6, soundStyle: "classic" };
 
 const KEY = "voxa.app";
 
@@ -30,6 +32,7 @@ function load(): AppSettings {
     const s = { ...DEFAULT_APP_SETTINGS };
     if (THEMES.some((t) => t.id === raw.theme)) s.theme = raw.theme;
     if (typeof raw.sounds === "boolean") s.sounds = raw.sounds;
+    if (raw.soundStyle === "classic" || raw.soundStyle === "voxa") s.soundStyle = raw.soundStyle;
     if (typeof raw.soundVolume === "number") s.soundVolume = Math.min(1, Math.max(0, raw.soundVolume));
     return s;
   } catch {

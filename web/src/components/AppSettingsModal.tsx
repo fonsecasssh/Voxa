@@ -43,6 +43,34 @@ export function AppSettingsModal({ onClose }: { onClose: () => void }) {
         </span>
         <input type="checkbox" checked={settings.sounds} onChange={(e) => appSettings.update({ sounds: e.target.checked })} />
       </label>
+      <div className="segmented" role="radiogroup" aria-label="Estilo dos sons">
+        {(
+          [
+            ["classic", "Clássico"],
+            ["voxa", "Voxa (sinos)"],
+          ] as const
+        ).map(([value, label]) => (
+          <button
+            key={value}
+            type="button"
+            role="radio"
+            aria-checked={settings.soundStyle === value}
+            className={settings.soundStyle === value ? "active" : ""}
+            disabled={!settings.sounds}
+            onClick={() => {
+              appSettings.update({ soundStyle: value });
+              playSound("join");
+            }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      <p className="muted small">
+        {settings.soundStyle === "classic"
+          ? "Curtos e arredondados, no estilo dos apps de chat de voz."
+          : "Acordes com timbre de sino, estéreo e um pouco de ambiente."}
+      </p>
       <label className="volume-row">
         Volume
         <input
