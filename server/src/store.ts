@@ -589,6 +589,18 @@ export function createStore(db: DB) {
       return msg;
     },
 
+    /** Who wrote a message, where, and its clip file (for deleting it). */
+    messageInfo(id: string): { channelId: string; authorId: string; clipFile: string | null } | null {
+      const r = db.prepare("SELECT channel_id, author_id, attachment FROM messages WHERE id = ?").get(id) as Row | undefined;
+      if (!r) return null;
+      const clip = typeof r.attachment === "string" ? (JSON.parse(r.attachment) as StoredClip) : null;
+      return { channelId: r.channel_id as string, authorId: r.author_id as string, clipFile: clip && !clip.expired ? clip.file : null };
+    },
+
+    deleteMessage(id: string) {
+      db.prepare("DELETE FROM messages WHERE id = ?").run(id);
+    },
+
     /** Marks the clips of these messages as deleted; returns the messages that changed. */
     expireClips(messageIds: string[]): Message[] {
       const changed: Message[] = [];

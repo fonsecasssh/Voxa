@@ -21,7 +21,9 @@ export type IconName =
   | "fullscreen"
   | "replay"
   | "save"
-  | "close";
+  | "close"
+  | "trash"
+  | "smile";
 
 /** A gear outline: `teeth` rectangular teeth around a ring. */
 function gearPath(teeth = 8, outer = 10, inner = 7.6): string {
@@ -116,6 +118,13 @@ const ICONS: Record<IconName, ReactNode> = {
   ),
   save: <path d="M12 4v11M7.5 10.5 12 15l4.5-4.5M5 19.5h14" />,
   close: <path d="M6 6l12 12M18 6 6 18" />,
+  trash: <path d="M4 7h16M10 11v6M14 11v6M5.5 7l1 12a2 2 0 0 0 2 1.8h7a2 2 0 0 0 2-1.8l1-12M9 7V4.5A1.5 1.5 0 0 1 10.5 3h3A1.5 1.5 0 0 1 15 4.5V7" />,
+  smile: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M8.5 14.5a4.5 4.5 0 0 0 7 0M9 9.5h.01M15 9.5h.01" />
+    </>
+  ),
 };
 
 export function Icon({ name, size = 20, title }: { name: IconName; size?: number; title?: string }) {

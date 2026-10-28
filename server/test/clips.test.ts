@@ -8,6 +8,7 @@ import { createApp } from "../src/app.ts";
 import { openDb } from "../src/db.ts";
 import { createIceProvider } from "../src/ice.ts";
 import { detectClipType } from "../src/media.ts";
+import { Permission } from "../../shared/permissions.ts";
 
 const mediaDir = mkdtempSync(path.join(tmpdir(), "voxa-clips-test-"));
 const clipsDir = path.join(mediaDir, "clips");
@@ -111,5 +112,52 @@ describe("clips in chat", () => {
     const voiceChannel = (await api("GET", `/api/servers/${server.id}`, undefined, owner.token)).body.channels.find((c: { type: string }) => c.type === "voice");
     expect((await postClip(voiceChannel.id, mp4(), owner.token)).status).toBe(400);
     expect(readdirSync(clipsDir)).toHaveLength(2);
+  });
+});
+
+describe("deleting messages", () => {
+  it("lets authors delete their own messages, moderators anyone's, and tells everyone", async () => {
+    const owner = await user();
+    const member = await user();
+    const mod = await user();
+    const { server } = (await api("POST", "/api/servers", { name: "Apagar" }, owner.token)).body;
+    for (const u of [member, mod]) await api("POST", `/api/invites/${server.inviteCode}`, undefined, u.token);
+    const general = (await api("GET", `/api/servers/${server.id}`, undefined, owner.token)).body.channels.find((c: { type: string }) => c.type === "text");
+    const say = async (who: { token: string }, content: string) =>
+      (await api("POST", `/api/channels/${general.id}/messages`, { content }, who.token)).body.message as { id: string };
+    const del = (who: { token: string }, id: string, channelId = general.id) => api("DELETE", `/api/channels/${channelId}/messages/${id}`, undefined, who.token);
+    const ids = async () => ((await api("GET", `/api/channels/${general.id}/messages`, undefined, owner.token)).body.messages as { id: string }[]).map((m) => m.id);
+
+    const socket: Socket = connect(base, { auth: { token: owner.token }, transports: ["websocket"] });
+    const deleted: string[] = [];
+    socket.on("message:delete", (e: { channelId: string; id: string }) => e.channelId === general.id && deleted.push(e.id));
+    await new Promise<void>((r) => socket.on("connect", () => r()));
+
+    const mine = await say(member, "ops, mensagem errada");
+    const theirs = await say(owner, "mensagem do dono");
+    expect((await del(member, mine.id)).status).toBe(204);
+    expect((await del(member, theirs.id)).status).toBe(403);
+    expect((await del(member, mine.id)).status).toBe(404);
+
+    // "Gerenciar mensagens" lets a moderator delete other people's messages.
+    const role = (await api("POST", `/api/servers/${server.id}/roles`, { name: "Mod", permissions: Permission.MANAGE_MESSAGES }, owner.token)).body.role;
+    await api("PUT", `/api/servers/${server.id}/members/${mod.user.id}/roles/${role.id}`, undefined, owner.token);
+    expect((await del(mod, theirs.id)).status).toBe(204);
+
+    // A clip's video goes with its message.
+    const clip = (await postClip(general.id, mp4(1000), member.token)).body.message;
+    expect(existsSync(path.join(clipsDir, `${clip.id}.mp4`))).toBe(true);
+    expect((await del(member, clip.id)).status).toBe(204);
+    expect(existsSync(path.join(clipsDir, `${clip.id}.mp4`))).toBe(false);
+
+    await new Promise((r) => setTimeout(r, 100));
+    expect(deleted).toEqual([mine.id, theirs.id, clip.id]);
+    const left = await ids();
+    expect(left).not.toContain(mine.id);
+    expect(left).not.toContain(theirs.id);
+    // A message id from another channel is not found through this one.
+    const outsider = await user();
+    expect((await del(outsider, left[0] ?? "x")).status).toBe(404);
+    socket.close();
   });
 });

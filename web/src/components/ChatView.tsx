@@ -1,6 +1,8 @@
 import { useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import type { Channel, ClipAttachment, Message, User, ServerDetails } from "../api.ts";
 import { Avatar } from "./Avatar.tsx";
+import { EmojiPicker } from "./EmojiPicker.tsx";
+import { Icon } from "./Icon.tsx";
 import { memberColor, memberName } from "../members.ts";
 import { splitLinks } from "../../../shared/links.ts";
 import { formatDuration, formatSize } from "./ReplayModal.tsx";
@@ -20,6 +22,9 @@ interface Props {
   onLoadOlder: () => Promise<void> | undefined;
   onSend: (content: string) => Promise<void>;
   onTyping: () => void;
+  /** Whether the viewer may delete this message (their own, or as a moderator). */
+  canDelete: (m: Message) => boolean;
+  onDelete: (m: Message) => Promise<void>;
 }
 
 function formatTime(ts: number): string {
@@ -86,7 +91,7 @@ function typingText(users: User[], server?: ServerDetails): string {
   return "Várias pessoas estão digitando…";
 }
 
-export function ChatView({ channel, server, dmUser, messages, hasMore, typingUsers, onLoadOlder, onSend, onTyping }: Props) {
+export function ChatView({ channel, server, dmUser, messages, hasMore, typingUsers, onLoadOlder, onSend, onTyping, canDelete, onDelete }: Props) {
   const title = dmUser ? dmUser.displayName : channel.name;
   const placeholder = dmUser ? `Conversar com @${dmUser.username}` : `Conversar em #${channel.name}`;
   const listRef = useRef<HTMLDivElement>(null);
@@ -94,6 +99,40 @@ export function ChatView({ channel, server, dmUser, messages, hasMore, typingUse
   const prevHeight = useRef<number | null>(null);
   const lastTyping = useRef(0);
   const [draft, setDraft] = useState("");
+  const [emojiOpen, setEmojiOpen] = useState(false);
+  const textarea = useRef<HTMLTextAreaElement>(null);
+
+  /** Puts an emoji where the cursor is (or replaces the selection), keeping the cursor after it. */
+  const insertEmoji = (emoji: string) => {
+    const el = textarea.current;
+    const start = el?.selectionStart ?? draft.length;
+    const end = el?.selectionEnd ?? draft.length;
+    const next = draft.slice(0, start) + emoji + draft.slice(end);
+    if (next.length > 4000) return;
+    setDraft(next);
+    requestAnimationFrame(() => {
+      el?.focus();
+      el?.setSelectionRange(start + emoji.length, start + emoji.length);
+    });
+  };
+
+  /** Deletes after confirming; Shift+click skips the question, like Discord. */
+  const remove = async (m: Message, skipConfirm: boolean) => {
+    if (!skipConfirm && !confirm("Apagar esta mensagem? Isso não pode ser desfeito.")) return;
+    try {
+      await onDelete(m);
+    } catch (err) {
+      alert((err as Error).message);
+    }
+  };
+  const actions = (m: Message) =>
+    canDelete(m) && (
+      <div className="message-actions">
+        <button className="msg-action danger" title="Apagar mensagem (Shift: sem confirmar)" aria-label="Apagar mensagem" onClick={(e) => remove(m, e.shiftKey)}>
+          <Icon name="trash" size={16} />
+        </button>
+      </div>
+    );
   const [sendError, setSendError] = useState<string | null>(null);
 
   // Keep the view pinned to the newest message, unless the user scrolled up to read history.
@@ -205,6 +244,7 @@ export function ChatView({ channel, server, dmUser, messages, hasMore, typingUse
                     {new Date(m.createdAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
                   </span>
                   <MessageContent content={m.content} attachment={m.attachment} />
+                  {actions(m)}
                 </div>
               ) : (
                 <div key={m.id} className="message">
@@ -216,6 +256,7 @@ export function ChatView({ channel, server, dmUser, messages, hasMore, typingUse
                     </div>
                     <MessageContent content={m.content} attachment={m.attachment} />
                   </div>
+                  {actions(m)}
                 </div>
               );
             })}
@@ -225,15 +266,29 @@ export function ChatView({ channel, server, dmUser, messages, hasMore, typingUse
 
       <div className="composer">
         {sendError && <div className="form-error">{sendError}</div>}
-        <textarea
-          rows={1}
-          value={draft}
-          placeholder={placeholder}
-          maxLength={4000}
-          onChange={(e) => onChange(e.target.value)}
-          onKeyDown={onKeyDown}
-          autoFocus
-        />
+        <div className="composer-box">
+          <textarea
+            ref={textarea}
+            rows={1}
+            value={draft}
+            placeholder={placeholder}
+            maxLength={4000}
+            onChange={(e) => onChange(e.target.value)}
+            onKeyDown={onKeyDown}
+            autoFocus
+          />
+          <button
+            type="button"
+            className={`emoji-toggle ${emojiOpen ? "active" : ""}`}
+            title="Emojis"
+            aria-label="Emojis"
+            aria-expanded={emojiOpen}
+            onClick={() => setEmojiOpen((o) => !o)}
+          >
+            <Icon name="smile" size={22} />
+          </button>
+          {emojiOpen && <EmojiPicker onPick={insertEmoji} onClose={() => setEmojiOpen(false)} />}
+        </div>
         <div className="typing">{typingUsers.length > 0 && typingText(typingUsers, server)}</div>
       </div>
     </main>

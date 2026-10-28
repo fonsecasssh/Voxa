@@ -12,6 +12,16 @@ import { pipeline } from "node:stream/promises";
 import { HttpError } from "./http.ts";
 
 export const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
+/** Animated GIFs (profile picture, server icon) are uploaded as they are, so they may be bigger. */
+export const MAX_GIF_BYTES = 8 * 1024 * 1024;
+
+/** Checks an upload's real type and size; returns the type. */
+export function checkImage(data: Buffer): ImageType {
+  const type = detectImageType(data);
+  if (!type) throw new HttpError(400, "Envie uma imagem PNG, JPEG, WebP ou GIF.");
+  if (type !== "gif" && data.length > MAX_IMAGE_BYTES) throw new HttpError(413, "A imagem passa de 2 MB.");
+  return type;
+}
 
 export const SERVER_IMAGE_KINDS = ["banner", "icon"] as const;
 export const USER_IMAGE_KINDS = ["avatar", "profile-banner"] as const;
@@ -120,6 +130,12 @@ export function createClipStore(dir: string, maxTotalBytes: number, maxClipBytes
 
     discard(tmp: string) {
       rmSync(tmp, { force: true });
+    },
+
+    /** Deletes a clip whose message was deleted. */
+    remove(file: string) {
+      if (file !== path.basename(file) || file.startsWith(".")) return;
+      rmSync(path.join(dir, file), { force: true });
     },
 
     /** Deletes the oldest clips until the folder fits (never `keep`); returns the ids (file names without extension). */

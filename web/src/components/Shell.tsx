@@ -17,6 +17,7 @@ import {
 } from "../api.ts";
 import { navigate } from "../router.ts";
 import { desktop, notify, requestNotificationPermission } from "../desktop.ts";
+import { Permission, can, myPermissions } from "../members.ts";
 import { connectSocket, type AppSocket } from "../socket.ts";
 import { VoiceClient } from "../voice/VoiceClient.ts";
 import { VoiceContext, useVoiceSnapshot } from "../voice/useVoice.ts";
@@ -229,6 +230,14 @@ export function Shell({ user, setUser, initialStatus, initialActivity, servers, 
           desktop?.flash();
         }
       }
+    });
+
+    socket.on("message:delete", ({ channelId: cid, id }) => {
+      setMessages((all) => {
+        const ch = all[cid];
+        if (!ch) return all;
+        return { ...all, [cid]: { ...ch, items: ch.items.filter((x) => x.id !== id) } };
+      });
     });
 
     // A message changed, e.g. its clip was deleted to free space on the server.
@@ -529,6 +538,8 @@ export function Shell({ user, setUser, initialStatus, initialActivity, servers, 
         return api.sendMessage(channel.id, content).then(() => {});
       }}
       onTyping={() => socketRef.current?.emit("typing", { channelId: channel.id })}
+      canDelete={(m) => m.author.id === user.id || (!!current && !dm && can(myPermissions(current, user.id), Permission.MANAGE_MESSAGES))}
+      onDelete={(m) => api.deleteMessage(channel.id, m.id)}
     />
   );
 

@@ -472,6 +472,10 @@ label .muted {
   gap: 14px;
   padding: 6px 16px 2px;
   margin-top: 10px;
+  position: relative;
+}
+.message:hover {
+  background: color-mix(in srgb, var(--bg-hover) 55%, transparent);
 }
 .message.grouped {
   margin-top: 0;
@@ -521,6 +525,10 @@ label .muted {
   resize: none;
   max-height: 200px;
   field-sizing: content;
+  padding-right: 48px;
+}
+.composer-box {
+  position: relative;
 }
 .typing {
   height: 22px;
@@ -2796,4 +2804,168 @@ select:focus {
   .theme-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+}
+
+/* An animated GIF shown in its final shape (centered, like everywhere it appears). */
+.crop-frame img.gif-preview {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: none;
+}
+
+/* --- message actions (hover) ----------------------------------------------------- */
+.message-actions {
+  position: absolute;
+  top: -14px;
+  right: 16px;
+  display: none;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 8px;
+  background: var(--bg-sidebar);
+  border: 1px solid var(--border);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  z-index: 2;
+}
+.message:hover .message-actions,
+.message-actions:focus-within {
+  display: flex;
+}
+.msg-action {
+  width: 30px;
+  height: 28px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-muted);
+  display: grid;
+  place-items: center;
+}
+.msg-action:hover {
+  background: var(--bg-active);
+  color: var(--text);
+}
+.msg-action.danger:hover {
+  color: #f2585b;
+}
+
+/* --- emoji picker -------------------------------------------------------------------- */
+.emoji-toggle {
+  position: absolute;
+  right: 8px;
+  bottom: 7px;
+  width: 34px;
+  height: 30px;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  color: var(--text-muted);
+  display: grid;
+  place-items: center;
+  transition: color 0.15s, transform 0.15s;
+}
+.emoji-toggle:hover,
+.emoji-toggle.active {
+  color: var(--link);
+  transform: scale(1.1);
+}
+.emoji-picker {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  width: 368px;
+  max-width: calc(100vw - 32px);
+  height: 420px;
+  display: flex;
+  flex-direction: column;
+  border-radius: 12px;
+  background: var(--bg-float);
+  border: 1px solid var(--border);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+  z-index: 20;
+}
+.emoji-search {
+  padding: 10px;
+}
+.emoji-search input {
+  width: 100%;
+}
+.emoji-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 0 8px 6px;
+  border-bottom: 1px solid var(--border);
+}
+.emoji-tabs button {
+  flex: 1;
+  height: 30px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  font-size: 18px;
+  filter: grayscale(0.6);
+  opacity: 0.75;
+}
+.emoji-tabs button:hover {
+  background: var(--bg-active);
+  filter: none;
+  opacity: 1;
+}
+.emoji-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 8px 8px;
+}
+.emoji-section {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 300px;
+}
+.emoji-group-label {
+  position: sticky;
+  top: -4px;
+  z-index: 1;
+  padding: 8px 4px 4px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  background: var(--bg-float);
+}
+.emoji-grid {
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+}
+.emoji-btn {
+  aspect-ratio: 1;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  font-size: 24px;
+  line-height: 1;
+  display: grid;
+  place-items: center;
+  font-family: "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif;
+}
+.emoji-btn:hover,
+.emoji-btn:focus-visible {
+  background: var(--bg-active);
+}
+.emoji-footer {
+  height: 44px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-sidebar);
+  font-size: 14px;
+  min-width: 0;
+}
+.emoji-footer-big {
+  font-size: 26px;
+  font-family: "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif;
 }

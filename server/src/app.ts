@@ -12,6 +12,7 @@ import { createIceProvider, type IceProvider } from "./ice.ts";
 import { failureLimiter, rateLimit } from "./rateLimit.ts";
 import { HttpError, str } from "./http.ts";
 import { registerAdminRoutes } from "./admin.ts";
+import { Permission, can, permissionsOf } from "../../shared/permissions.ts";
 import { CLIP_URL_PREFIX, IMAGE_KINDS, createClipStore, createMediaStore, imageUrlPrefix } from "./media.ts";
 import { tmpdir } from "node:os";
 
@@ -331,6 +332,23 @@ export function createApp({ db, webDist, ice = createIceProvider(), trustProxy =
     res.status(201).json({ message });
   });
 
+  // Deleting a message: its author always can; in a server, so can members with "Gerenciar mensagens".
+  app.delete("/api/channels/:id/messages/:messageId", requireAuth, (req, res) => {
+    const channel = requireChannelAccess(req, req.params.id as string);
+    const info = store.messageInfo(req.params.messageId as string);
+    if (!info || info.channelId !== channel.id) throw new HttpError(404, "Mensagem não encontrada.");
+    const me = req.user!.id;
+    if (info.authorId !== me) {
+      const server = channel.serverId ? store.serverById(channel.serverId) : null;
+      const perms = server ? permissionsOf(server, store.roles(server.id), me, store.memberInfo(server.id, me)?.roleIds ?? []) : 0;
+      if (!can(perms, Permission.MANAGE_MESSAGES)) throw new HttpError(403, "Você só pode apagar as suas mensagens.");
+    }
+    store.deleteMessage(req.params.messageId as string);
+    if (info.clipFile) clips.remove(info.clipFile);
+    io.to(realtime.channelRooms(channel)).emit("message:delete", { channelId: channel.id, id: req.params.messageId as string });
+    res.status(204).end();
+  });
+
   // A clip (instant replay) posted as a message. The body is the video itself; the
   // details travel in the query string: ?duration=&width=&height=&content=
   const clipLimit = rateLimit({ windowMs: 10 * 60_000, max: 20, message: "Muitos clipes enviados. Espere um pouco." });
@@ -405,7 +423,7 @@ export function createApp({ db, webDist, ice = createIceProvider(), trustProxy =
     const status = (err as { status?: unknown })?.status;
     if (typeof status === "number" && status >= 400 && status < 500) {
       const tooLarge = (err as { type?: unknown }).type === "entity.too.large";
-      res.status(status).json({ error: tooLarge ? "Arquivo grande demais (máximo 2 MB)." : status === 404 ? "Não encontrado." : "Requisição inválida." });
+      res.status(status).json({ error: tooLarge ? "Arquivo grande demais (imagens até 2 MB, GIFs até 8 MB)." : status === 404 ? "Não encontrado." : "Requisição inválida." });
       return;
     }
     console.error(err);

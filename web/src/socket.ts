@@ -5,6 +5,7 @@ import type { VoiceMember } from "./voice/types.ts";
 export interface ServerToClient {
   "message:new": (m: Message) => void;
   "message:update": (m: Message) => void;
+  "message:delete": (e: { channelId: string; id: string }) => void;
   "channel:new": (c: Channel) => void;
   "member:join": (p: { serverId: string; user: User; presence: Presence }) => void;
   presence: (p: { userId: string; presence: Presence }) => void;

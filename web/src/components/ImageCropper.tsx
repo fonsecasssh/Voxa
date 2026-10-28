@@ -1,6 +1,9 @@
 // Crop a picked image for a server banner (16:9) or icon (square, shown round):
 // drag to position, slider to zoom. The result is rendered at the final size and
 // encoded in the browser, so the upload is small.
+//
+// An animated GIF for a profile picture or server icon is sent as it is instead
+// (drawing it on a canvas would keep only its first frame); it is shown centered.
 
 import { useEffect, useRef, useState, type PointerEvent } from "react";
 import type { ServerImageKind } from "../api.ts";
@@ -8,6 +11,9 @@ import type { ServerImageKind } from "../api.ts";
 export type CropKind = ServerImageKind | "avatar" | "profileBanner";
 
 const MAX_BYTES = 2 * 1024 * 1024;
+const MAX_GIF_BYTES = 8 * 1024 * 1024;
+/** Kinds that may be an animated GIF. */
+const ANIMATABLE: CropKind[] = ["avatar", "icon"];
 
 /** On-screen frame and output size for each kind. */
 const SHAPES: Record<CropKind, { frameW: number; frameH: number; outW: number; outH: number; round: boolean; title: string; hint: string }> = {
@@ -35,7 +41,71 @@ async function encode(canvas: HTMLCanvasElement): Promise<Blob> {
   throw new Error("Não foi possível preparar a imagem.");
 }
 
-export function ImageCropper({ file, kind, onCancel, onCropped }: Props) {
+export function ImageCropper(props: Props) {
+  const [still, setStill] = useState(false);
+  const gif = props.file.type === "image/gif" && ANIMATABLE.includes(props.kind);
+  return gif && !still ? <GifPreview {...props} onCropStill={() => setStill(true)} /> : <StillCropper {...props} />;
+}
+
+/** Shows an animated GIF in its final shape and uploads it untouched. */
+function GifPreview({ file, kind, onCancel, onCropped, onCropStill }: Props & { onCropStill: () => void }) {
+  const { frameW, frameH, round } = SHAPES[kind];
+  const [url] = useState(() => URL.createObjectURL(file));
+  const [error, setError] = useState<string | null>(file.size > MAX_GIF_BYTES ? "Esse GIF passa de 8 MB. Escolha um menor." : null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => () => URL.revokeObjectURL(url), [url]);
+  useEffect(() => {
+    const esc = (e: KeyboardEvent) => e.key === "Escape" && onCancel();
+    window.addEventListener("keydown", esc);
+    return () => window.removeEventListener("keydown", esc);
+  }, [onCancel]);
+
+  const label = kind === "avatar" ? "foto de perfil" : "ícone do servidor";
+  return (
+    <div className="modal-backdrop cropper-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onCancel()}>
+      <div className="modal cropper" role="dialog" aria-label={`GIF animado como ${label}`}>
+        <h2>GIF animado</h2>
+        <p className="muted small">O GIF fica animado como {label}. Aparece o centro dele, no formato abaixo.</p>
+        <div className={`crop-frame ${round ? "round" : ""}`} style={{ width: frameW, height: frameH }}>
+          <img src={url} alt="" draggable={false} className="gif-preview" />
+        </div>
+        <p className="muted small">
+          {file.size >= 1024 * 1024
+            ? `${(file.size / 1024 / 1024).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} MB`
+            : `${Math.ceil(file.size / 1024)} KB`}{" "}
+          · até 8 MB
+        </p>
+        {error && <div className="form-error">{error}</div>}
+        <div className="modal-actions">
+          <button className="btn subtle" onClick={onCancel}>
+            Cancelar
+          </button>
+          <button className="btn subtle" onClick={onCropStill} disabled={busy}>
+            Recortar como imagem parada
+          </button>
+          <button
+            className="btn primary"
+            disabled={busy || file.size > MAX_GIF_BYTES}
+            onClick={async () => {
+              setBusy(true);
+              setError(null);
+              try {
+                await onCropped(file);
+              } catch (err) {
+                setError((err as Error).message);
+                setBusy(false);
+              }
+            }}
+          >
+            {busy ? "Enviando…" : "Usar GIF animado"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function StillCropper({ file, kind, onCancel, onCropped }: Props) {
   const { frameW: FRAME_W, frameH: FRAME_H, outW, outH, round, title, hint } = SHAPES[kind];
   const [img, setImg] = useState<HTMLImageElement | null>(null);
   const [error, setError] = useState<string | null>(null);

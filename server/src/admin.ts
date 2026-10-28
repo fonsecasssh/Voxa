@@ -8,7 +8,7 @@ import { hashPassword, verifyPassword } from "./auth.ts";
 import { HttpError, str } from "./http.ts";
 import type { registerRealtime } from "./realtime.ts";
 import type { ChannelType, Role, Server, Store } from "./store.ts";
-import { MAX_IMAGE_BYTES, SERVER_IMAGE_KINDS, USER_IMAGE_KINDS, detectImageType, type MediaStore } from "./media.ts";
+import { MAX_GIF_BYTES, SERVER_IMAGE_KINDS, USER_IMAGE_KINDS, checkImage, type MediaStore } from "./media.ts";
 
 interface Deps {
   app: Express;
@@ -91,11 +91,10 @@ export function registerAdminRoutes({ app, io, store, realtime, media, requireAu
       res.json({ user });
     };
 
-    app.put(route, requireAuth, express.raw({ type: () => true, limit: MAX_IMAGE_BYTES }), (req, res) => {
+    app.put(route, requireAuth, express.raw({ type: () => true, limit: MAX_GIF_BYTES }), (req, res) => {
       const me = req.user!.id;
       const data = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
-      const type = detectImageType(data);
-      if (!type) throw new HttpError(400, "Envie uma imagem PNG, JPEG, WebP ou GIF.");
+      const type = checkImage(data);
       const file = media.save(kind, me, data, type);
       const previous = store.setUserImage(kind, me, file);
       if (previous !== file) media.remove(kind, previous);
@@ -137,12 +136,11 @@ export function registerAdminRoutes({ app, io, store, realtime, media, requireAu
       res.json({ server: updated });
     };
 
-    app.put(`/api/servers/:id/${kind}`, requireAuth, express.raw({ type: () => true, limit: MAX_IMAGE_BYTES }), (req, res) => {
+    app.put(`/api/servers/:id/${kind}`, requireAuth, express.raw({ type: () => true, limit: MAX_GIF_BYTES }), (req, res) => {
       const { server, perms } = standing(req, req.params.id as string);
       need(perms, Permission.MANAGE_SERVER, "Você não tem permissão para gerenciar este servidor.");
       const data = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
-      const type = detectImageType(data);
-      if (!type) throw new HttpError(400, "Envie uma imagem PNG, JPEG, WebP ou GIF.");
+      const type = checkImage(data);
       const file = media.save(kind, server.id, data, type);
       const previous = store.setServerImage(kind, server.id, file);
       if (previous !== file) media.remove(kind, previous);

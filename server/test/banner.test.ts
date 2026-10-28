@@ -70,7 +70,7 @@ describe("server banner", () => {
     // Members without "Gerenciar servidor" can't change it; non-images are refused.
     expect((await upload(sid, WEBP, member.token)).status).toBe(403);
     expect((await upload(sid, Buffer.from("<html>"), owner.token, "image/png")).status).toBe(400);
-    expect((await upload(sid, Buffer.alloc(3 * 1024 * 1024, 7), owner.token)).status).toBe(413);
+    expect((await upload(sid, Buffer.concat([PNG, Buffer.alloc(3 * 1024 * 1024, 7)]), owner.token, "image/png")).status).toBe(413);
 
     const sm: Socket = await new Promise((resolve) => {
       const s = connect(base, { auth: { token: member.token }, transports: ["websocket"] });
@@ -186,5 +186,31 @@ describe("server banner", () => {
     expect(existsSync(path.join(bannersDir, file))).toBe(false);
     expect(existsSync(path.join(mediaDir, "icons", iconFile))).toBe(false);
     expect((await fetch(`${base}/media/banners/..%2F..%2Fetc%2Fpasswd`)).status).toBeGreaterThanOrEqual(400);
+  });
+});
+
+describe("animated GIFs", () => {
+  it("accepts GIFs up to 8 MB as profile picture and server icon, but still caps other images at 2 MB", async () => {
+    const owner = await user();
+    const { body } = await api("POST", "/api/servers", { name: "Animado" }, owner.token);
+    const gif = Buffer.concat([Buffer.from("GIF89a"), Buffer.alloc(3 * 1024 * 1024, 7)]);
+    const bigPng = Buffer.concat([PNG, Buffer.alloc(3 * 1024 * 1024, 7)]);
+    const put = (p: string, data: Buffer, type: string) =>
+      fetch(base + p, { method: "PUT", headers: { "content-type": type, authorization: `Bearer ${owner.token}` }, body: new Uint8Array(data) }).then(async (r) => ({
+        status: r.status,
+        body: await r.json(),
+      }));
+
+    const avatar = await put("/api/me/avatar", gif, "image/gif");
+    expect(avatar.status).toBe(200);
+    expect(avatar.body.user.avatar).toMatch(/^\/media\/avatars\/.+\.gif$/);
+    const icon = await put(`/api/servers/${body.server.id}/icon`, gif, "image/gif");
+    expect(icon.status).toBe(200);
+    expect(icon.body.server.icon).toMatch(/\.gif$/);
+    const served = await fetch(base + avatar.body.user.avatar);
+    expect(served.headers.get("content-type")).toBe("image/gif");
+
+    expect((await put("/api/me/avatar", bigPng, "image/png")).status).toBe(413);
+    expect((await put("/api/me/avatar", Buffer.concat([gif, Buffer.alloc(6 * 1024 * 1024)]), "image/gif")).status).toBe(413);
   });
 });

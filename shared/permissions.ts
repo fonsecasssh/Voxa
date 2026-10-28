@@ -16,6 +16,7 @@ export const Permission = {
   KICK_MEMBERS: 1 << 4,
   MANAGE_NICKNAMES: 1 << 5,
   CHANGE_NICKNAME: 1 << 6,
+  MANAGE_MESSAGES: 1 << 7,
 } as const;
 
 export type PermissionName = keyof typeof Permission;
@@ -34,6 +35,7 @@ export const PERMISSION_INFO: { key: PermissionName; label: string; description:
   { key: "KICK_MEMBERS", label: "Expulsar membros", description: "Remover membros com cargos abaixo do seu." },
   { key: "MANAGE_NICKNAMES", label: "Gerenciar apelidos", description: "Mudar o apelido de outros membros." },
   { key: "CHANGE_NICKNAME", label: "Alterar apelido", description: "Mudar o próprio apelido neste servidor." },
+  { key: "MANAGE_MESSAGES", label: "Gerenciar mensagens", description: "Apagar mensagens de outros membros." },
 ];
 
 export interface RoleLike {

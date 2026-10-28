@@ -228,6 +228,7 @@ export const api = {
     request<{ messages: Message[] }>("GET", `/api/channels/${channelId}/messages${before ? `?before=${before}` : ""}`),
   sendMessage: (channelId: string, content: string) =>
     request<{ message: Message }>("POST", `/api/channels/${channelId}/messages`, { content }),
+  deleteMessage: (channelId: string, messageId: string) => request<void>("DELETE", `/api/channels/${channelId}/messages/${messageId}`),
   uploadClip,
 };
 
