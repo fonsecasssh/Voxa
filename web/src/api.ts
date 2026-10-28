@@ -61,6 +61,22 @@ export interface DmSummary {
   lastMessageAt: number | null;
 }
 
+export interface Role {
+  id: string;
+  serverId: string;
+  name: string;
+  color: string | null;
+  permissions: number;
+  position: number;
+  hoist: boolean;
+  isDefault: boolean;
+}
+
+export interface MemberData {
+  nickname: string | null;
+  roleIds: string[];
+}
+
 export interface ServerDetails {
   server: Server;
   channels: Channel[];
@@ -69,6 +85,10 @@ export interface ServerDetails {
   presence: Record<string, Presence>;
   /** Voice channel id -> who is in it. */
   voice: Record<string, VoiceMember[]>;
+  /** Highest position first; the last one is @everyone. */
+  roles: Role[];
+  /** user id -> nickname and roles in this server. */
+  memberData: Record<string, MemberData>;
 }
 
 const TOKEN_KEY = "voxa.token";
@@ -134,7 +154,33 @@ export const api = {
   dms: () => request<{ dms: DmSummary[]; presence: Record<string, Presence> }>("GET", "/api/dms"),
   openDm: (userId: string) => request<{ dm: DmSummary }>("POST", "/api/dms", { userId }),
 
-  createServer: (name: string) => request<{ server: Server; channels: Channel[] }>("POST", "/api/servers", { name }),
+  createServer: (name: string) => request<{ server: Server; channels: Channel[]; roles: Role[] }>("POST", "/api/servers", { name }),
+  renameServer: (id: string, name: string) => request<{ server: Server }>("PATCH", `/api/servers/${id}`, { name }),
+  deleteServer: (id: string) => request<void>("DELETE", `/api/servers/${id}`),
+  leaveServer: (id: string) => request<void>("POST", `/api/servers/${id}/leave`),
+
+  setNickname: (serverId: string, userId: string, nickname: string | null) =>
+    request<MemberData>("PATCH", `/api/servers/${serverId}/members/${userId}`, { nickname }),
+  addMemberRole: (serverId: string, userId: string, roleId: string) =>
+    request<MemberData>("PUT", `/api/servers/${serverId}/members/${userId}/roles/${roleId}`),
+  removeMemberRole: (serverId: string, userId: string, roleId: string) =>
+    request<MemberData>("DELETE", `/api/servers/${serverId}/members/${userId}/roles/${roleId}`),
+  kickMember: (serverId: string, userId: string) => request<void>("DELETE", `/api/servers/${serverId}/members/${userId}`),
+
+  createRole: (serverId: string, fields: Partial<Pick<Role, "name" | "color" | "permissions" | "hoist">> = {}) =>
+    request<{ role: Role }>("POST", `/api/servers/${serverId}/roles`, fields),
+  updateRole: (serverId: string, roleId: string, fields: Partial<Pick<Role, "name" | "color" | "permissions" | "hoist">>) =>
+    request<{ role: Role }>("PATCH", `/api/servers/${serverId}/roles/${roleId}`, fields),
+  deleteRole: (serverId: string, roleId: string) => request<void>("DELETE", `/api/servers/${serverId}/roles/${roleId}`),
+  moveRole: (serverId: string, roleId: string, direction: "up" | "down") =>
+    request<{ roles: Role[] }>("POST", `/api/servers/${serverId}/roles/${roleId}/move`, { direction }),
+
+  renameChannel: (id: string, name: string) => request<{ channel: Channel }>("PATCH", `/api/channels/${id}`, { name }),
+  deleteChannel: (id: string) => request<void>("DELETE", `/api/channels/${id}`),
+
+  updateProfile: (displayName: string) => request<{ user: User }>("PATCH", "/api/me", { displayName }),
+  changePassword: (currentPassword: string, newPassword: string) =>
+    request<void>("POST", "/api/me/password", { currentPassword, newPassword }),
   server: (id: string) => request<ServerDetails>("GET", `/api/servers/${id}`),
   createChannel: (serverId: string, name: string, type: ChannelType) =>
     request<{ channel: Channel }>("POST", `/api/servers/${serverId}/channels`, { name, type }),

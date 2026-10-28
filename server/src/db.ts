@@ -104,6 +104,37 @@ const MIGRATIONS: string[] = [
   ALTER TABLE users ADD COLUMN activity_name TEXT;
   ALTER TABLE users ADD COLUMN activity_started_at INTEGER;
   `,
+
+  // 4: roles and per-server nicknames. Every existing server gets its @everyone role
+  // (permission 64 = CHANGE_NICKNAME, see shared/permissions.ts).
+  `
+  ALTER TABLE members ADD COLUMN nickname TEXT;
+
+  CREATE TABLE roles (
+    id          TEXT PRIMARY KEY,
+    server_id   TEXT NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+    name        TEXT NOT NULL,
+    color       TEXT,
+    permissions INTEGER NOT NULL DEFAULT 0,
+    position    INTEGER NOT NULL,
+    hoist       INTEGER NOT NULL DEFAULT 0,
+    is_default  INTEGER NOT NULL DEFAULT 0,
+    created_at  INTEGER NOT NULL
+  );
+  CREATE INDEX roles_by_server ON roles(server_id, position);
+  CREATE UNIQUE INDEX one_default_role_per_server ON roles(server_id) WHERE is_default = 1;
+
+  CREATE TABLE member_roles (
+    server_id TEXT NOT NULL,
+    user_id   TEXT NOT NULL,
+    role_id   TEXT NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
+    PRIMARY KEY (server_id, user_id, role_id),
+    FOREIGN KEY (server_id, user_id) REFERENCES members(server_id, user_id) ON DELETE CASCADE
+  );
+
+  INSERT INTO roles (id, server_id, name, color, permissions, position, hoist, is_default, created_at)
+    SELECT lower(hex(randomblob(16))), id, '@everyone', NULL, 64, 0, 0, 1, created_at FROM servers;
+  `,
 ];
 
 function migrate(db: DB) {

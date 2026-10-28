@@ -3,6 +3,7 @@
 import { randomUUID } from "node:crypto";
 import type { DB } from "./db.ts";
 import { newInviteCode, newToken } from "./auth.ts";
+import { DEFAULT_PERMISSIONS } from "../../shared/permissions.ts";
 
 export interface PublicUser {
   id: string;
@@ -44,6 +45,25 @@ export interface DmSummary {
   lastMessageAt: number | null;
 }
 
+export interface Role {
+  id: string;
+  serverId: string;
+  name: string;
+  /** Hex color like "#e91e63", or null for the default text color. */
+  color: string | null;
+  permissions: number;
+  /** Higher is more important; @everyone is always 0. */
+  position: number;
+  /** Shown as its own section in the member list. */
+  hoist: boolean;
+  isDefault: boolean;
+}
+
+export interface MemberData {
+  nickname: string | null;
+  roleIds: string[];
+}
+
 export interface Message {
   id: string;
   channelId: string;
@@ -73,6 +93,17 @@ const toChannel = (r: Row): Channel => ({
   name: r.name as string,
   type: r.type as ChannelType,
   position: r.position as number,
+});
+
+const toRole = (r: Row): Role => ({
+  id: r.id as string,
+  serverId: r.server_id as string,
+  name: r.name as string,
+  color: (r.color as string | null) ?? null,
+  permissions: r.permissions as number,
+  position: r.position as number,
+  hoist: r.hoist === 1,
+  isDefault: r.is_default === 1,
 });
 
 const toMessage = (r: Row): Message => ({
@@ -130,6 +161,21 @@ export function createStore(db: DB) {
     userByUsername(username: string): PublicUser | null {
       const r = db.prepare("SELECT * FROM users WHERE username = ?").get(username) as Row | undefined;
       return r ? toUser(r) : null;
+    },
+
+    setDisplayName(userId: string, displayName: string): void {
+      db.prepare("UPDATE users SET display_name = ? WHERE id = ?").run(displayName, userId);
+    },
+
+    passwordHash(userId: string): string | null {
+      const r = db.prepare("SELECT password_hash FROM users WHERE id = ?").get(userId) as Row | undefined;
+      return (r?.password_hash as string | undefined) ?? null;
+    },
+
+    /** Sets a new password and signs out every other session. */
+    setPassword(userId: string, passwordHash: string, keepToken: string): void {
+      db.prepare("UPDATE users SET password_hash = ? WHERE id = ?").run(passwordHash, userId);
+      db.prepare("DELETE FROM sessions WHERE user_id = ? AND token != ?").run(userId, keepToken);
     },
 
     getStatus(userId: string): UserStatus {
@@ -258,7 +304,7 @@ export function createStore(db: DB) {
     },
 
     // --- servers & membership ---------------------------------------------
-    createServer(ownerId: string, name: string): { server: Server; channels: Channel[] } {
+    createServer(ownerId: string, name: string): { server: Server; channels: Channel[]; roles: Role[] } {
       const now = Date.now();
       const server: Server = { id: randomUUID(), name, ownerId, inviteCode: newInviteCode() };
       db.exec("BEGIN");
@@ -270,8 +316,22 @@ export function createStore(db: DB) {
           this.insertChannel(server.id, "geral", "text", 0),
           this.insertChannel(server.id, "Geral", "voice", 1),
         ];
+        const everyone: Role = {
+          id: randomUUID(),
+          serverId: server.id,
+          name: "@everyone",
+          color: null,
+          permissions: DEFAULT_PERMISSIONS,
+          position: 0,
+          hoist: false,
+          isDefault: true,
+        };
+        db.prepare(
+          `INSERT INTO roles (id, server_id, name, color, permissions, position, hoist, is_default, created_at)
+           VALUES (?, ?, '@everyone', NULL, ?, 0, 0, 1, ?)`,
+        ).run(everyone.id, server.id, everyone.permissions, now);
         db.exec("COMMIT");
-        return { server, channels };
+        return { server, channels, roles: [everyone] };
       } catch (err) {
         db.exec("ROLLBACK");
         throw err;
@@ -316,6 +376,109 @@ export function createStore(db: DB) {
       ).map(toUser);
     },
 
+    /** Removes a member (kick or leave); their roles and nickname go with the membership row. */
+    removeMember(serverId: string, userId: string): boolean {
+      return db.prepare("DELETE FROM members WHERE server_id = ? AND user_id = ?").run(serverId, userId).changes > 0;
+    },
+
+    renameServer(serverId: string, name: string): void {
+      db.prepare("UPDATE servers SET name = ? WHERE id = ?").run(name, serverId);
+    },
+
+    deleteServer(serverId: string): void {
+      db.prepare("DELETE FROM servers WHERE id = ?").run(serverId);
+    },
+
+    /** Nickname and role ids of every member, keyed by user id. */
+    memberData(serverId: string): Record<string, MemberData> {
+      const out: Record<string, MemberData> = {};
+      for (const r of db.prepare("SELECT user_id, nickname FROM members WHERE server_id = ?").all(serverId) as Row[]) {
+        out[r.user_id as string] = { nickname: (r.nickname as string | null) ?? null, roleIds: [] };
+      }
+      for (const r of db.prepare("SELECT user_id, role_id FROM member_roles WHERE server_id = ?").all(serverId) as Row[]) {
+        out[r.user_id as string]?.roleIds.push(r.role_id as string);
+      }
+      return out;
+    },
+
+    memberInfo(serverId: string, userId: string): MemberData | null {
+      const r = db.prepare("SELECT nickname FROM members WHERE server_id = ? AND user_id = ?").get(serverId, userId) as Row | undefined;
+      if (!r) return null;
+      const roleIds = (
+        db.prepare("SELECT role_id FROM member_roles WHERE server_id = ? AND user_id = ?").all(serverId, userId) as Row[]
+      ).map((x) => x.role_id as string);
+      return { nickname: (r.nickname as string | null) ?? null, roleIds };
+    },
+
+    setNickname(serverId: string, userId: string, nickname: string | null): void {
+      db.prepare("UPDATE members SET nickname = ? WHERE server_id = ? AND user_id = ?").run(nickname, serverId, userId);
+    },
+
+    addMemberRole(serverId: string, userId: string, roleId: string): void {
+      db.prepare("INSERT OR IGNORE INTO member_roles (server_id, user_id, role_id) VALUES (?, ?, ?)").run(serverId, userId, roleId);
+    },
+
+    removeMemberRole(serverId: string, userId: string, roleId: string): void {
+      db.prepare("DELETE FROM member_roles WHERE server_id = ? AND user_id = ? AND role_id = ?").run(serverId, userId, roleId);
+    },
+
+    // --- roles ------------------------------------------------------------
+    roles(serverId: string): Role[] {
+      return (db.prepare("SELECT * FROM roles WHERE server_id = ? ORDER BY position DESC").all(serverId) as Row[]).map(toRole);
+    },
+
+    roleById(id: string): Role | null {
+      const r = db.prepare("SELECT * FROM roles WHERE id = ?").get(id) as Row | undefined;
+      return r ? toRole(r) : null;
+    },
+
+    /** New roles go to the bottom of the list, just above @everyone, like on Discord. */
+    createRole(serverId: string, fields: { name: string; color: string | null; permissions: number; hoist: boolean }): Role {
+      const role: Role = { id: randomUUID(), serverId, ...fields, position: 1, isDefault: false };
+      db.exec("BEGIN");
+      try {
+        db.prepare("UPDATE roles SET position = position + 1 WHERE server_id = ? AND is_default = 0").run(serverId);
+        db.prepare(
+          `INSERT INTO roles (id, server_id, name, color, permissions, position, hoist, is_default, created_at)
+           VALUES (?, ?, ?, ?, ?, 1, ?, 0, ?)`,
+        ).run(role.id, serverId, role.name, role.color, role.permissions, role.hoist ? 1 : 0, Date.now());
+        db.exec("COMMIT");
+      } catch (err) {
+        db.exec("ROLLBACK");
+        throw err;
+      }
+      return role;
+    },
+
+    updateRole(id: string, fields: Partial<Pick<Role, "name" | "color" | "permissions" | "hoist">>): void {
+      const r = this.roleById(id);
+      if (!r) return;
+      const next = { ...r, ...fields };
+      db.prepare("UPDATE roles SET name = ?, color = ?, permissions = ?, hoist = ? WHERE id = ?").run(
+        next.name,
+        next.color,
+        next.permissions,
+        next.hoist ? 1 : 0,
+        id,
+      );
+    },
+
+    deleteRole(id: string): void {
+      db.prepare("DELETE FROM roles WHERE id = ? AND is_default = 0").run(id);
+    },
+
+    swapRolePositions(a: Role, b: Role): void {
+      db.exec("BEGIN");
+      try {
+        db.prepare("UPDATE roles SET position = ? WHERE id = ?").run(b.position, a.id);
+        db.prepare("UPDATE roles SET position = ? WHERE id = ?").run(a.position, b.id);
+        db.exec("COMMIT");
+      } catch (err) {
+        db.exec("ROLLBACK");
+        throw err;
+      }
+    },
+
     // --- channels ---------------------------------------------------------
     insertChannel(serverId: string, name: string, type: ChannelType, position?: number): Channel {
       const pos =
@@ -335,6 +498,14 @@ export function createStore(db: DB) {
     channelById(id: string): Channel | null {
       const r = db.prepare("SELECT * FROM channels WHERE id = ?").get(id) as Row | undefined;
       return r ? toChannel(r) : null;
+    },
+
+    renameChannel(id: string, name: string): void {
+      db.prepare("UPDATE channels SET name = ? WHERE id = ?").run(name, id);
+    },
+
+    deleteChannel(id: string): void {
+      db.prepare("DELETE FROM channels WHERE id = ? AND type != 'dm'").run(id);
     },
 
     // --- messages ---------------------------------------------------------

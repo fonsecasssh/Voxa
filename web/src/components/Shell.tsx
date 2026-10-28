@@ -28,7 +28,9 @@ import { ChatView } from "./ChatView.tsx";
 import { FriendsView } from "./FriendsView.tsx";
 import { MemberList } from "./MemberList.tsx";
 import { VoiceView } from "./VoiceView.tsx";
-import { CreateChannelModal, CreateServerModal, InviteModal } from "./Modals.tsx";
+import { CreateChannelModal, CreateServerModal, EditChannelModal, InviteModal, NicknameModal, ProfileModal } from "./Modals.tsx";
+import { ServerSettings } from "./ServerSettings.tsx";
+import type { Channel } from "../api.ts";
 
 const TYPING_MS = 4000;
 const HOME = "@me";
@@ -38,10 +40,14 @@ interface ChannelMessages {
   hasMore: boolean;
 }
 
-type ModalKind = "createServer" | "createChannel" | "invite" | null;
+type ModalKind =
+  | { kind: "createServer" | "createChannel" | "invite" | "nickname" | "profile" | "settings" }
+  | { kind: "editChannel"; channel: Channel }
+  | null;
 
 interface Props {
   user: User;
+  setUser: (user: User) => void;
   initialStatus: UserStatus;
   initialActivity: Activity | null;
   servers: Server[];
@@ -80,7 +86,7 @@ function mergePresence(all: Record<string, Presence>, ids: string[], known: Reco
   return next;
 }
 
-export function Shell({ user, initialStatus, initialActivity, servers, setServers, serverId, channelId, onLogout }: Props) {
+export function Shell({ user, setUser, initialStatus, initialActivity, servers, setServers, serverId, channelId, onLogout }: Props) {
   const socketRef = useRef<AppSocket | null>(null);
   const [voice, setVoice] = useState<VoiceClient | null>(null);
   const voiceState = useVoiceSnapshot(voice);
@@ -96,6 +102,8 @@ export function Shell({ user, initialStatus, initialActivity, servers, setServer
   const [myActivity, setMyActivity] = useState<Activity | null>(initialActivity);
   const [modal, setModal] = useState<ModalKind>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  /** A short message at the top of the window (e.g. "you were removed from the server"). */
+  const [notice, setNotice] = useState<string | null>(null);
 
   // Requests in flight, so effects that re-run on unrelated state changes don't fire duplicates.
   const inFlight = useRef(new Set<string>());
@@ -213,7 +221,10 @@ export function Shell({ user, initialStatus, initialActivity, servers, setServer
       setDetails((all) => {
         const d = all[sid];
         if (!d || d.members.some((x) => x.id === u.id)) return all;
-        return { ...all, [sid]: { ...d, members: [...d.members, u] } };
+        return {
+          ...all,
+          [sid]: { ...d, members: [...d.members, u], memberData: { ...d.memberData, [u.id]: { nickname: null, roleIds: [] } } },
+        };
       });
       setPresenceMap((all) => mergePresence(all, [u.id], p.status === "offline" ? {} : { [u.id]: p }));
     });
@@ -243,6 +254,72 @@ export function Shell({ user, initialStatus, initialActivity, servers, setServer
       });
     });
 
+    // --- names and roles ---
+    const updateServer = (sid: string, fn: (d: ServerDetails) => ServerDetails) =>
+      setDetails((all) => (all[sid] ? { ...all, [sid]: fn(all[sid]) } : all));
+
+    socket.on("user:update", (u) => {
+      const swap = (x: User) => (x.id === u.id ? u : x);
+      setDetails((all) => Object.fromEntries(Object.entries(all).map(([sid, d]) => [sid, { ...d, members: d.members.map(swap) }])));
+      setFriends((list) => list?.map((f) => ({ ...f, user: swap(f.user) })) ?? list);
+      setDms((list) => list?.map((d) => ({ ...d, user: swap(d.user) })) ?? list);
+      setMessages((all) =>
+        Object.fromEntries(
+          Object.entries(all).map(([cid, ch]) => [
+            cid,
+            ch.items.some((m) => m.author.id === u.id) ? { ...ch, items: ch.items.map((m) => ({ ...m, author: swap(m.author) })) } : ch,
+          ]),
+        ),
+      );
+      if (u.id === user.id) setUser(u);
+    });
+
+    socket.on("server:update", (srv) => {
+      setServers((list) => list.map((x) => (x.id === srv.id ? srv : x)));
+      updateServer(srv.id, (d) => ({ ...d, server: srv }));
+    });
+
+    socket.on("server:removed", ({ serverId: sid, reason }) => {
+      setServers((list) => list.filter((x) => x.id !== sid));
+      setDetails((all) => {
+        const { [sid]: _, ...rest } = all;
+        return rest;
+      });
+      if (activeRef.current.serverId === sid) navigate(`/channels/${HOME}`, true);
+      if (reason) setNotice(reason);
+    });
+
+    socket.on("member:update", ({ serverId: sid, userId, nickname, roleIds }) => {
+      updateServer(sid, (d) => ({ ...d, memberData: { ...d.memberData, [userId]: { nickname, roleIds } } }));
+    });
+
+    socket.on("member:leave", ({ serverId: sid, userId }) => {
+      updateServer(sid, (d) => {
+        const { [userId]: _, ...memberData } = d.memberData;
+        return { ...d, members: d.members.filter((m) => m.id !== userId), memberData };
+      });
+    });
+
+    socket.on("roles:update", ({ serverId: sid, roles }) => {
+      updateServer(sid, (d) => {
+        // Deleted roles disappear from members too.
+        const ids = new Set(roles.map((r) => r.id));
+        const memberData = Object.fromEntries(
+          Object.entries(d.memberData).map(([uid, m]) => [uid, { ...m, roleIds: m.roleIds.filter((r) => ids.has(r)) }]),
+        );
+        return { ...d, roles, memberData };
+      });
+    });
+
+    socket.on("channel:update", (c) => {
+      if (c.serverId) updateServer(c.serverId, (d) => ({ ...d, channels: d.channels.map((x) => (x.id === c.id ? c : x)) }));
+    });
+
+    socket.on("channel:delete", ({ serverId: sid, channelId: cid }) => {
+      updateServer(sid, (d) => ({ ...d, channels: d.channels.filter((x) => x.id !== cid) }));
+      if (activeRef.current.channelId === cid) navigate(`/channels/${sid}`, true);
+    });
+
     socket.on("typing", ({ channelId: cid, user: u }) => {
       setTyping((all) => ({ ...all, [cid]: { ...all[cid], [u.id]: { user: u, until: Date.now() + TYPING_MS } } }));
     });
@@ -253,7 +330,13 @@ export function Shell({ user, initialStatus, initialActivity, servers, setServer
       socketRef.current = null;
       setVoice(null);
     };
-  }, [loadServer, loadMessages, loadSocial, user.id]);
+  }, [loadServer, loadMessages, loadSocial, user.id, setUser, setServers]);
+
+  useEffect(() => {
+    if (!notice) return;
+    const t = setTimeout(() => setNotice(null), 8000);
+    return () => clearTimeout(t);
+  }, [notice]);
 
   // Expire typing indicators.
   useEffect(() => {
@@ -383,6 +466,7 @@ export function Shell({ user, initialStatus, initialActivity, servers, setServer
       status={myStatus}
       activity={myActivity}
       setPresence={setPresence}
+      onEditProfile={() => setModal({ kind: "profile" })}
       voiceLocation={
         voiceServer && voiceChannel
           ? { label: `${voiceChannel.name} / ${voiceServer.server.name}`, path: `/channels/${voiceServer.server.id}/${voiceChannel.id}` }
@@ -396,6 +480,7 @@ export function Shell({ user, initialStatus, initialActivity, servers, setServer
     <ChatView
       channel={channel}
       dmUser={dm?.user}
+      server={current}
       messages={messages[channel.id]?.items}
       hasMore={messages[channel.id]?.hasMore ?? false}
       typingUsers={typingUsers}
@@ -440,24 +525,29 @@ export function Shell({ user, initialStatus, initialActivity, servers, setServer
         <ChannelSidebar
           details={current}
           activeChannelId={channelId}
-          isOwner={current.server.ownerId === user.id}
-          onCreateChannel={() => setModal("createChannel")}
-          onInvite={() => setModal("invite")}
+          selfId={user.id}
+          onCreateChannel={() => setModal({ kind: "createChannel" })}
+          onInvite={() => setModal({ kind: "invite" })}
+          onOpenSettings={() => setModal({ kind: "settings" })}
+          onEditNickname={() => setModal({ kind: "nickname" })}
+          onEditChannel={(c) => setModal({ kind: "editChannel", channel: c })}
+          onLeave={async () => {
+            if (!confirm(`Sair de "${current.server.name}"? Você só volta com um novo convite.`)) return;
+            try {
+              await api.leaveServer(current.server.id);
+            } catch (err) {
+              alert((err as Error).message);
+            }
+          }}
           footer={footer}
         />
         {chat ||
           (channel?.type === "voice" ? (
-            <VoiceView channel={channel} members={current.voice[channel.id] ?? []} />
+            <VoiceView channel={channel} members={current.voice[channel.id] ?? []} server={current} />
           ) : (
             <main className="main placeholder" />
           ))}
-        <MemberList
-          members={current.members}
-          presence={presence}
-          ownerId={current.server.ownerId}
-          selfId={user.id}
-          onOpenDm={openDm}
-        />
+        <MemberList details={current} presence={presence} selfId={user.id} onOpenDm={openDm} />
       </>
     );
   } else {
@@ -473,6 +563,14 @@ export function Shell({ user, initialStatus, initialActivity, servers, setServer
 
   return (
     <VoiceContext.Provider value={voice}>
+      {notice && (
+        <div className="update-banner notice" role="status">
+          {notice}
+          <button className="icon-btn" title="Fechar" onClick={() => setNotice(null)}>
+            ✕
+          </button>
+        </div>
+      )}
       {updateVersion && (
         <div className="update-banner" role="status">
           Uma nova versão do Voxa ({updateVersion}) está pronta.
@@ -485,24 +583,32 @@ export function Shell({ user, initialStatus, initialActivity, servers, setServer
         </div>
       )}
       <div className={`shell ${current ? "" : "no-members"}`}>
-        <ServerRail servers={servers} activeId={serverId} unreadDms={unreadDms} onCreate={() => setModal("createServer")} />
+        <ServerRail servers={servers} activeId={serverId} unreadDms={unreadDms} onCreate={() => setModal({ kind: "createServer" })} />
         {body}
 
-        {modal === "createServer" && (
+        {modal?.kind === "createServer" && (
           <CreateServerModal
             onClose={() => setModal(null)}
-            onCreated={({ server, channels }) => {
+            onCreated={({ server, channels, roles }) => {
               setServers((s) => [...s, server]);
               setDetails((all) => ({
                 ...all,
-                [server.id]: { server, channels, members: [user], presence: {}, voice: {} },
+                [server.id]: {
+                  server,
+                  channels,
+                  members: [user],
+                  presence: {},
+                  voice: {},
+                  roles,
+                  memberData: { [user.id]: { nickname: null, roleIds: [] } },
+                },
               }));
               setModal(null);
               navigate(`/channels/${server.id}`);
             }}
           />
         )}
-        {modal === "createChannel" && current && (
+        {modal?.kind === "createChannel" && current && (
           <CreateChannelModal
             serverId={current.server.id}
             onClose={() => setModal(null)}
@@ -518,7 +624,15 @@ export function Shell({ user, initialStatus, initialActivity, servers, setServer
             }}
           />
         )}
-        {modal === "invite" && current && <InviteModal server={current.server} onClose={() => setModal(null)} />}
+        {modal?.kind === "invite" && current && <InviteModal server={current.server} onClose={() => setModal(null)} />}
+        {modal?.kind === "editChannel" && current && <EditChannelModal channel={modal.channel} onClose={() => setModal(null)} />}
+        {modal?.kind === "nickname" && current && (
+          <NicknameModal details={current} target={user} selfId={user.id} onClose={() => setModal(null)} />
+        )}
+        {modal?.kind === "profile" && <ProfileModal user={user} onClose={() => setModal(null)} />}
+        {modal?.kind === "settings" && current && (
+          <ServerSettings details={current} selfId={user.id} presence={presence} onClose={() => setModal(null)} />
+        )}
       </div>
     </VoiceContext.Provider>
   );

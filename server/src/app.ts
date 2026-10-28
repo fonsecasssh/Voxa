@@ -5,19 +5,12 @@ import path from "node:path";
 import { Server as IOServer } from "socket.io";
 import { hashPassword, verifyPassword } from "./auth.ts";
 import type { DB } from "./db.ts";
-import { createStore, type ChannelType, type DmSummary, type PublicUser, type Store, type UserStatus } from "./store.ts";
+import { createStore, type DmSummary, type PublicUser, type Store, type UserStatus } from "./store.ts";
 import { registerRealtime } from "./realtime.ts";
 import { createIceProvider, type IceProvider } from "./ice.ts";
 import { failureLimiter, rateLimit } from "./rateLimit.ts";
-
-export class HttpError extends Error {
-  constructor(
-    readonly status: number,
-    message: string,
-  ) {
-    super(message);
-  }
-}
+import { HttpError, str } from "./http.ts";
+import { registerAdminRoutes } from "./admin.ts";
 
 // Express's Request carries the authenticated user after `requireAuth`.
 declare module "express-serve-static-core" {
@@ -30,13 +23,6 @@ declare module "express-serve-static-core" {
 const USERNAME_RE = /^[a-zA-Z0-9_.]{3,32}$/;
 const STATUSES: UserStatus[] = ["online", "idle", "dnd", "invisible"];
 
-function str(value: unknown, field: string, min: number, max: number): string {
-  if (typeof value !== "string") throw new HttpError(400, `Campo "${field}" é obrigatório.`);
-  const v = value.trim();
-  if (v.length < min || v.length > max) throw new HttpError(400, `"${field}" deve ter entre ${min} e ${max} caracteres.`);
-  return v;
-}
-
 function bearer(req: Request): string | null {
   const h = req.headers.authorization;
   return h?.startsWith("Bearer ") ? h.slice(7) : null;
@@ -47,16 +33,19 @@ export interface AppOptions {
   /** Directory with the built web app, served in production. */
   webDist?: string;
   ice?: IceProvider;
-  /** Number of reverse proxies in front of the app (1 on Render), so req.ip is the client's address. */
+  /** Number of reverse proxies in front of the app, so req.ip is the client's address. */
   trustProxy?: number;
+  /** Signups allowed per IP per hour; 0 turns the limit off. Defaults to 20 when trustProxy is set. */
+  signupsPerHour?: number;
 }
 
-export function createApp({ db, webDist, ice = createIceProvider(), trustProxy = 0 }: AppOptions) {
+export function createApp({ db, webDist, ice = createIceProvider(), trustProxy = 0, signupsPerHour }: AppOptions) {
   const store: Store = createStore(db);
   const app = express();
   const http = createHttpServer(app);
   // The site, its API and the socket share one origin (the desktop app loads that same site), so no CORS.
   const io = new IOServer(http);
+  const realtime = registerRealtime(io, store);
 
   app.set("trust proxy", trustProxy);
   app.disable("x-powered-by");
@@ -81,9 +70,10 @@ export function createApp({ db, webDist, ice = createIceProvider(), trustProxy =
   // proxies sit in front of the app. Signup spam is limited per IP, but only when the
   // proxy count is configured — otherwise every user would share the proxy's address.
   const loginFailures = failureLimiter({ windowMs: 15 * 60_000, max: 10 });
+  const maxSignups = signupsPerHour ?? (trustProxy > 0 ? 20 : 0);
   const signupLimit =
-    trustProxy > 0 || process.env.NODE_ENV === "test"
-      ? rateLimit({ windowMs: 60 * 60_000, max: 20, message: "Muitos cadastros a partir da sua rede. Tente mais tarde." })
+    maxSignups > 0
+      ? rateLimit({ windowMs: 60 * 60_000, max: maxSignups, message: "Muitos cadastros a partir da sua rede. Tente mais tarde." })
       : (_req: Request, _res: Response, next: NextFunction) => next();
 
   const requireAuth = (req: Request, _res: Response, next: NextFunction) => {
@@ -249,9 +239,9 @@ export function createApp({ db, webDist, ice = createIceProvider(), trustProxy =
   // --- servers --------------------------------------------------------------
   app.post("/api/servers", requireAuth, (req, res) => {
     const name = str(req.body?.name, "nome", 1, 100);
-    const { server, channels } = store.createServer(req.user!.id, name);
+    const { server, channels, roles } = store.createServer(req.user!.id, name);
     io.in(`user:${req.user!.id}`).socketsJoin(`server:${server.id}`);
-    res.status(201).json({ server, channels });
+    res.status(201).json({ server, channels, roles });
   });
 
   app.get("/api/servers/:id", requireAuth, (req, res) => {
@@ -262,6 +252,8 @@ export function createApp({ db, webDist, ice = createIceProvider(), trustProxy =
       members: store.members(server.id),
       presence: realtime.presenceMap(store.members(server.id).map((m) => m.id)),
       voice: realtime.voiceState(server.id),
+      roles: store.roles(server.id),
+      memberData: store.memberData(server.id),
     });
   });
 
@@ -293,16 +285,6 @@ export function createApp({ db, webDist, ice = createIceProvider(), trustProxy =
   });
 
   // --- channels -------------------------------------------------------------
-  app.post("/api/servers/:id/channels", requireAuth, (req, res) => {
-    const server = requireMember(req, req.params.id as string);
-    if (server.ownerId !== req.user!.id) throw new HttpError(403, "Só o dono do servidor pode criar canais.");
-    const type: ChannelType = req.body?.type === "voice" ? "voice" : "text";
-    let name = str(req.body?.name, "nome", 1, 100);
-    if (type === "text") name = name.toLowerCase().replace(/\s+/g, "-");
-    const channel = store.insertChannel(server.id, name, type);
-    io.to(`server:${server.id}`).emit("channel:new", channel);
-    res.status(201).json({ channel });
-  });
 
   // --- messages -------------------------------------------------------------
   app.get("/api/channels/:id/messages", requireAuth, (req, res) => {
@@ -320,6 +302,8 @@ export function createApp({ db, webDist, ice = createIceProvider(), trustProxy =
     io.to(realtime.channelRooms(channel)).emit("message:new", message);
     res.status(201).json({ message });
   });
+
+  registerAdminRoutes({ app, io, store, realtime, requireAuth, requireMember });
 
   app.use("/api", (_req, _res) => {
     throw new HttpError(404, "Rota não encontrada.");
@@ -350,7 +334,6 @@ export function createApp({ db, webDist, ice = createIceProvider(), trustProxy =
     res.status(500).json({ error: "Erro interno." });
   });
 
-  const realtime = registerRealtime(io, store);
 
   return { app, http, io, store };
 }

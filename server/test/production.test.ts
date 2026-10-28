@@ -74,7 +74,7 @@ describe("production hardening", () => {
   let close: () => Promise<void>;
 
   beforeAll(async () => {
-    const { http, io } = createApp({ db: openDb(":memory:"), ice: createIceProvider({}) });
+    const { http, io } = createApp({ db: openDb(":memory:"), ice: createIceProvider({}), signupsPerHour: 3 });
     await new Promise<void>((r) => http.listen(0, r));
     base = `http://127.0.0.1:${(http.address() as AddressInfo).port}`;
     close = () => new Promise((r) => io.close(() => r()));
@@ -94,11 +94,20 @@ describe("production hardening", () => {
     expect(res.headers.get("x-powered-by")).toBeNull();
   });
 
+  it("limits signups per address when enabled", async () => {
+    const signup = (username: string) =>
+      fetch(`${base}/api/auth/register`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ username, password: "senha-certa" }),
+      }).then((r) => r.status);
+    expect([await signup("alvo"), await signup("outro"), await signup("terceiro"), await signup("quarto")]).toEqual([201, 201, 201, 429]);
+  });
+
   it("blocks an account after too many wrong passwords, without affecting others", async () => {
     const post = (path: string, body: unknown) =>
       fetch(`${base}${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-    expect((await post("/api/auth/register", { username: "alvo", password: "senha-certa" })).status).toBe(201);
-    expect((await post("/api/auth/register", { username: "outro", password: "senha-certa" })).status).toBe(201);
+    // "alvo" and "outro" were created by the signup test above.
 
     const statuses: number[] = [];
     for (let i = 0; i < 11; i++) statuses.push((await post("/api/auth/login", { username: "ALVO", password: "errada!!" })).status);

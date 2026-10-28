@@ -1,5 +1,5 @@
 import { io, type Socket } from "socket.io-client";
-import type { Channel, DmSummary, FriendState, Message, Presence, User } from "./api.ts";
+import type { Channel, DmSummary, FriendState, MemberData, Message, Presence, Role, Server, User } from "./api.ts";
 import type { VoiceMember } from "./voice/types.ts";
 
 export interface ServerToClient {
@@ -9,6 +9,16 @@ export interface ServerToClient {
   presence: (p: { userId: string; presence: Presence }) => void;
   "friend:update": (p: { user: User; state: FriendState | null; presence: Presence | null }) => void;
   "dm:new": (dm: DmSummary) => void;
+  "user:update": (user: User) => void;
+  "server:update": (server: Server) => void;
+  /** We are no longer in this server (kicked, left elsewhere, or it was deleted). */
+  "server:removed": (p: { serverId: string; reason: string | null }) => void;
+  "member:update": (p: { serverId: string; userId: string } & MemberData) => void;
+  "member:leave": (p: { serverId: string; userId: string }) => void;
+  "roles:update": (p: { serverId: string; roles: Role[] }) => void;
+  "channel:update": (c: Channel) => void;
+  "channel:delete": (p: { serverId: string; channelId: string }) => void;
+  "voice:kicked": (p: { reason: string }) => void;
   typing: (p: { channelId: string; user: User }) => void;
   "voice:update": (p: { serverId: string; channelId: string; members: VoiceMember[] }) => void;
   "voice:signal": (p: { from: string; data: unknown }) => void;

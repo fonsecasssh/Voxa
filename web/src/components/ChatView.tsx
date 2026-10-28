@@ -1,12 +1,15 @@
 import { useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
-import type { Channel, Message, User } from "../api.ts";
+import type { Channel, Message, User, ServerDetails } from "../api.ts";
 import { Avatar } from "./Avatar.tsx";
+import { memberColor, memberName } from "../members.ts";
 
 const GROUP_WINDOW_MS = 5 * 60_000;
 const TYPING_THROTTLE_MS = 2500;
 
 interface Props {
   channel: Channel;
+  /** The server the channel belongs to, for nicknames and role colors (undefined in DMs). */
+  server?: ServerDetails;
   /** The other person, for direct messages. */
   dmUser?: User;
   messages?: Message[];
@@ -27,14 +30,14 @@ function formatTime(ts: number): string {
   return `${d.toLocaleDateString("pt-BR")} ${time}`;
 }
 
-function typingText(users: User[]): string {
-  const names = users.map((u) => u.displayName);
+function typingText(users: User[], server?: ServerDetails): string {
+  const names = users.map((u) => memberName(server, u));
   if (names.length === 1) return `${names[0]} está digitando…`;
   if (names.length <= 3) return `${names.slice(0, -1).join(", ")} e ${names.at(-1)} estão digitando…`;
   return "Várias pessoas estão digitando…";
 }
 
-export function ChatView({ channel, dmUser, messages, hasMore, typingUsers, onLoadOlder, onSend, onTyping }: Props) {
+export function ChatView({ channel, server, dmUser, messages, hasMore, typingUsers, onLoadOlder, onSend, onTyping }: Props) {
   const title = dmUser ? dmUser.displayName : channel.name;
   const placeholder = dmUser ? `Conversar com @${dmUser.username}` : `Conversar em #${channel.name}`;
   const listRef = useRef<HTMLDivElement>(null);
@@ -156,10 +159,10 @@ export function ChatView({ channel, dmUser, messages, hasMore, typingUsers, onLo
                 </div>
               ) : (
                 <div key={m.id} className="message">
-                  <Avatar name={m.author.displayName} id={m.author.id} />
+                  <Avatar name={memberName(server, m.author)} id={m.author.id} />
                   <div>
                     <div className="message-meta">
-                      <strong>{m.author.displayName}</strong>
+                      <strong style={{ color: memberColor(server, m.author.id) }}>{memberName(server, m.author)}</strong>
                       <span className="muted small">{formatTime(m.createdAt)}</span>
                     </div>
                     <div className="message-content">{m.content}</div>
@@ -182,7 +185,7 @@ export function ChatView({ channel, dmUser, messages, hasMore, typingUsers, onLo
           onKeyDown={onKeyDown}
           autoFocus
         />
-        <div className="typing">{typingUsers.length > 0 && typingText(typingUsers)}</div>
+        <div className="typing">{typingUsers.length > 0 && typingText(typingUsers, server)}</div>
       </div>
     </main>
   );

@@ -70,7 +70,8 @@ export function registerRealtime(io: IOServer, store: Store) {
   });
 
   io.on("connection", (socket: Socket) => {
-    const { user } = socket.data as SocketData;
+    const data = socket.data as SocketData;
+    const { user } = data;
     socket.join(`user:${user.id}`);
     for (const server of store.serversForUser(user.id)) socket.join(`server:${server.id}`);
 
@@ -83,10 +84,10 @@ export function registerRealtime(io: IOServer, store: Store) {
       if (typeof channelId !== "string") return;
       const channel = store.channelById(channelId);
       if (!channel || channel.type === "voice" || !canAccess(channel, user.id)) return;
-      socket.to(channelRooms(channel)).except(`user:${user.id}`).emit("typing", { channelId, user });
+      socket.to(channelRooms(channel)).except(`user:${user.id}`).emit("typing", { channelId, user: data.user });
     });
 
-    voice.register(socket, user);
+    voice.register(socket, () => data.user);
 
     socket.on("disconnect", () => {
       const left = (connections.get(user.id) ?? 1) - 1;
@@ -121,5 +122,22 @@ export function registerRealtime(io: IOServer, store: Store) {
     channelRooms,
     canAccess,
     voiceState: voice.stateForServer,
+    evictVoiceChannel: voice.evictChannel,
+
+    /** A profile change: refresh the user on their sockets and in voice, and tell everyone who can see them. */
+    updateUser(user: PublicUser) {
+      for (const s of io.sockets.sockets.values()) {
+        const d = s.data as SocketData;
+        if (d.user?.id === user.id) d.user = user;
+      }
+      voice.updateUser(user);
+      io.to(audience(user.id)).emit("user:update", user);
+    },
+
+    /** After a kick or leave: the user's sockets stop receiving the server's events, and leave its voice. */
+    removeFromServer(serverId: string, userId: string, reason: string) {
+      voice.evictUser(userId, serverId, reason);
+      io.in(`user:${userId}`).socketsLeave(`server:${serverId}`);
+    },
   };
 }

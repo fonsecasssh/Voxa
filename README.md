@@ -7,6 +7,7 @@ Servidores, chat em tempo real, voz e amigos — um app no estilo Discord.
 - `server/` — API (Express) + tempo real (Socket.IO) + banco SQLite (`node:sqlite`, embutido no Node).
 - `web/` — interface (React + Vite).
 - `desktop/` — app para Windows (Electron), uma janela em volta do site com recursos de desktop.
+- `shared/` — regras de permissão de cargos, usadas pelo servidor e pelo site.
 
 ## App desktop (Windows)
 
@@ -96,3 +97,4 @@ npm run typecheck
 3. ✅ Amigos (pedidos, aceitar, recusar), mensagens diretas com não lidas, status (disponível, ausente, não perturbe, invisível) e "Jogando X"
 4. ✅ App desktop para Windows (seletor de tela, bandeja, iniciar com o Windows, contador, notificações, detecção de jogos, atualização automática)
 5. ✅ Pronto para produção: Render (`render.yaml`), TURN da Cloudflare, proteção contra tentativas de senha, backup
+6. ✅ Nomes e cargos como no Discord: perfil (nome de exibição, senha), apelido por servidor, cargos com cor, permissões e hierarquia, cargo destacado na lista de membros, expulsar e sair, renomear/excluir servidor e canais

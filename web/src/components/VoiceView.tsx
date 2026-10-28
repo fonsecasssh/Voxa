@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import type { Channel } from "../api.ts";
+import type { Channel, ServerDetails } from "../api.ts";
+import { memberName } from "../members.ts";
 import { useVoice } from "../voice/useVoice.ts";
 import type { VoiceMember } from "../voice/types.ts";
 import { Avatar } from "./Avatar.tsx";
@@ -12,7 +13,7 @@ interface Tile {
   isSelf: boolean;
 }
 
-export function VoiceView({ channel, members }: { channel: Channel; members: VoiceMember[] }) {
+export function VoiceView({ channel, members, server }: { channel: Channel; members: VoiceMember[]; server?: ServerDetails }) {
   const [voice, vs] = useVoice();
   const [focused, setFocused] = useState<string | null>(null);
   const inThisChannel = vs.status !== "idle" && vs.channelId === channel.id;
@@ -50,12 +51,12 @@ export function VoiceView({ channel, members }: { channel: Channel; members: Voi
             <span className="muted">Conectando à transmissão…</span>
           )
         ) : (
-          <Avatar name={t.member.user.displayName} id={t.member.user.id} size={big ? 96 : 72} />
+          <Avatar name={memberName(server, t.member.user)} id={t.member.user.id} size={big ? 96 : 72} />
         )}
         <div className="tile-label">
           {t.kind === "screen" && <span className="live-badge">AO VIVO</span>}
           <span className="ellipsis">
-            {t.member.user.displayName}
+            {memberName(server, t.member.user)}
             {t.isSelf && " (você)"}
           </span>
           {t.kind === "user" && (t.member.deafened ? "🔕" : t.member.muted ? "🔇" : "")}
@@ -77,7 +78,7 @@ export function VoiceView({ channel, members }: { channel: Channel; members: Voi
           <p className="muted">
             {members.length === 0
               ? "Ninguém na voz agora."
-              : `${members.map((m) => m.user.displayName).join(", ")} ${members.length === 1 ? "está" : "estão"} aqui.`}
+              : `${members.map((m) => memberName(server, m.user)).join(", ")} ${members.length === 1 ? "está" : "estão"} aqui.`}
           </p>
           <button className="btn primary" onClick={() => channel.serverId && voice?.join(channel.id, channel.serverId)}>
             Entrar na voz

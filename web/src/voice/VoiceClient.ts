@@ -84,6 +84,7 @@ export class VoiceClient {
       for (const id of [...this.peers.keys()]) if (!present.has(id)) this.closePeer(id);
     });
     socket.on("voice:replaced", () => this.cleanup("Você entrou na voz em outra aba ou dispositivo."));
+    socket.on("voice:kicked", ({ reason }) => this.cleanup(reason));
     // A reconnect gets a new socket id, so the old session is gone server-side.
     socket.on("disconnect", () => {
       if (this.snapshot.status !== "idle") this.cleanup("Conexão perdida com o servidor.");

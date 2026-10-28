@@ -48,8 +48,16 @@ export function createVoice(io: IOServer, store: Store) {
     broadcast(session.serverId, session.channelId);
   };
 
-  function register(socket: Socket, user: PublicUser) {
+  /** Ends a voice session from the server side and tells that socket why. */
+  const evict = (socketId: string, reason: string) => {
+    leave(socketId);
+    io.to(socketId).emit("voice:kicked", { reason });
+  };
+
+  /** `currentUser` returns the socket's user at call time (the display name can change). */
+  function register(socket: Socket, currentUser: () => PublicUser) {
     socket.on("voice:join", (payload: unknown, ack?: (r: unknown) => void) => {
+      const user = currentUser();
       const reply = typeof ack === "function" ? ack : () => {};
       const channelId = (payload as { channelId?: unknown })?.channelId;
       const channel = typeof channelId === "string" ? store.channelById(channelId) : null;
@@ -103,6 +111,23 @@ export function createVoice(io: IOServer, store: Store) {
 
   return {
     register,
+    /** Disconnects everyone from a voice channel that is being deleted. */
+    evictChannel(channelId: string) {
+      for (const [socketId, s] of [...bySocket]) if (s.channelId === channelId) evict(socketId, "O canal de voz foi excluído.");
+    },
+    /** Disconnects a user from voice in a server they no longer belong to. */
+    evictUser(userId: string, serverId: string, reason: string) {
+      const socketId = byUser.get(userId);
+      if (socketId && bySocket.get(socketId)?.serverId === serverId) evict(socketId, reason);
+    },
+    /** Refreshes the user shown in voice lists after a profile change. */
+    updateUser(user: PublicUser) {
+      const socketId = byUser.get(user.id);
+      const session = socketId && bySocket.get(socketId);
+      if (!session) return;
+      session.member.user = user;
+      broadcast(session.serverId, session.channelId);
+    },
     /** Voice channel occupancy for one server, for the initial page load. */
     stateForServer(serverId: string): Record<string, VoiceMember[]> {
       const out: Record<string, VoiceMember[]> = {};

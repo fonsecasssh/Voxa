@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { api, ApiError, getToken, setToken, type Activity, type Server, type User, type UserStatus } from "./api.ts";
 import { parseRoute, usePath } from "./router.ts";
 import { AuthScreen } from "./components/AuthScreen.tsx";
@@ -28,6 +28,12 @@ export function App() {
     setSession(await api.me());
   };
 
+  const setUser = useCallback((user: User) => setSession((s) => (s ? { ...s, user } : s)), []);
+  const setServers = useCallback(
+    (update: (s: Server[]) => Server[]) => setSession((s) => (s ? { ...s, servers: update(s.servers) } : s)),
+    [],
+  );
+
   const logout = async () => {
     await api.logout().catch(() => {});
     setToken(null);
@@ -51,10 +57,11 @@ export function App() {
   return (
     <Shell
       user={session.user}
+      setUser={setUser}
       initialStatus={session.status}
       initialActivity={session.activity}
       servers={session.servers}
-      setServers={(update) => setSession((s) => (s ? { ...s, servers: update(s.servers) } : s))}
+      setServers={setServers}
       serverId={route.serverId}
       channelId={route.channelId}
       onLogout={logout}

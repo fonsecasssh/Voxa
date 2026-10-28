@@ -14,12 +14,13 @@ interface Props {
   /** Where the active voice connection is, e.g. "Geral / Squad", and its URL. */
   voiceLocation: { label: string; path: string } | null;
   setPresence: SetPresence;
+  onEditProfile: () => void;
   onLogout: () => void;
 }
 
 export type SetPresence = (patch: { status?: UserStatus; activity?: string | null }) => Promise<void>;
 
-export function SidebarFooter({ user, status, activity, voiceLocation, setPresence, onLogout }: Props) {
+export function SidebarFooter({ user, status, activity, voiceLocation, setPresence, onEditProfile, onLogout }: Props) {
   const [voice, vs] = useVoice();
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -59,6 +60,10 @@ export function SidebarFooter({ user, status, activity, voiceLocation, setPresen
             setPresence={setPresence}
             onClose={() => setMenuOpen(false)}
             onLogout={onLogout}
+            onEditProfile={() => {
+              setMenuOpen(false);
+              onEditProfile();
+            }}
           />
         )}
         <button className="user-card" title="Definir status" onClick={() => setMenuOpen((o) => !o)}>
@@ -102,12 +107,14 @@ function StatusMenu({
   setPresence,
   onClose,
   onLogout,
+  onEditProfile,
 }: {
   status: UserStatus;
   activity: Activity | null;
   setPresence: SetPresence;
   onClose: () => void;
   onLogout: () => void;
+  onEditProfile: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [game, setGame] = useState(activity?.name ?? "");
@@ -177,6 +184,9 @@ function StatusMenu({
       </form>
       {error && <div className="form-error">{error}</div>}
       <hr />
+      <button className="status-option" onClick={onEditProfile}>
+        Editar perfil
+      </button>
       <button className="status-option danger" onClick={onLogout}>
         Sair da conta
       </button>
