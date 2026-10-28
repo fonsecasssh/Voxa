@@ -1,16 +1,21 @@
-// Crop a picked image to the banner's 16:9 frame: drag to position, slider to zoom.
-// The result is rendered at 960x540 and encoded in the browser, so the upload is small.
+// Crop a picked image for a server banner (16:9) or icon (square, shown round):
+// drag to position, slider to zoom. The result is rendered at the final size and
+// encoded in the browser, so the upload is small.
 
 import { useEffect, useRef, useState, type PointerEvent } from "react";
+import type { ServerImageKind } from "../api.ts";
 
-export const BANNER_WIDTH = 960;
-export const BANNER_HEIGHT = 540;
 const MAX_BYTES = 2 * 1024 * 1024;
-const FRAME_W = 480; // on-screen frame width; output is exactly 2x
-const FRAME_H = (FRAME_W * BANNER_HEIGHT) / BANNER_WIDTH;
+
+/** On-screen frame and output size for each kind. */
+const SHAPES: Record<ServerImageKind, { frameW: number; frameH: number; outW: number; outH: number; title: string; hint: string }> = {
+  banner: { frameW: 480, frameH: 270, outW: 960, outH: 540, title: "Recortar banner", hint: "O banner aparece no topo da lista de canais." },
+  icon: { frameW: 256, frameH: 256, outW: 256, outH: 256, title: "Recortar ícone", hint: "O ícone aparece na barra de servidores." },
+};
 
 interface Props {
   file: File;
+  kind: ServerImageKind;
   onCancel: () => void;
   onCropped: (image: Blob) => Promise<void>;
 }
@@ -26,7 +31,8 @@ async function encode(canvas: HTMLCanvasElement): Promise<Blob> {
   throw new Error("Não foi possível preparar a imagem.");
 }
 
-export function BannerCropper({ file, onCancel, onCropped }: Props) {
+export function ImageCropper({ file, kind, onCancel, onCropped }: Props) {
+  const { frameW: FRAME_W, frameH: FRAME_H, outW, outH, title, hint } = SHAPES[kind];
   const [img, setImg] = useState<HTMLImageElement | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -92,10 +98,10 @@ export function BannerCropper({ file, onCancel, onCropped }: Props) {
     setError(null);
     try {
       const canvas = document.createElement("canvas");
-      canvas.width = BANNER_WIDTH;
-      canvas.height = BANNER_HEIGHT;
+      canvas.width = outW;
+      canvas.height = outH;
       const ctx = canvas.getContext("2d")!;
-      const scale = BANNER_WIDTH / FRAME_W;
+      const scale = outW / FRAME_W;
       ctx.imageSmoothingQuality = "high";
       ctx.drawImage(img, pos.x * scale, pos.y * scale, w * scale, h * scale);
       await onCropped(await encode(canvas));
@@ -107,11 +113,11 @@ export function BannerCropper({ file, onCancel, onCropped }: Props) {
 
   return (
     <div className="modal-backdrop cropper-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onCancel()}>
-      <div className="modal cropper" role="dialog" aria-label="Recortar banner">
-        <h2>Recortar banner</h2>
-        <p className="muted small">Arraste a imagem para enquadrar. O banner aparece no topo da lista de canais.</p>
+      <div className="modal cropper" role="dialog" aria-label={title}>
+        <h2>{title}</h2>
+        <p className="muted small">Arraste a imagem para enquadrar. {hint}</p>
         <div
-          className="crop-frame"
+          className={`crop-frame ${kind}`}
           style={{ width: FRAME_W, height: FRAME_H }}
           onPointerDown={onDown}
           onPointerMove={onMove}

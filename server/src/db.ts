@@ -140,6 +140,11 @@ const MIGRATIONS: string[] = [
   `
   ALTER TABLE servers ADD COLUMN banner TEXT;
   `,
+
+  // 6: server icon (same idea as the banner).
+  `
+  ALTER TABLE servers ADD COLUMN icon TEXT;
+  `,
 ];
 
 function migrate(db: DB) {

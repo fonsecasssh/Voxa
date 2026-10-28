@@ -1,4 +1,4 @@
-import type { Presence, PresenceStatus } from "../api.ts";
+import type { Presence, PresenceStatus, Server } from "../api.ts";
 
 const COLORS = ["#5865f2", "#3ba55c", "#faa61a", "#ed4245", "#eb459e", "#1abc9c", "#9b59b6", "#e67e22"];
 
@@ -34,4 +34,10 @@ export function Avatar({ name, id, size = 40, status }: { name: string; id: stri
       {status && <span className={`presence-dot ${status}`} title={STATUS_LABEL[status]} />}
     </span>
   );
+}
+
+/** A server's icon image, or its initials when it has none. */
+export function ServerIcon({ server, size = 48 }: { server: Pick<Server, "id" | "name" | "icon">; size?: number }) {
+  if (!server.icon) return <Avatar name={server.name} id={server.id} size={size} />;
+  return <img className="avatar server-icon" src={server.icon} alt="" width={size} height={size} draggable={false} />;
 }

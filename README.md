@@ -68,7 +68,7 @@ Variáveis de ambiente:
 | --- | --- |
 | `PORT` | Porta HTTP (padrão 3001) |
 | `DB_FILE` | Arquivo do banco (padrão `server/data/voxa.db`) |
-| `MEDIA_DIR` | Pasta das imagens enviadas, como banners (padrão: pasta `media` ao lado do banco) |
+| `MEDIA_DIR` | Pasta das imagens enviadas — banners e ícones (padrão: pasta `media` ao lado do banco) |
 | `STUN_URLS` | Servidores STUN, separados por vírgula (padrão: STUN público do Google) |
 | `CLOUDFLARE_TURN_KEY_ID`, `CLOUDFLARE_TURN_API_TOKEN` | TURN da Cloudflare (credenciais temporárias geradas pelo servidor) — faz a voz funcionar em qualquer rede |
 | `TURN_URLS`, `TURN_USERNAME`, `TURN_CREDENTIAL` | Alternativa: um servidor TURN próprio (ex.: coturn) |
@@ -100,3 +100,4 @@ npm run typecheck
 5. ✅ Pronto para produção: Render (`render.yaml`), TURN da Cloudflare, proteção contra tentativas de senha, backup
 6. ✅ Nomes e cargos como no Discord: perfil (nome de exibição, senha), apelido por servidor, cargos com cor, permissões e hierarquia, cargo destacado na lista de membros, expulsar e sair, renomear/excluir servidor e canais
 7. ✅ Banner do servidor (recorte 16:9 no navegador, aparece no topo dos canais e no convite)
+8. ✅ Ícone do servidor (recorte redondo, aparece na barra de servidores e no convite)

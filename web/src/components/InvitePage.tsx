@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
 import { api, type Server } from "../api.ts";
 import { navigate } from "../router.ts";
-import { Avatar } from "./Avatar.tsx";
+import { ServerIcon } from "./Avatar.tsx";
 
 export function InvitePage({ code, onJoined }: { code: string; onJoined: (server: Server) => void }) {
-  const [info, setInfo] = useState<{ server: { id: string; name: string; banner: string | null }; memberCount: number } | null>(null);
+  const [info, setInfo] = useState<Awaited<ReturnType<typeof api.invite>> | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -41,7 +41,7 @@ export function InvitePage({ code, onJoined }: { code: string; onJoined: (server
           <>
             {info.server.banner && <div className="invite-banner" style={{ backgroundImage: `url(${info.server.banner})` }} />}
             <p className="muted small">Você foi convidado para entrar em</p>
-            <Avatar name={info.server.name} id={info.server.id} size={64} />
+            <ServerIcon server={info.server} size={64} />
             <h1>{info.server.name}</h1>
             <p className="muted">
               {info.memberCount} {info.memberCount === 1 ? "membro" : "membros"}

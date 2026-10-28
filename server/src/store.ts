@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import type { DB } from "./db.ts";
 import { newInviteCode, newToken } from "./auth.ts";
 import { DEFAULT_PERMISSIONS } from "../../shared/permissions.ts";
+import { imageUrlPrefix, type ImageKind } from "./media.ts";
 
 export interface PublicUser {
   id: string;
@@ -18,10 +19,9 @@ export interface Server {
   inviteCode: string;
   /** URL of the banner image, or null. */
   banner: string | null;
+  /** URL of the icon image, or null (the initials are shown instead). */
+  icon: string | null;
 }
-
-/** Where banner files are served from (see app.ts). */
-export const BANNER_URL_PREFIX = "/media/banners/";
 
 export type ChannelType = "text" | "voice" | "dm";
 
@@ -90,7 +90,8 @@ const toServer = (r: Row): Server => ({
   name: r.name as string,
   ownerId: r.owner_id as string,
   inviteCode: r.invite_code as string,
-  banner: r.banner ? BANNER_URL_PREFIX + (r.banner as string) : null,
+  banner: r.banner ? imageUrlPrefix("banner") + (r.banner as string) : null,
+  icon: r.icon ? imageUrlPrefix("icon") + (r.icon as string) : null,
 });
 
 const toChannel = (r: Row): Channel => ({
@@ -312,7 +313,7 @@ export function createStore(db: DB) {
     // --- servers & membership ---------------------------------------------
     createServer(ownerId: string, name: string): { server: Server; channels: Channel[]; roles: Role[] } {
       const now = Date.now();
-      const server: Server = { id: randomUUID(), name, ownerId, inviteCode: newInviteCode(), banner: null };
+      const server: Server = { id: randomUUID(), name, ownerId, inviteCode: newInviteCode(), banner: null, icon: null };
       db.exec("BEGIN");
       try {
         db.prepare("INSERT INTO servers (id, name, owner_id, invite_code, created_at) VALUES (?, ?, ?, ?, ?)")
@@ -387,11 +388,13 @@ export function createStore(db: DB) {
       return db.prepare("DELETE FROM members WHERE server_id = ? AND user_id = ?").run(serverId, userId).changes > 0;
     },
 
-    /** Sets the banner file name (or null) and returns the previous one, so its file can be removed. */
-    setBanner(serverId: string, file: string | null): string | null {
-      const prev = db.prepare("SELECT banner FROM servers WHERE id = ?").get(serverId) as Row | undefined;
-      db.prepare("UPDATE servers SET banner = ? WHERE id = ?").run(file, serverId);
-      return (prev?.banner as string | null) ?? null;
+    /** Sets a server image's file name (or null) and returns the previous one, so its file can be removed. */
+    setServerImage(kind: ImageKind, serverId: string, file: string | null): string | null {
+      // The column name comes from a fixed list, never from user input.
+      const column = ({ banner: "banner", icon: "icon" } as const)[kind];
+      const prev = db.prepare(`SELECT ${column} AS f FROM servers WHERE id = ?`).get(serverId) as Row | undefined;
+      db.prepare(`UPDATE servers SET ${column} = ? WHERE id = ?`).run(file, serverId);
+      return (prev?.f as string | null) ?? null;
     },
 
     renameServer(serverId: string, name: string): void {

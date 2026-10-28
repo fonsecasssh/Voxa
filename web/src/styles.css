@@ -1660,13 +1660,6 @@ label .muted {
 .server-menu.with-banner .dropdown {
   top: 52px;
 }
-.banner-section {
-  margin-top: 32px;
-  max-width: 440px;
-}
-.banner-section h3 {
-  margin: 0 0 4px;
-}
 .banner-preview {
   margin: 12px 0;
   aspect-ratio: 16 / 9;
@@ -1723,4 +1716,33 @@ label .muted {
   max-height: 200px;
   background: center / cover no-repeat;
   border-radius: 12px 12px 0 0;
+}
+
+/* --- server icon ------------------------------------------------------------------------------ */
+img.server-icon {
+  object-fit: cover;
+  background: var(--bg-main);
+}
+.image-section {
+  margin-top: 32px;
+  max-width: 440px;
+}
+.image-section h3 {
+  margin: 0 0 4px;
+}
+.icon-preview {
+  margin: 12px 0;
+}
+.crop-frame.icon {
+  margin-left: auto;
+  margin-right: auto;
+}
+/* The icon is shown round: dim what will be cut off. */
+.crop-frame.icon::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  box-shadow: 0 0 0 200px rgba(0, 0, 0, 0.55);
+  pointer-events: none;
 }

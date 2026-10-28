@@ -1,6 +1,6 @@
 import type { Server } from "../api.ts";
 import { navigate } from "../router.ts";
-import { Avatar } from "./Avatar.tsx";
+import { ServerIcon } from "./Avatar.tsx";
 
 interface Props {
   servers: Server[];
@@ -28,7 +28,7 @@ export function ServerRail({ servers, activeId, unreadDms, onCreate }: Props) {
           title={s.name}
           onClick={() => navigate(`/channels/${s.id}`)}
         >
-          <Avatar name={s.name} id={s.id} size={48} />
+          <ServerIcon server={s} size={48} />
         </button>
       ))}
       <button className="rail-item add" title="Criar servidor" onClick={onCreate}>

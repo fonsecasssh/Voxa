@@ -1,14 +1,20 @@
-// Uploaded images (server banners), stored as files in the media directory,
+// Uploaded server images (banner and icon), stored as files in the media directory,
 // which lives next to the database so it is on the persistent disk in production.
 //
-// The browser already crops and resizes banners to 960x540 before uploading, so
-// the server only checks that the bytes really are an image and stores them.
+// The browser already crops and resizes them (banner 960x540, icon 256x256) before
+// uploading, so the server only checks that the bytes really are an image and stores them.
 
 import { createHash } from "node:crypto";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
-export const MAX_BANNER_BYTES = 2 * 1024 * 1024;
+export const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
+
+export const IMAGE_KINDS = ["banner", "icon"] as const;
+export type ImageKind = (typeof IMAGE_KINDS)[number];
+
+/** URL prefix each kind is served under (see app.ts), e.g. /media/banners/. */
+export const imageUrlPrefix = (kind: ImageKind) => `/media/${kind}s/`;
 
 type ImageType = "png" | "jpg" | "webp" | "gif";
 
@@ -22,27 +28,27 @@ export function detectImageType(buf: Buffer): ImageType | null {
 }
 
 export function createMediaStore(dir: string) {
-  const bannersDir = path.join(dir, "banners");
-  mkdirSync(bannersDir, { recursive: true });
+  const dirs = Object.fromEntries(IMAGE_KINDS.map((k) => [k, path.join(dir, `${k}s`)])) as Record<ImageKind, string>;
+  for (const d of Object.values(dirs)) mkdirSync(d, { recursive: true });
 
   return {
-    bannersDir,
+    dirs,
 
     /**
-     * Saves a banner and returns its file name. The name includes a hash of the content,
-     * so it can be cached forever: a new banner always gets a new URL.
+     * Saves an image and returns its file name. The name includes a hash of the content,
+     * so it can be cached forever: a new image always gets a new URL.
      */
-    saveBanner(serverId: string, data: Buffer, type: ImageType): string {
+    save(kind: ImageKind, serverId: string, data: Buffer, type: ImageType): string {
       const hash = createHash("sha256").update(data).digest("hex").slice(0, 16);
       const file = `${serverId}-${hash}.${type}`;
-      writeFileSync(path.join(bannersDir, file), data);
+      writeFileSync(path.join(dirs[kind], file), data);
       return file;
     },
 
-    removeBanner(file: string | null) {
+    remove(kind: ImageKind, file: string | null) {
       // Only plain names we generated; never follow a path out of the directory.
       if (!file || file !== path.basename(file)) return;
-      rmSync(path.join(bannersDir, file), { force: true });
+      rmSync(path.join(dirs[kind], file), { force: true });
     },
   };
 }

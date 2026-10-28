@@ -66,7 +66,7 @@ Quem já tem o app instalado recebe a atualização sozinho.
 O Render tira uma cópia (*snapshot*) do disco automaticamente todo dia e guarda por 7 dias
 (*Disks → Snapshots*), dá para restaurar por lá. Para uma cópia extra na hora, abra o *Shell* do
 serviço no Render e rode `npm run backup -w server` — a cópia é salva em `/var/data/backup-DATA.db`.
-As imagens enviadas (banners dos servidores) ficam em `/var/data/media`, no mesmo disco, e entram no snapshot.
+As imagens enviadas (banners e ícones dos servidores) ficam em `/var/data/media`, no mesmo disco, e entram no snapshot.
 
 ## Observações
 

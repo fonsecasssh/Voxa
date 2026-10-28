@@ -15,7 +15,11 @@ export interface Server {
   inviteCode: string;
   /** URL of the banner image, or null. */
   banner: string | null;
+  /** URL of the icon image, or null (initials are shown instead). */
+  icon: string | null;
 }
+
+export type ServerImageKind = "banner" | "icon";
 
 export type ChannelType = "text" | "voice" | "dm";
 
@@ -161,8 +165,8 @@ export const api = {
   createServer: (name: string) => request<{ server: Server; channels: Channel[]; roles: Role[] }>("POST", "/api/servers", { name }),
   renameServer: (id: string, name: string) => request<{ server: Server }>("PATCH", `/api/servers/${id}`, { name }),
   deleteServer: (id: string) => request<void>("DELETE", `/api/servers/${id}`),
-  uploadBanner: (id: string, image: Blob) => request<{ server: Server }>("PUT", `/api/servers/${id}/banner`, image),
-  removeBanner: (id: string) => request<{ server: Server }>("DELETE", `/api/servers/${id}/banner`),
+  uploadServerImage: (id: string, kind: ServerImageKind, image: Blob) => request<{ server: Server }>("PUT", `/api/servers/${id}/${kind}`, image),
+  removeServerImage: (id: string, kind: ServerImageKind) => request<{ server: Server }>("DELETE", `/api/servers/${id}/${kind}`),
   leaveServer: (id: string) => request<void>("POST", `/api/servers/${id}/leave`),
 
   setNickname: (serverId: string, userId: string, nickname: string | null) =>
@@ -192,7 +196,7 @@ export const api = {
     request<{ channel: Channel }>("POST", `/api/servers/${serverId}/channels`, { name, type }),
 
   invite: (code: string) =>
-    request<{ server: { id: string; name: string; banner: string | null }; memberCount: number }>("GET", `/api/invites/${code}`),
+    request<{ server: Pick<Server, "id" | "name" | "banner" | "icon">; memberCount: number }>("GET", `/api/invites/${code}`),
   joinInvite: (code: string) => request<{ server: Server }>("POST", `/api/invites/${code}`),
 
   rtcConfig: () => request<{ iceServers: RTCIceServer[] }>("GET", "/api/rtc-config"),

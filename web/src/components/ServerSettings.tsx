@@ -2,12 +2,12 @@
 
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { PERMISSION_INFO, Permission as P } from "../../../shared/permissions.ts";
-import { api, type Presence, type Role, type ServerDetails, type User } from "../api.ts";
+import { api, type Presence, type Role, type ServerDetails, type ServerImageKind, type User } from "../api.ts";
 import { Permission, can, memberColor, memberName, memberRoles, myPermissions, myTop, outranks } from "../members.ts";
 import { navigate } from "../router.ts";
-import { Avatar } from "./Avatar.tsx";
+import { Avatar, ServerIcon } from "./Avatar.tsx";
 import { NicknameForm } from "./MemberList.tsx";
-import { BannerCropper } from "./BannerCropper.tsx";
+import { ImageCropper } from "./ImageCropper.tsx";
 
 type Tab = "overview" | "roles" | "members";
 
@@ -121,7 +121,12 @@ function Overview({ details, selfId, perms, onClose }: { details: ServerDetails;
         </form>
       )}
 
-      {can(perms, Permission.MANAGE_SERVER) && <BannerSection details={details} />}
+      {can(perms, Permission.MANAGE_SERVER) && (
+        <>
+          <ServerImageSection details={details} kind="icon" />
+          <ServerImageSection details={details} kind="banner" />
+        </>
+      )}
 
       {isOwner && (
         <section className="danger-zone">
@@ -146,25 +151,49 @@ function Overview({ details, selfId, perms, onClose }: { details: ServerDetails;
   );
 }
 
-function BannerSection({ details }: { details: ServerDetails }) {
+const IMAGE_TEXT = {
+  banner: {
+    title: "Banner do servidor",
+    hint: "Aparece no topo da lista de canais e no convite. Tamanho ideal: 960×540 (16:9).",
+    empty: "Sem banner",
+    remove: "Remover banner",
+    pick: "Escolher imagem do banner",
+  },
+  icon: {
+    title: "Ícone do servidor",
+    hint: "Aparece na barra de servidores e no convite. Tamanho ideal: 256×256 (quadrado).",
+    empty: "",
+    remove: "Remover ícone",
+    pick: "Escolher imagem do ícone",
+  },
+} as const;
+
+function ServerImageSection({ details, kind }: { details: ServerDetails; kind: ServerImageKind }) {
   const input = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
   const { error, busy, run } = useAction();
-  const banner = details.server.banner;
+  const current = details.server[kind];
+  const text = IMAGE_TEXT[kind];
 
   return (
-    <section className="banner-section">
-      <h3>Banner do servidor</h3>
-      <p className="muted small">Aparece no topo da lista de canais e no convite. Tamanho ideal: 960×540 (16:9).</p>
-      <div className="banner-preview" style={banner ? { backgroundImage: `url(${banner})` } : undefined}>
-        {!banner && <span className="muted">Sem banner</span>}
-      </div>
+    <section className={`image-section ${kind}`}>
+      <h3>{text.title}</h3>
+      <p className="muted small">{text.hint}</p>
+      {kind === "banner" ? (
+        <div className="banner-preview" style={current ? { backgroundImage: `url(${current})` } : undefined}>
+          {!current && <span className="muted">{text.empty}</span>}
+        </div>
+      ) : (
+        <div className="icon-preview">
+          <ServerIcon server={details.server} size={96} />
+        </div>
+      )}
       <input
         ref={input}
         type="file"
         accept="image/png,image/jpeg,image/webp,image/gif"
         hidden
-        aria-label="Escolher imagem do banner"
+        aria-label={text.pick}
         onChange={(e) => {
           const f = e.target.files?.[0];
           e.target.value = ""; // allow picking the same file again
@@ -174,20 +203,21 @@ function BannerSection({ details }: { details: ServerDetails }) {
       {error && <div className="form-error">{error}</div>}
       <div className="modal-actions start">
         <button className="btn primary" onClick={() => input.current?.click()} disabled={busy}>
-          {banner ? "Trocar imagem" : "Enviar imagem"}
+          {current ? "Trocar imagem" : "Enviar imagem"}
         </button>
-        {banner && (
-          <button className="btn subtle danger" onClick={() => run(() => api.removeBanner(details.server.id))} disabled={busy}>
-            Remover banner
+        {current && (
+          <button className="btn subtle danger" onClick={() => run(() => api.removeServerImage(details.server.id, kind))} disabled={busy}>
+            {text.remove}
           </button>
         )}
       </div>
       {file && (
-        <BannerCropper
+        <ImageCropper
           file={file}
+          kind={kind}
           onCancel={() => setFile(null)}
           onCropped={async (image) => {
-            await api.uploadBanner(details.server.id, image);
+            await api.uploadServerImage(details.server.id, kind, image);
             setFile(null);
           }}
         />

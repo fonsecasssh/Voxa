@@ -8,7 +8,7 @@ import { hashPassword, verifyPassword } from "./auth.ts";
 import { HttpError, str } from "./http.ts";
 import type { registerRealtime } from "./realtime.ts";
 import type { ChannelType, Role, Server, Store } from "./store.ts";
-import { MAX_BANNER_BYTES, detectImageType, type MediaStore } from "./media.ts";
+import { IMAGE_KINDS, MAX_IMAGE_BYTES, detectImageType, type MediaStore } from "./media.ts";
 
 interface Deps {
   app: Express;
@@ -101,39 +101,39 @@ export function registerAdminRoutes({ app, io, store, realtime, media, requireAu
     res.json({ server: updated });
   });
 
-  // The image is the raw request body (the browser sends the cropped 960x540 image).
-  app.put(
-    "/api/servers/:id/banner",
-    requireAuth,
-    express.raw({ type: () => true, limit: MAX_BANNER_BYTES }),
-    (req, res) => {
+  // Banner and icon: PUT /api/servers/:id/banner|icon with the image as the raw request
+  // body (the browser sends it already cropped), DELETE to remove it.
+  for (const kind of IMAGE_KINDS) {
+    const publish = (serverId: string, res: Response) => {
+      const updated = store.serverById(serverId)!;
+      io.to(`server:${serverId}`).emit("server:update", updated);
+      res.json({ server: updated });
+    };
+
+    app.put(`/api/servers/:id/${kind}`, requireAuth, express.raw({ type: () => true, limit: MAX_IMAGE_BYTES }), (req, res) => {
       const { server, perms } = standing(req, req.params.id as string);
       need(perms, Permission.MANAGE_SERVER, "Você não tem permissão para gerenciar este servidor.");
       const data = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
       const type = detectImageType(data);
       if (!type) throw new HttpError(400, "Envie uma imagem PNG, JPEG, WebP ou GIF.");
-      const file = media.saveBanner(server.id, data, type);
-      const previous = store.setBanner(server.id, file);
-      if (previous !== file) media.removeBanner(previous);
-      const updated = store.serverById(server.id)!;
-      io.to(`server:${server.id}`).emit("server:update", updated);
-      res.json({ server: updated });
-    },
-  );
+      const file = media.save(kind, server.id, data, type);
+      const previous = store.setServerImage(kind, server.id, file);
+      if (previous !== file) media.remove(kind, previous);
+      publish(server.id, res);
+    });
 
-  app.delete("/api/servers/:id/banner", requireAuth, (req, res) => {
-    const { server, perms } = standing(req, req.params.id as string);
-    need(perms, Permission.MANAGE_SERVER, "Você não tem permissão para gerenciar este servidor.");
-    media.removeBanner(store.setBanner(server.id, null));
-    const updated = store.serverById(server.id)!;
-    io.to(`server:${server.id}`).emit("server:update", updated);
-    res.json({ server: updated });
-  });
+    app.delete(`/api/servers/:id/${kind}`, requireAuth, (req, res) => {
+      const { server, perms } = standing(req, req.params.id as string);
+      need(perms, Permission.MANAGE_SERVER, "Você não tem permissão para gerenciar este servidor.");
+      media.remove(kind, store.setServerImage(kind, server.id, null));
+      publish(server.id, res);
+    });
+  }
 
   app.delete("/api/servers/:id", requireAuth, (req, res) => {
     const server = requireMember(req, req.params.id as string);
     if (server.ownerId !== req.user!.id) throw new HttpError(403, "Só o dono pode excluir o servidor.");
-    media.removeBanner(store.setBanner(server.id, null));
+    for (const kind of IMAGE_KINDS) media.remove(kind, store.setServerImage(kind, server.id, null));
     for (const c of store.channels(server.id)) if (c.type === "voice") realtime.evictVoiceChannel(c.id);
     io.to(`server:${server.id}`).emit("server:removed", { serverId: server.id, reason: `O servidor "${server.name}" foi excluído.` });
     io.in(`server:${server.id}`).socketsLeave(`server:${server.id}`);

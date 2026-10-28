@@ -108,32 +108,48 @@ export function Shell({ user, setUser, initialStatus, initialActivity, servers, 
   // Requests in flight, so effects that re-run on unrelated state changes don't fire duplicates.
   const inFlight = useRef(new Set<string>());
 
+  // Presence comes from two places: snapshots in REST responses and live socket events.
+  // A snapshot may be computed before an event that arrives first (e.g. our own socket
+  // connecting right after the page asked for the member list), so a snapshot never
+  // overwrites a user whose event is newer than the request.
+  const presenceEventAt = useRef(new Map<string, number>());
+  const applyPresenceSnapshot = useCallback((ids: string[], known: Record<string, Presence>, requestedAt: number) => {
+    const fresh = ids.filter((id) => (presenceEventAt.current.get(id) ?? 0) < requestedAt);
+    setPresenceMap((all) => mergePresence(all, fresh, known));
+  }, []);
+  const applyPresenceEvent = useCallback((userId: string, p: Presence) => {
+    presenceEventAt.current.set(userId, Date.now());
+    setPresenceMap((all) => mergePresence(all, [userId], p.status === "offline" ? {} : { [userId]: p }));
+  }, []);
+
   const loadServer = useCallback((id: string) => {
     const key = `server:${id}`;
     if (inFlight.current.has(key)) return;
     inFlight.current.add(key);
+    const requestedAt = Date.now();
     api
       .server(id)
       .then(
         (d) => {
           setDetails((all) => ({ ...all, [id]: d }));
-          setPresenceMap((all) => mergePresence(all, d.members.map((m) => m.id), d.presence));
+          applyPresenceSnapshot(d.members.map((m) => m.id), d.presence, requestedAt);
         },
         (err) => setLoadError((err as Error).message),
       )
       .finally(() => inFlight.current.delete(key));
-  }, []);
+  }, [applyPresenceSnapshot]);
 
   const loadSocial = useCallback(() => {
+    const requestedAt = Date.now();
     api.friends().then(({ friends: list, presence: p }) => {
       setFriends(list);
-      setPresenceMap((all) => mergePresence(all, list.filter((f) => f.state === "accepted").map((f) => f.user.id), p));
+      applyPresenceSnapshot(list.filter((f) => f.state === "accepted").map((f) => f.user.id), p, requestedAt);
     });
     api.dms().then(({ dms: list, presence: p }) => {
       setDms(list);
-      setPresenceMap((all) => mergePresence(all, list.map((d) => d.user.id), p));
+      applyPresenceSnapshot(list.map((d) => d.user.id), p, requestedAt);
     });
-  }, []);
+  }, [applyPresenceSnapshot]);
 
   const loadMessages = useCallback(async (id: string, before?: number) => {
     const key = `messages:${id}:${before ?? "latest"}`;
@@ -226,11 +242,11 @@ export function Shell({ user, setUser, initialStatus, initialActivity, servers, 
           [sid]: { ...d, members: [...d.members, u], memberData: { ...d.memberData, [u.id]: { nickname: null, roleIds: [] } } },
         };
       });
-      setPresenceMap((all) => mergePresence(all, [u.id], p.status === "offline" ? {} : { [u.id]: p }));
+      applyPresenceEvent(u.id, p);
     });
 
     socket.on("presence", ({ userId, presence: p }) => {
-      setPresenceMap((all) => mergePresence(all, [userId], p.status === "offline" ? {} : { [userId]: p }));
+      applyPresenceEvent(userId, p);
       if (userId === user.id && p.status !== "offline") setMyActivity(p.activity);
     });
 
@@ -239,7 +255,7 @@ export function Shell({ user, setUser, initialStatus, initialActivity, servers, 
         const rest = (list ?? []).filter((f) => f.user.id !== u.id);
         return state ? [...rest, { user: u, state }].sort((a, b) => a.user.displayName.localeCompare(b.user.displayName)) : rest;
       });
-      if (p && p.status !== "offline") setPresenceMap((all) => ({ ...all, [u.id]: p }));
+      if (p) applyPresenceEvent(u.id, p);
     });
 
     socket.on("dm:new", (dm) => {
@@ -330,7 +346,7 @@ export function Shell({ user, setUser, initialStatus, initialActivity, servers, 
       socketRef.current = null;
       setVoice(null);
     };
-  }, [loadServer, loadMessages, loadSocial, user.id, setUser, setServers]);
+  }, [loadServer, loadMessages, loadSocial, applyPresenceEvent, user.id, setUser, setServers]);
 
   useEffect(() => {
     if (!notice) return;

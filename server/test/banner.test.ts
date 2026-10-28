@@ -105,12 +105,46 @@ describe("server banner", () => {
     sm.close();
   });
 
-  it("deletes the banner file with the server, and refuses path tricks", async () => {
+  it("handles the server icon the same way, independently of the banner", async () => {
+    const owner = await user();
+    const member = await user();
+    const { body } = await api("POST", "/api/servers", { name: "Com ícone" }, owner.token);
+    const sid = body.server.id;
+    expect(body.server.icon).toBeNull();
+    await api("POST", `/api/invites/${body.server.inviteCode}`, undefined, member.token);
+    const uploadIcon = (data: Buffer, token: string) =>
+      fetch(`${base}/api/servers/${sid}/icon`, { method: "PUT", headers: { "content-type": "image/webp", authorization: `Bearer ${token}` }, body: new Uint8Array(data) }).then(
+        async (r) => ({ status: r.status, body: await r.json() }),
+      );
+
+    expect((await uploadIcon(WEBP, member.token)).status).toBe(403);
+    expect((await uploadIcon(Buffer.from("nope"), owner.token)).status).toBe(400);
+    const banner = (await upload(sid, PNG, owner.token, "image/png")).body.server.banner;
+    const icon = (await uploadIcon(WEBP, owner.token)).body.server;
+    expect(icon.icon).toMatch(new RegExp(`^/media/icons/${sid}-[0-9a-f]{16}\\.webp$`));
+    expect(icon.banner).toBe(banner); // the banner is untouched
+    expect((await fetch(base + icon.icon)).status).toBe(200);
+    expect((await api("GET", `/api/invites/${body.server.inviteCode}`)).body.server.icon).toBe(icon.icon);
+
+    const removed = (await api("DELETE", `/api/servers/${sid}/icon`, undefined, owner.token)).body.server;
+    expect(removed.icon).toBeNull();
+    expect(removed.banner).toBe(banner);
+    expect(existsSync(path.join(mediaDir, "icons", path.basename(icon.icon)))).toBe(false);
+  });
+
+  it("deletes the image files with the server, and refuses path tricks", async () => {
     const owner = await user();
     const sid = (await api("POST", "/api/servers", { name: "Temporário" }, owner.token)).body.server.id;
     const file = path.basename((await upload(sid, WEBP, owner.token)).body.server.banner);
+    const iconRes = await fetch(`${base}/api/servers/${sid}/icon`, {
+      method: "PUT",
+      headers: { "content-type": "image/png", authorization: `Bearer ${owner.token}` },
+      body: new Uint8Array(PNG),
+    });
+    const iconFile = path.basename((await iconRes.json()).server.icon);
     await api("DELETE", `/api/servers/${sid}`, undefined, owner.token);
     expect(existsSync(path.join(bannersDir, file))).toBe(false);
+    expect(existsSync(path.join(mediaDir, "icons", iconFile))).toBe(false);
     expect((await fetch(`${base}/media/banners/..%2F..%2Fetc%2Fpasswd`)).status).toBeGreaterThanOrEqual(400);
   });
 });

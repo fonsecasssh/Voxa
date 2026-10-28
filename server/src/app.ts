@@ -11,7 +11,7 @@ import { createIceProvider, type IceProvider } from "./ice.ts";
 import { failureLimiter, rateLimit } from "./rateLimit.ts";
 import { HttpError, str } from "./http.ts";
 import { registerAdminRoutes } from "./admin.ts";
-import { createMediaStore } from "./media.ts";
+import { IMAGE_KINDS, createMediaStore, imageUrlPrefix } from "./media.ts";
 import { tmpdir } from "node:os";
 
 // Express's Request carries the authenticated user after `requireAuth`.
@@ -64,11 +64,13 @@ export function createApp({ db, webDist, ice = createIceProvider(), trustProxy =
   });
   app.use(express.json({ limit: "100kb" }));
 
-  // Uploaded banners. File names contain a content hash, so they can be cached forever.
-  app.use(
-    "/media/banners",
-    express.static(media.bannersDir, { immutable: true, maxAge: "1y", index: false, dotfiles: "deny", fallthrough: false }),
-  );
+  // Uploaded images. File names contain a content hash, so they can be cached forever.
+  for (const kind of IMAGE_KINDS) {
+    app.use(
+      imageUrlPrefix(kind).slice(0, -1),
+      express.static(media.dirs[kind], { immutable: true, maxAge: "1y", index: false, dotfiles: "deny", fallthrough: false }),
+    );
+  }
 
   app.get("/api/health", (req, res) => {
     db.prepare("SELECT 1").get();
@@ -278,7 +280,10 @@ export function createApp({ db, webDist, ice = createIceProvider(), trustProxy =
   app.get("/api/invites/:code", (req, res) => {
     const server = store.serverByInvite(req.params.code as string);
     if (!server) throw new HttpError(404, "Convite inválido.");
-    res.json({ server: { id: server.id, name: server.name, banner: server.banner }, memberCount: store.members(server.id).length });
+    res.json({
+      server: { id: server.id, name: server.name, banner: server.banner, icon: server.icon },
+      memberCount: store.members(server.id).length,
+    });
   });
 
   app.post("/api/invites/:code", requireAuth, (req, res) => {
