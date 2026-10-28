@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import type { Channel, Message, User, ServerDetails } from "../api.ts";
 import { Avatar } from "./Avatar.tsx";
 import { memberColor, memberName } from "../members.ts";
+import { splitLinks } from "../../../shared/links.ts";
 
 const GROUP_WINDOW_MS = 5 * 60_000;
 const TYPING_THROTTLE_MS = 2500;
@@ -28,6 +29,23 @@ function formatTime(ts: number): string {
   const yesterday = new Date(today.getTime() - 86_400_000);
   if (d.toDateString() === yesterday.toDateString()) return `Ontem às ${time}`;
   return `${d.toLocaleDateString("pt-BR")} ${time}`;
+}
+
+/** Message text with its web links made clickable (opened in a new tab, or the browser in the desktop app). */
+function MessageContent({ content }: { content: string }) {
+  return (
+    <div className="message-content">
+      {splitLinks(content).map((p, i) =>
+        p.type === "link" ? (
+          <a key={i} href={p.href} target="_blank" rel="noopener noreferrer nofollow ugc">
+            {p.text}
+          </a>
+        ) : (
+          p.text
+        ),
+      )}
+    </div>
+  );
 }
 
 function typingText(users: User[], server?: ServerDetails): string {
@@ -155,7 +173,7 @@ export function ChatView({ channel, server, dmUser, messages, hasMore, typingUse
                   <span className="hover-time">
                     {new Date(m.createdAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
                   </span>
-                  <div className="message-content">{m.content}</div>
+                  <MessageContent content={m.content} />
                 </div>
               ) : (
                 <div key={m.id} className="message">
@@ -165,7 +183,7 @@ export function ChatView({ channel, server, dmUser, messages, hasMore, typingUse
                       <strong style={{ color: memberColor(server, m.author.id) }}>{memberName(server, m.author)}</strong>
                       <span className="muted small">{formatTime(m.createdAt)}</span>
                     </div>
-                    <div className="message-content">{m.content}</div>
+                    <MessageContent content={m.content} />
                   </div>
                 </div>
               );

@@ -459,6 +459,13 @@ label .muted {
   overflow-wrap: anywhere;
   line-height: 1.4;
 }
+.message-content a {
+  color: #00a8fc;
+  text-decoration: none;
+}
+.message-content a:hover {
+  text-decoration: underline;
+}
 .composer {
   padding: 0 16px;
   flex-shrink: 0;
