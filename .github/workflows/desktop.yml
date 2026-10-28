@@ -1,10 +1,10 @@
 # Builds the Windows installer.
 #
-# - Run it by hand (Actions > Desktop > Run workflow). With "Publicar" checked it creates
-#   the GitHub Release v<version> (version from desktop/package.json) with the installer:
-#   that's the download link for users, and installed apps auto-update from it.
-#   Unchecked, it only builds the installer as a downloadable artifact.
-# - Pushing a tag like v0.1.0 also publishes.
+# - Run it by hand (Actions > Desktop > Run workflow). With "Publicar" checked, the
+#   "Publicar versão" step creates the GitHub Release v<version> (version from
+#   desktop/package.json) with the installer: that's what /download points to, and
+#   installed apps auto-update from it. Unchecked, it only builds the installer as an artifact.
+# - Pushing a tag like v0.1.0 (matching the version) also publishes.
 #
 # The site the app opens is "voxaAppUrl" in desktop/package.json; the repository
 # variable VOXA_APP_URL (Settings > Secrets and variables > Actions > Variables) overrides it.
@@ -39,9 +39,41 @@ jobs:
         working-directory: desktop
         env:
           VOXA_APP_URL: ${{ vars.VOXA_APP_URL }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npm run ${{ (startsWith(github.ref, 'refs/tags/v') || inputs.publish) && 'release:win' || 'dist:win' }}
+        run: npm run dist:win
+      - name: Conferir arquivos do instalador
+        shell: bash
+        working-directory: desktop/release
+        run: |
+          for f in Voxa-Setup.exe Voxa-Setup.exe.blockmap latest.yml; do
+            [[ -f "$f" ]] || { echo "::error::Arquivo $f não foi gerado pelo build."; ls -la; exit 1; }
+          done
       - uses: actions/upload-artifact@v4
         with:
           name: Voxa-Setup
           path: desktop/release/*.exe
+      # Creates the GitHub Release with the installer and the auto-update files.
+      # Shows as "skipped" in the run when "Publicar" wasn't checked.
+      - name: Publicar versão
+        if: startsWith(github.ref, 'refs/tags/v') || inputs.publish
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          version=$(node -p "require('./desktop/package.json').version")
+          tag="v$version"
+          if [[ "$GITHUB_REF" == refs/tags/* && "$GITHUB_REF_NAME" != "$tag" ]]; then
+            echo "::error::A tag $GITHUB_REF_NAME não bate com a versão $version de desktop/package.json."
+            exit 1
+          fi
+          if gh release view "$tag" > /dev/null 2>&1; then
+            echo "::error::A versão $tag já foi publicada. Aumente \"version\" em desktop/package.json e rode de novo."
+            exit 1
+          fi
+          cd desktop/release
+          gh release create "$tag" Voxa-Setup.exe Voxa-Setup.exe.blockmap latest.yml \
+            --target "$GITHUB_SHA" --title "Voxa $version" --latest \
+            --notes "Baixe o **Voxa-Setup.exe** abaixo, ou use o link direto: https://voxa-fr8h.onrender.com/download
+
+          No primeiro uso o Windows pode mostrar \"O Windows protegeu o computador\": clique em *Mais informações* → *Executar assim mesmo*. Depois de instalado, o Voxa se atualiza sozinho."
+          echo "Publicado: https://github.com/$GH_REPO/releases/tag/$tag"
