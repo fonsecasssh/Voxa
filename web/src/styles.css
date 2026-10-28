@@ -198,12 +198,12 @@ label .muted {
 /* --- shell layout ------------------------------------------------------------ */
 .shell {
   display: grid;
-  grid-template-columns: 72px 240px 1fr 240px;
+  grid-template-columns: 72px 252px 1fr 240px;
   height: 100%;
   overflow: hidden;
 }
 .shell.no-members {
-  grid-template-columns: 72px 240px 1fr;
+  grid-template-columns: 72px 252px 1fr;
 }
 
 .rail {
@@ -2001,4 +2001,242 @@ select:focus {
   height: 104px;
   background-size: cover;
   background-position: center;
+}
+
+/* --- bottom-left self panel (voice + user), Discord-like ----------------------------------------- */
+.icon {
+  display: block;
+  flex-shrink: 0;
+}
+.self-panel {
+  margin: auto 8px 8px;
+  padding: 6px;
+  border-radius: 12px;
+  background: #15161b;
+  border: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+.self-panel .voice-error {
+  margin: 2px 2px 6px;
+}
+.panel-card {
+  padding: 6px 4px 8px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+.panel-texts {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+  line-height: 1.25;
+}
+.panel-texts strong {
+  font-size: 14px;
+}
+.activity-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.activity-icon {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  background: linear-gradient(135deg, var(--accent), #2bb3a3);
+  flex-shrink: 0;
+}
+.voice-card-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.signal {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+.signal.ok,
+.voice-where .ok {
+  color: var(--online);
+}
+.signal.pending,
+.voice-where .pending {
+  color: #faa61a;
+}
+.voice-where {
+  border: none;
+  background: none;
+  padding: 2px 4px;
+  border-radius: 6px;
+  text-align: left;
+}
+.voice-where:hover .muted {
+  color: var(--text);
+  text-decoration: underline;
+}
+.panel-icon {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  color: var(--text-muted);
+}
+.panel-icon:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.panel-icon.active {
+  color: var(--online);
+}
+.panel-icon.hangup:hover {
+  color: #fff;
+  background: var(--danger);
+}
+.voice-card-actions {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  margin-top: 8px;
+}
+.action-btn {
+  height: 34px;
+  border: none;
+  border-radius: 8px;
+  background: var(--bg-active);
+  color: var(--text);
+  display: grid;
+  place-items: center;
+  transition: background 0.15s;
+}
+.action-btn:hover:not(:disabled) {
+  background: #44465a;
+}
+.action-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.action-btn.live {
+  background: var(--online);
+  color: #fff;
+}
+.self-panel .user-panel {
+  background: none;
+  padding: 2px;
+  gap: 4px;
+}
+.self-panel .user-panel .presence-dot {
+  border-color: #15161b;
+}
+.self-panel .user-card:hover .presence-dot {
+  border-color: var(--bg-hover);
+}
+.split-btn {
+  display: flex;
+  border-radius: 8px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.split-btn button {
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  display: grid;
+  place-items: center;
+  height: 32px;
+}
+.split-main {
+  width: 30px;
+}
+.split-more {
+  width: 16px;
+}
+.split-btn button:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.split-btn.off button {
+  background: rgba(237, 66, 69, 0.14);
+  color: #f2585b;
+}
+.split-btn.off button:hover {
+  background: rgba(237, 66, 69, 0.24);
+}
+.self-panel .status-menu {
+  left: 0;
+  right: 0;
+}
+
+/* round call controls */
+.round-btn {
+  display: grid;
+  place-items: center;
+  color: var(--text);
+  transition: background 0.15s, transform 0.1s;
+}
+.round-btn:active:not(:disabled) {
+  transform: scale(0.96);
+}
+.round-btn.off {
+  background: rgba(237, 66, 69, 0.18);
+  color: #f2585b;
+}
+.round-btn.off:hover {
+  background: rgba(237, 66, 69, 0.28);
+}
+.round-btn.on {
+  color: #fff;
+}
+.round-btn.danger {
+  color: #fff;
+}
+.round-btn.danger:hover {
+  background: #c53336;
+}
+/* tighter controls so the name fits */
+.split-main {
+  width: 28px;
+}
+.split-more {
+  width: 14px;
+}
+.self-panel .user-panel > .panel-icon {
+  width: 28px;
+}
+.voice-where strong,
+.voice-where .muted {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.voice-card-top .panel-icon {
+  width: 30px;
+  height: 30px;
+}
+.voice-card-top .signal {
+  width: 26px;
+}
+.self-panel {
+  margin: auto 6px 6px;
+  padding: 5px;
+}
+.self-panel .user-card {
+  gap: 7px;
+  padding: 2px;
+}
+.state-icon {
+  color: #f2585b;
+  display: inline-grid;
+  flex-shrink: 0;
 }

@@ -7,6 +7,9 @@ import { navigate } from "../router.ts";
 import { useVoice } from "../voice/useVoice.ts";
 import { DOWNLOAD_URL, desktop } from "../desktop.ts";
 import { Avatar, STATUS_LABEL } from "./Avatar.tsx";
+import { Icon } from "./Icon.tsx";
+import { useAudioSettings } from "../voice/useAudioSettings.ts";
+import { audioSettings, type NoiseSuppression } from "../voice/audioSettings.ts";
 
 interface Props {
   user: User;
@@ -24,34 +27,80 @@ export type SetPresence = (patch: { status?: UserStatus; activity?: string | nul
 
 export function SidebarFooter({ user, status, activity, voiceLocation, setPresence, onEditProfile, onVoiceSettings, onLogout }: Props) {
   const [voice, vs] = useVoice();
+  const settings = useAudioSettings();
   const [menuOpen, setMenuOpen] = useState(false);
+  const inVoice = vs.status !== "idle";
+  const connected = vs.status === "connected";
+  const micOff = vs.muted || vs.deafened;
+  const suppressing = settings.noiseSuppression !== "off";
+  // Remember the chosen model so the quick toggle turns the same one back on.
+  const lastModel = useRef<NoiseSuppression>(settings.noiseSuppression === "off" ? "strong" : settings.noiseSuppression);
+  if (settings.noiseSuppression !== "off") lastModel.current = settings.noiseSuppression;
 
   return (
-    <>
+    <div className="self-panel">
       {vs.error && <div className="voice-error">{vs.error}</div>}
 
-      {vs.status !== "idle" && (
-        <div className="voice-panel">
-          <div className="voice-panel-info">
-            <strong className={vs.status === "connected" ? "ok" : "pending"}>
-              {vs.status === "connected" ? "Voz conectada" : "Conectando…"}
-            </strong>
-            <button className="link small ellipsis" onClick={() => voiceLocation && navigate(voiceLocation.path)}>
-              {voiceLocation?.label ?? "Canal de voz"}
+      {activity && (
+        <section className="panel-card activity-card" title={`Jogando ${activity.name}`}>
+          <span className="activity-icon">
+            <Icon name="gamepad" size={22} />
+          </span>
+          <span className="panel-texts">
+            <strong className="ellipsis">{activity.name}</strong>
+            <span className="muted small ellipsis">Jogando agora</span>
+          </span>
+        </section>
+      )}
+
+      {inVoice && (
+        <section className="panel-card voice-card">
+          <div className="voice-card-top">
+            <span className={`signal ${connected ? "ok" : "pending"}`} title={connected ? "Conectado" : "Conectando"}>
+              <Icon name="signal" size={20} />
+            </span>
+            <button
+              className="panel-texts voice-where"
+              title="Ir para o canal de voz"
+              onClick={() => voiceLocation && navigate(voiceLocation.path)}
+            >
+              <strong className={connected ? "ok" : "pending"}>{connected ? "Voz conectada" : "Conectando…"}</strong>
+              <span className="muted small ellipsis">{voiceLocation?.label ?? "Canal de voz"}</span>
+            </button>
+            <button
+              className={`panel-icon ${suppressing ? "active" : ""}`}
+              title={suppressing ? "Supressão de ruído ligada (clique para desligar)" : "Supressão de ruído desligada (clique para ligar)"}
+              aria-pressed={suppressing}
+              onClick={() => audioSettings.update({ noiseSuppression: suppressing ? "off" : lastModel.current })}
+            >
+              <Icon name="waveform" />
+            </button>
+            <button className="panel-icon hangup" title="Desconectar" onClick={() => voice?.leave()}>
+              <Icon name="hangup" />
             </button>
           </div>
-          <button
-            className={`icon-btn ${vs.localScreen ? "on" : ""}`}
-            title={vs.localScreen ? "Parar de transmitir" : "Compartilhar tela"}
-            disabled={vs.status !== "connected"}
-            onClick={() => (vs.localScreen ? voice?.stopScreenShare() : voice?.startScreenShare())}
-          >
-            🖥
-          </button>
-          <button className="icon-btn danger" title="Desconectar" onClick={() => voice?.leave()}>
-            ✆
-          </button>
-        </div>
+          <div className="voice-card-actions">
+            <button
+              className={`action-btn ${vs.localScreen ? "live" : ""}`}
+              title={vs.localScreen ? "Parar de transmitir" : "Compartilhar tela"}
+              disabled={!connected}
+              onClick={() => (vs.localScreen ? voice?.stopScreenShare() : voice?.startScreenShare())}
+            >
+              <Icon name={vs.localScreen ? "screenOff" : "screen"} />
+            </button>
+            <button className="action-btn" title="Configurações de voz" onClick={onVoiceSettings}>
+              <Icon name="mic" />
+            </button>
+            <button
+              className="action-btn"
+              title="Ir para o canal de voz"
+              disabled={!voiceLocation}
+              onClick={() => voiceLocation && navigate(voiceLocation.path)}
+            >
+              <Icon name="arrowRight" />
+            </button>
+          </div>
+        </section>
       )}
 
       <footer className="user-panel">
@@ -75,27 +124,37 @@ export function SidebarFooter({ user, status, activity, voiceLocation, setPresen
             <span className="muted small ellipsis">{activity ? `Jogando ${activity.name}` : STATUS_LABEL[status]}</span>
           </span>
         </button>
-        <button
-          className={`icon-btn ${vs.muted || vs.deafened ? "off" : ""}`}
-          title={vs.muted ? "Ativar microfone" : "Desativar microfone"}
-          aria-pressed={vs.muted}
-          onClick={() => voice?.setMuted(!vs.muted)}
-        >
-          {vs.muted || vs.deafened ? "🔇" : "🎙"}
-        </button>
-        <button
-          className={`icon-btn ${vs.deafened ? "off" : ""}`}
-          title={vs.deafened ? "Ativar áudio" : "Desativar áudio"}
-          aria-pressed={vs.deafened}
-          onClick={() => voice?.setDeafened(!vs.deafened)}
-        >
-          {vs.deafened ? "🔕" : "🎧"}
-        </button>
-        <button className="icon-btn" title="Configurações de voz" onClick={onVoiceSettings}>
-          ⚙
+        <div className={`split-btn ${micOff ? "off" : ""}`}>
+          <button
+            className="split-main"
+            title={vs.muted ? "Ativar microfone" : "Desativar microfone"}
+            aria-pressed={vs.muted}
+            onClick={() => voice?.setMuted(!vs.muted)}
+          >
+            <Icon name={micOff ? "micOff" : "mic"} />
+          </button>
+          <button className="split-more" title="Escolher microfone" onClick={onVoiceSettings}>
+            <Icon name="chevron" size={14} />
+          </button>
+        </div>
+        <div className={`split-btn ${vs.deafened ? "off" : ""}`}>
+          <button
+            className="split-main"
+            title={vs.deafened ? "Ativar áudio" : "Desativar áudio"}
+            aria-pressed={vs.deafened}
+            onClick={() => voice?.setDeafened(!vs.deafened)}
+          >
+            <Icon name={vs.deafened ? "headphonesOff" : "headphones"} />
+          </button>
+          <button className="split-more" title="Escolher saída de áudio" onClick={onVoiceSettings}>
+            <Icon name="chevron" size={14} />
+          </button>
+        </div>
+        <button className="panel-icon" title="Configurações de voz" onClick={onVoiceSettings}>
+          <Icon name="gear" />
         </button>
       </footer>
-    </>
+    </div>
   );
 }
 

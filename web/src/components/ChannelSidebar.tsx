@@ -5,6 +5,7 @@ import { Permission, can, canOpenSettings, memberColor, memberName, myPermission
 import { useVoice } from "../voice/useVoice.ts";
 import type { VoiceMember } from "../voice/types.ts";
 import { Avatar } from "./Avatar.tsx";
+import { Icon } from "./Icon.tsx";
 
 interface Props {
   details: ServerDetails;
@@ -171,7 +172,15 @@ function VoiceMembers({
               {name}
             </span>
             {m.screenStreamId && <span className="live-badge">AO VIVO</span>}
-            {m.deafened ? <span title="Áudio desativado">🔕</span> : m.muted ? <span title="Microfone desativado">🔇</span> : null}
+            {m.deafened ? (
+              <span className="state-icon" title="Áudio desativado">
+                <Icon name="headphonesOff" size={15} />
+              </span>
+            ) : m.muted ? (
+              <span className="state-icon" title="Microfone desativado">
+                <Icon name="micOff" size={15} />
+              </span>
+            ) : null}
           </li>
         );
       })}

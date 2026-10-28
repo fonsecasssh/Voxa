@@ -6,6 +6,7 @@ import { useAudioSettings } from "../voice/useAudioSettings.ts";
 import { applyOutputDevice } from "../voice/audioSettings.ts";
 import type { VoiceMember } from "../voice/types.ts";
 import { Avatar } from "./Avatar.tsx";
+import { Icon } from "./Icon.tsx";
 
 interface Tile {
   key: string;
@@ -59,7 +60,11 @@ export function VoiceView({ channel, members, server }: { channel: Channel; memb
           {name}
           {t.isSelf && " (você)"}
         </span>
-        {t.kind === "user" && (t.member.deafened ? "🔕" : t.member.muted ? "🔇" : "")}
+        {t.kind === "user" && (t.member.deafened || t.member.muted) && (
+          <span className="state-icon" title={t.member.deafened ? "Áudio desativado" : "Microfone desativado"}>
+            <Icon name={t.member.deafened ? "headphonesOff" : "micOff"} size={15} />
+          </span>
+        )}
       </div>
     );
 
@@ -95,14 +100,14 @@ export function VoiceView({ channel, members, server }: { channel: Channel; memb
         {label}
         <div className="tile-controls" onClick={(e) => e.stopPropagation()}>
           <button className="tile-btn" title={isFocused ? "Reduzir" : "Ampliar"} onClick={() => setFocused(isFocused ? null : t.key)}>
-            {isFocused ? "⤡" : "⤢"}
+            <Icon name={isFocused ? "shrink" : "expand"} size={16} />
           </button>
           <button
             className="tile-btn"
             title="Tela cheia"
             onClick={(e) => (e.currentTarget.closest(".tile") as HTMLElement | null)?.requestFullscreen?.().catch(() => {})}
           >
-            ⛶
+            <Icon name="fullscreen" size={16} />
           </button>
           {t.isSelf ? (
             <button className="tile-btn text danger" title="Parar de transmitir" onClick={() => voice?.stopScreenShare()}>
@@ -148,16 +153,18 @@ export function VoiceView({ channel, members, server }: { channel: Channel; memb
             <button
               className={`round-btn ${vs.muted || vs.deafened ? "off" : ""}`}
               title={vs.muted ? "Ativar microfone" : "Desativar microfone"}
+              aria-pressed={vs.muted}
               onClick={() => voice?.setMuted(!vs.muted)}
             >
-              {vs.muted || vs.deafened ? "🔇" : "🎙"}
+              <Icon name={vs.muted || vs.deafened ? "micOff" : "mic"} size={24} />
             </button>
             <button
               className={`round-btn ${vs.deafened ? "off" : ""}`}
               title={vs.deafened ? "Ativar áudio" : "Desativar áudio"}
+              aria-pressed={vs.deafened}
               onClick={() => voice?.setDeafened(!vs.deafened)}
             >
-              {vs.deafened ? "🔕" : "🎧"}
+              <Icon name={vs.deafened ? "headphonesOff" : "headphones"} size={24} />
             </button>
             <button
               className={`round-btn ${vs.localScreen ? "on" : ""}`}
@@ -165,10 +172,10 @@ export function VoiceView({ channel, members, server }: { channel: Channel; memb
               disabled={vs.status !== "connected"}
               onClick={() => (vs.localScreen ? voice?.stopScreenShare() : voice?.startScreenShare())}
             >
-              🖥
+              <Icon name={vs.localScreen ? "screenOff" : "screen"} size={24} />
             </button>
             <button className="round-btn danger" title="Desconectar" onClick={() => voice?.leave()}>
-              ✆
+              <Icon name="hangup" size={26} />
             </button>
           </div>
         </>
