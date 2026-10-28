@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api, type Server } from "../api.ts";
 import { navigate } from "../router.ts";
 import { ServerIcon } from "./Avatar.tsx";
+import { Wordmark } from "./Logo.tsx";
 
 export function InvitePage({ code, onJoined }: { code: string; onJoined: (server: Server) => void }) {
   const [info, setInfo] = useState<Awaited<ReturnType<typeof api.invite>> | null>(null);
@@ -27,6 +28,9 @@ export function InvitePage({ code, onJoined }: { code: string; onJoined: (server
   return (
     <div className="auth-page">
       <div className="auth-card center">
+        <div className="auth-brand">
+          <Wordmark size={28} />
+        </div>
         {error ? (
           <>
             <h1>Convite inválido</h1>

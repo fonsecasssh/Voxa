@@ -1,6 +1,7 @@
 import type { Presence, PresenceStatus, Server } from "../api.ts";
 
-const COLORS = ["#5865f2", "#3ba55c", "#faa61a", "#ed4245", "#eb459e", "#1abc9c", "#9b59b6", "#e67e22"];
+// Deep tones that sit well on the Galáxia background and keep white initials readable.
+const COLORS = ["#5b3fd1", "#2f6fd6", "#16808f", "#1f8a62", "#b0457a", "#c2553a", "#7a3fb8", "#3d4fc4"];
 
 function colorFor(id: string): string {
   let h = 0;

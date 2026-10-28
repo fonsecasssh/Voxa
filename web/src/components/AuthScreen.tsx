@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { api } from "../api.ts";
 import { DOWNLOAD_URL, desktop } from "../desktop.ts";
+import { Wordmark } from "./Logo.tsx";
 
 export function AuthScreen({ onAuthenticated }: { onAuthenticated: (token: string) => Promise<void> }) {
   const [mode, setMode] = useState<"login" | "register">("login");
@@ -31,6 +32,9 @@ export function AuthScreen({ onAuthenticated }: { onAuthenticated: (token: strin
   return (
     <div className="auth-page">
       <form className="auth-card" onSubmit={submit}>
+        <div className="auth-brand">
+          <Wordmark />
+        </div>
         <h1>{isLogin ? "Boas-vindas de volta!" : "Criar uma conta"}</h1>
         <p className="muted">{isLogin ? "Que bom te ver de novo." : "Servidores, voz e amigos."}</p>
 

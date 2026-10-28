@@ -14,8 +14,8 @@
         height: 100vh;
         display: grid;
         place-items: center;
-        background: #23242c;
-        color: #e6e6ec;
+        background: #181728;
+        color: #ecebf9;
         text-align: center;
       }
       .logo {
@@ -23,7 +23,8 @@
         height: 72px;
         margin: 0 auto 20px;
         border-radius: 22px;
-        background: #6c5ce7;
+        background: #13121f;
+        border: 1px solid #2a2845;
         display: grid;
         place-items: center;
         font-size: 40px;
@@ -36,13 +37,18 @@
         }
       }
       p {
-        color: #9a9bab;
+        color: #a09ec0;
       }
     </style>
   </head>
   <body>
     <div>
-      <div class="logo">V</div>
+      <div class="logo" aria-hidden="true">
+        <svg width="44" height="44" viewBox="0 0 24 24">
+          <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#9d5cff"/><stop offset="1" stop-color="#3dd6ff"/></linearGradient></defs>
+          <g fill="url(#g)"><rect x="2" y="3" width="2.6" height="15" rx="1.3"/><rect x="5.6" y="6.5" width="2.6" height="11.5" rx="1.3"/><rect x="9.2" y="10.5" width="2.6" height="10.5" rx="1.3"/><rect x="12.8" y="10.5" width="2.6" height="10.5" rx="1.3"/><rect x="16.4" y="6.5" width="2.6" height="11.5" rx="1.3"/><rect x="20" y="3" width="2.6" height="15" rx="1.3"/></g>
+        </svg>
+      </div>
       <h2>Sem conexão com o Voxa</h2>
       <p>Verifique sua internet. Tentando reconectar…</p>
     </div>

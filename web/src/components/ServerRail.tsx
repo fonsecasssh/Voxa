@@ -1,6 +1,7 @@
 import type { Server } from "../api.ts";
 import { navigate } from "../router.ts";
 import { ServerIcon } from "./Avatar.tsx";
+import { Logo } from "./Logo.tsx";
 
 interface Props {
   servers: Server[];
@@ -17,7 +18,7 @@ export function ServerRail({ servers, activeId, unreadDms, onCreate }: Props) {
         title="Mensagens diretas"
         onClick={() => navigate("/channels/@me")}
       >
-        <span className="home-logo">V</span>
+        <Logo size={30} />
         {unreadDms > 0 && <span className="rail-badge">{unreadDms}</span>}
       </button>
       <div className="rail-divider" />
