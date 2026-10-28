@@ -46,15 +46,20 @@ em 4G/5G ou em redes de empresa/faculdade.
 
 ## 4. App desktop apontando para o site
 
-1. No GitHub: **Settings → Secrets and variables → Actions → Variables → New repository variable**:
-   `VOXA_APP_URL` = `https://SEU-ENDERECO.onrender.com`.
-2. Gere o instalador: **Actions → Desktop → Run workflow** (o `.exe` fica em *Artifacts*),
-   ou lance uma versão com atualização automática:
-   ```bash
-   # depois de mudar "version" em desktop/package.json para 0.1.0
-   git tag v0.1.0 && git push --tags
-   ```
-   O instalador fica em **Releases**, que é o link para mandar para os amigos.
+O endereço de produção fica em `desktop/package.json`, no campo `voxaAppUrl`
+(hoje `https://voxa-fr8h.onrender.com`). Se o endereço mudar (por exemplo, ao comprar um domínio),
+troque esse campo — ou crie a variável `VOXA_APP_URL` em
+*Settings → Secrets and variables → Actions → Variables*, que tem prioridade.
+
+Para lançar uma versão com atualização automática:
+
+```bash
+# mude "version" em desktop/package.json (ex.: 0.1.1), faça commit, e então:
+git tag v0.1.1 && git push origin v0.1.1
+```
+
+O GitHub Actions gera o instalador e publica em **Releases** — esse é o link para mandar para os amigos.
+Quem já tem o app instalado recebe a atualização sozinho.
 
 ## Backup
 

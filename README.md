@@ -33,9 +33,9 @@ Para apontar para outro endereço: `VOXA_URL=https://seu-site npm run desktop`.
 
 O instalador (`Voxa-Setup-x.y.z.exe`) é gerado pelo GitHub Actions (workflow **Desktop**), num Windows de verdade:
 
-1. Em *Settings → Secrets and variables → Actions → Variables*, crie `VOXA_APP_URL` com o endereço do site (ex.: `https://voxa.app`).
+1. O app abre o endereço em `voxaAppUrl` no `desktop/package.json` (produção: `https://voxa-fr8h.onrender.com`).
 2. Para um instalador de teste: *Actions → Desktop → Run workflow*; o `.exe` fica nos *Artifacts* da execução.
-3. Para lançar uma versão: atualize `version` em `desktop/package.json`, faça commit e crie a tag correspondente (`git tag v0.1.0 && git push --tags`). O instalador vai para uma Release, e os apps instalados se atualizam sozinhos.
+3. Para lançar uma versão: atualize `version` em `desktop/package.json`, faça commit e crie a tag correspondente (`git tag v0.1.1 && git push origin v0.1.1`). O instalador vai para uma Release, e os apps instalados se atualizam sozinhos.
 
 O instalador não é assinado digitalmente, então o Windows SmartScreen vai mostrar um aviso na primeira instalação ("Mais informações → Executar assim mesmo"). Para tirar o aviso é preciso um certificado de assinatura de código.
 

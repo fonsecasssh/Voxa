@@ -5,8 +5,8 @@
 # - Or run it by hand (Actions > Desktop > Run workflow) to just get the installer
 #   as a downloadable artifact.
 #
-# The site the app opens comes from the repository variable VOXA_APP_URL
-# (Settings > Secrets and variables > Actions > Variables), e.g. https://voxa.app.
+# The site the app opens is "voxaAppUrl" in desktop/package.json; the repository
+# variable VOXA_APP_URL (Settings > Secrets and variables > Actions > Variables) overrides it.
 
 name: Desktop
 

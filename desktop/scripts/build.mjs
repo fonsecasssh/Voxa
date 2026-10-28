@@ -1,10 +1,10 @@
 // Bundles the main process and preloads with esbuild into dist/, and copies the static files.
 //
-// VOXA_APP_URL sets which site the packaged app opens (e.g. https://voxa.app);
-// without it the app opens http://localhost:3001.
+// Which site the app opens: VOXA_APP_URL if set, else "voxaAppUrl" from package.json
+// (the production site). `--dev` builds for a local server (http://localhost:3001).
 
 import { build } from "esbuild";
-import { copyFileSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -35,7 +35,8 @@ for (const f of ["src/picker.html", "src/offline.html", "assets/icon.png"]) {
   copyFileSync(path.join(root, f), path.join(dist, path.basename(f)));
 }
 
-const appUrl = process.env.VOXA_APP_URL || "";
+const pkg = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8"));
+const appUrl = process.argv.includes("--dev") ? "" : process.env.VOXA_APP_URL || pkg.voxaAppUrl || "";
 if (appUrl && !/^https?:\/\//.test(appUrl)) throw new Error(`VOXA_APP_URL must start with http(s)://, got "${appUrl}"`);
 writeFileSync(path.join(dist, "app-config.json"), JSON.stringify({ appUrl }, null, 2));
 console.log(`desktop built -> dist/ (site: ${appUrl || "http://localhost:3001 (padrão)"})`);
