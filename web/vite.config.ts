@@ -11,6 +11,7 @@ export default defineConfig({
       "/api": server,
       "/socket.io": { target: server, ws: true },
       "/media": server,
+      "/download": server,
     },
   },
 });

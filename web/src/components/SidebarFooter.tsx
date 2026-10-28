@@ -189,7 +189,7 @@ function StatusMenu({
         Editar perfil
       </button>
       {!desktop && (
-        <a className="status-option" href={DOWNLOAD_URL} target="_blank" rel="noreferrer">
+        <a className="status-option" href={DOWNLOAD_URL}>
           Baixar app para Windows
         </a>
       )}

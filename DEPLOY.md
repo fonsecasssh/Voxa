@@ -55,8 +55,11 @@ Para lançar uma versão (o link de download para os amigos):
 
 1. No GitHub, abra **Actions → Desktop → Run workflow**.
 2. Marque **Publicar como nova versão** e clique em **Run workflow**.
-3. Em ~2 minutos o instalador aparece em <https://github.com/fonsecasssh/Voxa/releases/latest>
-   — esse é o link para mandar. O site também tem o botão "Baixar o Voxa para Windows".
+3. Em ~2 minutos o instalador fica disponível. Links de download direto (sempre a versão mais nova):
+   - **<https://voxa-fr8h.onrender.com/download>** — o mais fácil de mandar
+   - <https://github.com/fonsecasssh/Voxa/releases/latest/download/Voxa-Setup.exe>
+
+   O site também tem o botão "Baixar o Voxa para Windows".
 
 Para as próximas versões, antes aumente `version` em `desktop/package.json` (ex.: 0.1.1) e faça commit.
 Quem já tem o app instalado recebe a atualização sozinho. (Também dá para publicar criando a tag

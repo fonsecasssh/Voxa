@@ -77,7 +77,7 @@ export function AuthScreen({ onAuthenticated }: { onAuthenticated: (token: strin
         </p>
       </form>
       {!desktop && (
-        <a className="download-link" href={DOWNLOAD_URL} target="_blank" rel="noreferrer">
+        <a className="download-link" href={DOWNLOAD_URL}>
           ⬇ Baixar o Voxa para Windows
         </a>
       )}

@@ -36,7 +36,7 @@ O instalador (`Voxa-Setup-x.y.z.exe`) é gerado pelo GitHub Actions (workflow **
 
 1. O app abre o endereço em `voxaAppUrl` no `desktop/package.json` (produção: `https://voxa-fr8h.onrender.com`).
 2. Para um instalador de teste: *Actions → Desktop → Run workflow*; o `.exe` fica nos *Artifacts* da execução.
-3. Para lançar uma versão: *Actions → Desktop → Run workflow* com **Publicar** marcado (para as próximas, aumente antes `version` em `desktop/package.json`). O instalador vai para <https://github.com/fonsecasssh/Voxa/releases/latest>, e os apps instalados se atualizam sozinhos.
+3. Para lançar uma versão: *Actions → Desktop → Run workflow* com **Publicar** marcado (para as próximas, aumente antes `version` em `desktop/package.json`). O instalador fica no link direto **<https://voxa-fr8h.onrender.com/download>** (sempre a versão mais nova), e os apps instalados se atualizam sozinhos.
 
 O instalador não é assinado digitalmente, então o Windows SmartScreen vai mostrar um aviso na primeira instalação ("Mais informações → Executar assim mesmo"). Para tirar o aviso é preciso um certificado de assinatura de código.
 
@@ -73,6 +73,7 @@ Variáveis de ambiente:
 | `CLOUDFLARE_TURN_KEY_ID`, `CLOUDFLARE_TURN_API_TOKEN` | TURN da Cloudflare (credenciais temporárias geradas pelo servidor) — faz a voz funcionar em qualquer rede |
 | `TURN_URLS`, `TURN_USERNAME`, `TURN_CREDENTIAL` | Alternativa: um servidor TURN próprio (ex.: coturn) |
 | `TRUST_PROXY` | Quantos proxies ficam na frente do app (para obter o IP real do usuário) |
+| `DOWNLOAD_URL` | Para onde `/download` redireciona (padrão: o instalador mais recente nas Releases do GitHub) |
 
 ## Voz
 

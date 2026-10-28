@@ -20,8 +20,8 @@ export interface VoxaDesktop {
 
 export const desktop: VoxaDesktop | undefined = (window as unknown as { voxaDesktop?: VoxaDesktop }).voxaDesktop;
 
-/** Latest Windows installer (GitHub Releases, published by the "Desktop" workflow). */
-export const DOWNLOAD_URL = "https://github.com/fonsecasssh/Voxa/releases/latest";
+/** Downloads the latest Windows installer (the server redirects to the GitHub Release). */
+export const DOWNLOAD_URL = "/download";
 
 /** Asks for notification permission once; call from a user gesture (browsers require it). */
 export function requestNotificationPermission() {

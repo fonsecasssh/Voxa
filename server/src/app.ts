@@ -321,6 +321,10 @@ export function createApp({ db, webDist, ice = createIceProvider(), trustProxy =
 
   registerAdminRoutes({ app, io, store, realtime, media, requireAuth, requireMember });
 
+  // Short, shareable link to the latest Windows installer (published by the "Desktop" workflow).
+  const downloadUrl = process.env.DOWNLOAD_URL || "https://github.com/fonsecasssh/Voxa/releases/latest/download/Voxa-Setup.exe";
+  app.get("/download", (_req, res) => res.redirect(302, downloadUrl));
+
   app.use("/api", (_req, _res) => {
     throw new HttpError(404, "Rota não encontrada.");
   });

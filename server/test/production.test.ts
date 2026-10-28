@@ -87,6 +87,12 @@ describe("production hardening", () => {
     expect(await res.json()).toEqual({ ok: true, ip: expect.stringContaining("127.0.0.1") });
   });
 
+  it("redirects /download to the latest Windows installer", async () => {
+    const res = await fetch(`${base}/download`, { redirect: "manual" });
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe("https://github.com/fonsecasssh/Voxa/releases/latest/download/Voxa-Setup.exe");
+  });
+
   it("sends security headers", async () => {
     const res = await fetch(`${base}/api/health`);
     expect(res.headers.get("x-content-type-options")).toBe("nosniff");

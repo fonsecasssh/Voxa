@@ -17,7 +17,9 @@ win:
     - target: nsis
       arch: [x64]
   icon: build/icon.ico
-  artifactName: Voxa-Setup-${version}.${ext}
+  # A fixed name keeps the download link stable across versions:
+  # https://github.com/fonsecasssh/Voxa/releases/latest/download/Voxa-Setup.exe
+  artifactName: Voxa-Setup.${ext}
 nsis:
   oneClick: true
   perMachine: false
