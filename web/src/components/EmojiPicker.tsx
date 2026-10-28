@@ -4,6 +4,8 @@
 // emojis newer than the system's emoji font can draw (e.g. on Windows 10) are left out.
 
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { api, type Gif } from "../api.ts";
+import { getFeatures } from "../features.ts";
 
 interface Emoji {
   unicode: string;
@@ -141,9 +143,13 @@ interface Props {
   style?: CSSProperties;
   /** Clicks on elements matching this selector don't close it (the buttons that open it). */
   ignore?: string;
+  /** Adds a GIF tab (when the server has GIF search on); called with the GIF picked. */
+  onPickGif?: (gif: Gif) => void;
 }
 
-export function EmojiPicker({ onPick, onClose, style, ignore = ".emoji-toggle" }: Props) {
+export function EmojiPicker({ onPick, onClose, style, ignore = ".emoji-toggle", onPickGif }: Props) {
+  const gifsOn = !!onPickGif && getFeatures().gifs;
+  const [tab, setTab] = useState<"emoji" | "gif">("emoji");
   const [all, setAll] = useState<Emoji[] | null>(null);
   const [failed, setFailed] = useState(false);
   const [query, setQuery] = useState("");
@@ -216,8 +222,34 @@ export function EmojiPicker({ onPick, onClose, style, ignore = ".emoji-toggle" }
 
   const recentEmojis = recent.map((u) => byUnicode.get(u)).filter((e): e is Emoji => !!e);
 
+  const tabs = gifsOn && (
+    <div className="picker-tabs" role="tablist">
+      <button type="button" role="tab" aria-selected={tab === "emoji"} className={tab === "emoji" ? "active" : ""} onClick={() => setTab("emoji")}>
+        Emojis
+      </button>
+      <button type="button" role="tab" aria-selected={tab === "gif"} className={tab === "gif" ? "active" : ""} onClick={() => setTab("gif")}>
+        GIFs
+      </button>
+    </div>
+  );
+
+  if (tab === "gif" && onPickGif) {
+    return (
+      <div className="emoji-picker" ref={ref} role="dialog" aria-label="GIFs" style={style}>
+        {tabs}
+        <GifPanel
+          onPick={(g) => {
+            onPickGif(g);
+            onClose();
+          }}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="emoji-picker" ref={ref} role="dialog" aria-label="Emojis" style={style}>
+      {tabs}
       <div className="emoji-search">
         <input
           autoFocus
@@ -287,5 +319,70 @@ export function EmojiPicker({ onPick, onClose, style, ignore = ".emoji-toggle" }
         )}
       </div>
     </div>
+  );
+}
+
+/** GIF search: trending at first, results as you type, more as you scroll. */
+function GifPanel({ onPick }: { onPick: (g: Gif) => void }) {
+  const [query, setQuery] = useState("");
+  const [gifs, setGifs] = useState<Gif[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState(false);
+  const request = useRef(0);
+
+  const load = async (q: string, offset: number) => {
+    const id = ++request.current;
+    setLoading(true);
+    setError(null);
+    try {
+      const { gifs: page } = await api.gifs(q, offset);
+      if (id !== request.current) return;
+      setGifs((list) => (offset === 0 ? page : [...list, ...page]));
+      setDone(page.length === 0);
+    } catch (err) {
+      if (id === request.current) setError((err as Error).message);
+    } finally {
+      if (id === request.current) setLoading(false);
+    }
+  };
+
+  // Wait for a pause in typing before searching.
+  useEffect(() => {
+    const t = setTimeout(() => load(query.trim(), 0), query ? 350 : 0);
+    return () => clearTimeout(t);
+  }, [query]);
+
+  return (
+    <>
+      <div className="emoji-search">
+        <input autoFocus value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Buscar GIFs na GIPHY" aria-label="Buscar GIFs" />
+      </div>
+      <div
+        className="emoji-scroll gif-scroll"
+        onScroll={(e) => {
+          const el = e.currentTarget;
+          if (!loading && !done && el.scrollHeight - el.scrollTop - el.clientHeight < 200) load(query.trim(), gifs.length);
+        }}
+      >
+        {error ? (
+          <p className="form-error pad">{error}</p>
+        ) : gifs.length === 0 && !loading ? (
+          <p className="muted small pad">Nenhum GIF encontrado para “{query}”.</p>
+        ) : (
+          <div className="gif-grid">
+            {gifs.map((g) => (
+              <button key={g.id} type="button" className="gif-item" title={g.title} aria-label={g.title || "GIF"} onClick={() => onPick(g)}>
+                <img src={g.preview} alt="" loading="lazy" />
+              </button>
+            ))}
+          </div>
+        )}
+        {loading && <p className="muted small pad">Carregando…</p>}
+      </div>
+      <div className="emoji-footer gif-footer">
+        <span className="muted small">GIFs da GIPHY</span>
+      </div>
+    </>
   );
 }

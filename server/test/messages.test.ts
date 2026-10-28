@@ -4,6 +4,7 @@ import { io as connect, type Socket } from "socket.io-client";
 import { createApp, isEmoji } from "../src/app.ts";
 import { openDb } from "../src/db.ts";
 import { createIceProvider } from "../src/ice.ts";
+import { createGiphyProvider } from "../src/gifs.ts";
 
 let base = "";
 let close: () => Promise<void>;
@@ -143,5 +144,68 @@ describe("mentions", () => {
 
     expect((await say(friend, "@everyone acordem")).body.message.mentionsEveryone).toBe(false);
     expect((await say(owner, "@everyone acordem")).body.message.mentionsEveryone).toBe(true);
+  });
+});
+
+describe("GIF search", () => {
+  it("is off without a provider, and proxies (and caches) the provider when on", async () => {
+    const owner = await user();
+    expect((await api("GET", "/api/me", undefined, owner.token)).body.features).toEqual({ gifs: false });
+    expect((await api("GET", "/api/gifs?q=gato", undefined, owner.token)).status).toBe(404);
+
+    const calls: string[] = [];
+    const gifs = {
+      search: async (q: string, offset: number) => {
+        calls.push(`search:${q}:${offset}`);
+        return [{ id: "1", title: q, preview: "https://media.giphy.com/media/a/200w.webp", url: "https://media.giphy.com/media/a/giphy.gif", width: 480, height: 270 }];
+      },
+      trending: async () => {
+        calls.push("trending");
+        return [];
+      },
+    };
+    const { http, io } = createApp({ db: openDb(":memory:"), ice: createIceProvider({}), gifs });
+    await new Promise<void>((r) => http.listen(0, r));
+    const url = `http://127.0.0.1:${(http.address() as AddressInfo).port}`;
+    const reg = await (await fetch(url + "/api/auth/register", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ username: "gifeiro", password: "senha-segura" }) })).json();
+    const get = (p: string) => fetch(url + p, { headers: { authorization: `Bearer ${reg.token}` } }).then(async (r) => ({ status: r.status, body: await r.json() }));
+    expect((await get("/api/me")).body.features).toEqual({ gifs: true });
+    const r = await get("/api/gifs?q=gato&offset=24");
+    expect(r.body.gifs[0]).toMatchObject({ title: "gato", url: "https://media.giphy.com/media/a/giphy.gif" });
+    await get("/api/gifs?q=GATO&offset=24");
+    await get("/api/gifs");
+    expect(calls).toEqual(["search:gato:24", "trending"]);
+    expect((await fetch(url + "/api/gifs")).status).toBe(401);
+    await new Promise((r) => io.close(() => r(null)));
+  });
+});
+
+describe("createGiphyProvider", () => {
+  it("asks GIPHY with the key and keeps the sizes it needs", async () => {
+    let asked = "";
+    const fakeFetch = (async (u: string) => {
+      asked = u;
+      return new Response(
+        JSON.stringify({
+          data: [
+            {
+              id: "x1",
+              title: "gato dançando",
+              images: {
+                downsized: { url: "https://media2.giphy.com/media/x1/giphy.gif?cid=abc", width: "480", height: "360" },
+                fixed_width_small: { url: "https://media2.giphy.com/media/x1/100w.gif", webp: "https://media2.giphy.com/media/x1/100w.webp" },
+              },
+            },
+            { id: "broken", images: {} },
+          ],
+        }),
+      );
+    }) as unknown as typeof fetch;
+    const gifs = await createGiphyProvider("KEY", fakeFetch).search("gato", 0);
+    expect(asked).toContain("api_key=KEY");
+    expect(asked).toContain("q=gato");
+    expect(gifs).toEqual([
+      { id: "x1", title: "gato dançando", preview: "https://media2.giphy.com/media/x1/100w.webp", url: "https://media2.giphy.com/media/x1/giphy.gif", width: 480, height: 360 },
+    ]);
   });
 });

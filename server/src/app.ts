@@ -14,6 +14,7 @@ import { HttpError, str } from "./http.ts";
 import { registerAdminRoutes } from "./admin.ts";
 import { Permission, can, permissionsOf } from "../../shared/permissions.ts";
 import { findMentions } from "../../shared/markdown.ts";
+import type { Gif, GifProvider } from "./gifs.ts";
 import { CLIP_MIME, CLIP_URL_PREFIX, IMAGE_KINDS, IMAGE_MIME, createClipStore, createMediaStore, detectImageType, imageUrlPrefix } from "./media.ts";
 import { tmpdir } from "node:os";
 
@@ -69,9 +70,11 @@ export interface AppOptions {
   maxClipBytes?: number;
   /** Total size chat attachments may take on disk; the oldest are deleted beyond it. */
   filesMaxBytes?: number;
+  /** GIF search for the chat (GIPHY); null turns the GIF tab off. */
+  gifs?: GifProvider | null;
 }
 
-export function createApp({ db, webDist, ice = createIceProvider(), trustProxy = 0, signupsPerHour, mediaDir, clipsMaxBytes, maxClipBytes, filesMaxBytes }: AppOptions) {
+export function createApp({ db, webDist, ice = createIceProvider(), trustProxy = 0, signupsPerHour, mediaDir, clipsMaxBytes, maxClipBytes, filesMaxBytes, gifs = null }: AppOptions) {
   const mediaRoot = mediaDir ?? path.join(tmpdir(), `voxa-media-${process.pid}`);
   const media = createMediaStore(mediaRoot);
   const clips = createClipStore(path.join(mediaRoot, "clips"), clipsMaxBytes ?? 400 * 1024 * 1024, maxClipBytes);
@@ -217,7 +220,35 @@ export function createApp({ db, webDist, ice = createIceProvider(), trustProxy =
 
   app.get("/api/me", requireAuth, (req, res) => {
     const me = req.user!.id;
-    res.json({ user: req.user, servers: store.serversForUser(me), status: store.getStatus(me), activity: store.getActivity(me) });
+    res.json({
+      user: req.user,
+      servers: store.serversForUser(me),
+      status: store.getStatus(me),
+      activity: store.getActivity(me),
+      // What this server has turned on, so the app can show or hide it.
+      features: { gifs: !!gifs },
+    });
+  });
+
+  // GIF search (trending when there's no query). Results are cached briefly: the picker asks often.
+  const gifLimit = rateLimit({ windowMs: 60_000, max: 60, message: "Muitas buscas de GIF. Espere um pouco." });
+  const gifCache = new Map<string, { at: number; gifs: Gif[] }>();
+  app.get("/api/gifs", requireAuth, gifLimit, async (req, res) => {
+    if (!gifs) throw new HttpError(404, "A busca de GIFs não está ativada neste servidor.");
+    const query = typeof req.query.q === "string" ? req.query.q.trim().slice(0, 50) : "";
+    const offset = Math.min(Math.max(Math.floor(Number(req.query.offset) || 0), 0), 480);
+    const key = `${query.toLowerCase()}|${offset}`;
+    const hit = gifCache.get(key);
+    if (hit && Date.now() - hit.at < 5 * 60_000) return void res.json({ gifs: hit.gifs });
+    let list: Gif[];
+    try {
+      list = query ? await gifs.search(query, offset) : await gifs.trending(offset);
+    } catch {
+      throw new HttpError(502, "Não foi possível buscar GIFs agora.");
+    }
+    if (gifCache.size > 500) gifCache.clear();
+    gifCache.set(key, { at: Date.now(), gifs: list });
+    res.json({ gifs: list });
   });
 
   app.patch("/api/me/presence", requireAuth, (req, res) => {

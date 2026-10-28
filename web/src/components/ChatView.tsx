@@ -186,25 +186,32 @@ export function ChatView(props: Props) {
     await onLoadOlder();
   };
 
-  const send = async () => {
+  // Messages go out one after another, in the order they were written, without waiting for
+  // the previous one to finish (only a message with files waits for its uploads).
+  const queue = useRef(Promise.resolve());
+  const send = () => {
     const content = draft.trim();
-    if ((!content && pending.items.length === 0) || sending) return;
+    const withFiles = pending.items.length > 0;
+    if ((!content && !withFiles) || (withFiles && sending)) return;
+    const replyTo = replyingTo?.id ?? null;
     setDraft("");
     setSendError(null);
-    setSending(true);
+    setReplyingTo(null);
     stickToBottom.current = true;
-    try {
-      // Files upload in the background as soon as they're picked; this waits for any still going.
-      const uploads = await pending.ready();
-      await onSend(content, uploads, replyingTo?.id ?? null);
-      pending.clear();
-      setReplyingTo(null);
-    } catch (err) {
-      setDraft(content);
-      setSendError((err as Error).message);
-    } finally {
-      setSending(false);
-    }
+    // Files upload in the background as soon as they're picked; this waits for any still going.
+    const uploads = withFiles ? pending.ready() : Promise.resolve([]);
+    if (withFiles) setSending(true);
+    queue.current = queue.current.then(async () => {
+      try {
+        await onSend(content, await uploads, replyTo);
+        if (withFiles) pending.clear();
+      } catch (err) {
+        setDraft((d) => d || content);
+        setSendError((err as Error).message);
+      } finally {
+        if (withFiles) setSending(false);
+      }
+    });
   };
 
   const addFiles = (files: File[]) => {
@@ -460,7 +467,17 @@ export function ChatView(props: Props) {
           >
             <Icon name="smile" size={22} />
           </button>
-          {emojiOpen && <EmojiPicker onPick={insertEmoji} onClose={() => setEmojiOpen(false)} />}
+          {emojiOpen && (
+            <EmojiPicker
+              onPick={insertEmoji}
+              onClose={() => setEmojiOpen(false)}
+              // A GIF is sent right away, as a message with just its link (shown as the GIF).
+              onPickGif={(g) => {
+                stickToBottom.current = true;
+                attempt(() => onSend(g.url, [], replyingTo?.id ?? null).then(() => setReplyingTo(null)));
+              }}
+            />
+          )}
         </div>
         <div className="typing">{typingUsers.length > 0 && typingText(typingUsers, server)}</div>
       </div>

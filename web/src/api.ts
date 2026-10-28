@@ -74,6 +74,16 @@ export interface FileAttachment {
   url: string | null;
 }
 
+/** A GIF result from the server's GIF search (GIPHY). */
+export interface Gif {
+  id: string;
+  title: string;
+  preview: string;
+  url: string;
+  width: number;
+  height: number;
+}
+
 /** Limits the server enforces on chat files. */
 export const MAX_FILE_BYTES = 25 * 1024 * 1024;
 export const MAX_FILES_PER_MESSAGE = 10;
@@ -202,7 +212,10 @@ export const api = {
     request<AuthResult>("POST", "/api/auth/register", { username, password, displayName }),
   login: (username: string, password: string) => request<AuthResult>("POST", "/api/auth/login", { username, password }),
   logout: () => request<void>("POST", "/api/auth/logout"),
-  me: () => request<{ user: User; servers: Server[]; status: UserStatus; activity: Activity | null }>("GET", "/api/me"),
+  me: () =>
+    request<{ user: User; servers: Server[]; status: UserStatus; activity: Activity | null; features?: { gifs: boolean } }>("GET", "/api/me"),
+  gifs: (query: string, offset = 0) =>
+    request<{ gifs: Gif[] }>("GET", `/api/gifs?${new URLSearchParams({ q: query, offset: String(offset) })}`),
   setPresence: (patch: { status?: UserStatus; activity?: string | null }) =>
     request<{ status: UserStatus; presence: Presence }>("PATCH", "/api/me/presence", patch),
 

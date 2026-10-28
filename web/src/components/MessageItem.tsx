@@ -8,6 +8,7 @@ import { memberColor, memberName } from "../members.ts";
 import { MessageFiles } from "./Attachments.tsx";
 import { Avatar } from "./Avatar.tsx";
 import { Icon } from "./Icon.tsx";
+import { GIPHY_MEDIA } from "../features.ts";
 import { Markdown, type MentionTarget } from "./Markdown.tsx";
 import { formatDuration, formatSize } from "./ReplayModal.tsx";
 
@@ -122,7 +123,13 @@ export function MessageItem(p: MessageItemProps) {
     <EditBox initial={m.content} onSave={p.onEdit} onCancel={p.onCancelEdit} />
   ) : (
     <>
-      {m.content && <MessageText content={m.content} edited={m.editedAt} selfId={p.selfId} resolveUsername={p.resolveUsername} />}
+      {m.content && GIPHY_MEDIA.test(m.content) ? (
+        <button type="button" className="gif-embed" aria-label="Abrir GIF" onClick={() => window.open(m.content, "_blank", "noopener")}>
+          <img src={m.content} alt="GIF" loading="lazy" />
+        </button>
+      ) : (
+        m.content && <MessageText content={m.content} edited={m.editedAt} selfId={p.selfId} resolveUsername={p.resolveUsername} />
+      )}
       {m.files.length > 0 && <MessageFiles files={m.files} onOpenImage={p.onOpenImage} />}
       {m.attachment && <ClipView clip={m.attachment} />}
     </>

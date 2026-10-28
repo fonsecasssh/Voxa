@@ -4,6 +4,7 @@ import { parseRoute, usePath } from "./router.ts";
 import { AuthScreen } from "./components/AuthScreen.tsx";
 import { InvitePage } from "./components/InvitePage.tsx";
 import { Shell } from "./components/Shell.tsx";
+import { setFeatures } from "./features.ts";
 
 type Session = { user: User; servers: Server[]; status: UserStatus; activity: Activity | null };
 
@@ -16,7 +17,10 @@ export function App() {
     if (!getToken()) return;
     api
       .me()
-      .then(setSession)
+      .then((me) => {
+        setFeatures(me.features);
+        setSession(me);
+      })
       .catch((err) => {
         if (err instanceof ApiError && err.status === 401) setToken(null);
       })
@@ -25,7 +29,9 @@ export function App() {
 
   const onAuthenticated = async (token: string) => {
     setToken(token);
-    setSession(await api.me());
+    const me = await api.me();
+    setFeatures(me.features);
+    setSession(me);
   };
 
   const setUser = useCallback((user: User) => setSession((s) => (s ? { ...s, user } : s)), []);

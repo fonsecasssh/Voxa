@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import { createApp } from "./app.ts";
 import { openDb } from "./db.ts";
 import { createIceProvider } from "./ice.ts";
+import { createGiphyProvider } from "./gifs.ts";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT) || 3001;
@@ -23,6 +24,8 @@ const { http, io } = createApp({
   clipsMaxBytes: (Number(process.env.CLIPS_MAX_MB) || 400) * 1024 * 1024,
   // Same for files sent in chat (images, videos, documents).
   filesMaxBytes: (Number(process.env.FILES_MAX_MB) || 300) * 1024 * 1024,
+  // GIF search in chat: a free key from developers.giphy.com.
+  gifs: process.env.GIPHY_API_KEY ? createGiphyProvider(process.env.GIPHY_API_KEY) : null,
 });
 
 http.listen(PORT, () => {

@@ -3438,3 +3438,61 @@ video.media-item {
   background: var(--grad);
   flex-shrink: 0;
 }
+
+/* --- GIFs ------------------------------------------------------------------------------- */
+.picker-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 8px 10px 0;
+}
+.picker-tabs button {
+  flex: 1;
+  height: 30px;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  color: var(--text-muted);
+  font-weight: 700;
+}
+.picker-tabs button.active {
+  background: var(--bg-active);
+  color: var(--text);
+}
+.gif-grid {
+  columns: 2;
+  column-gap: 6px;
+}
+.gif-item {
+  display: block;
+  width: 100%;
+  margin: 0 0 6px;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--bg-input);
+  break-inside: avoid;
+}
+.gif-item img {
+  display: block;
+  width: 100%;
+  min-height: 60px;
+}
+.gif-item:hover {
+  outline: 2px solid var(--grad-1);
+}
+.gif-embed {
+  display: block;
+  margin-top: 4px;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--bg-input);
+  max-width: min(100%, 360px);
+}
+.gif-embed img {
+  display: block;
+  max-width: 100%;
+  max-height: 300px;
+}
