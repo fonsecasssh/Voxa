@@ -16,6 +16,15 @@ export interface VoxaDesktop {
   setSettings(patch: Partial<DesktopSettings>): Promise<DesktopSettings>;
   onUpdateReady(cb: (version: string) => void): () => void;
   installUpdate(): void;
+  /** Instant replay helpers; missing in desktop versions older than 0.2.0. */
+  replay?: {
+    /** Registers the global shortcut (works while a game has focus); false if another program owns it. */
+    setHotkey(accelerator: string | null): Promise<boolean>;
+    onHotkey(cb: () => void): () => void;
+    /** Saves a clip to Videos\Voxa and returns its path. */
+    save(name: string, data: Uint8Array): Promise<string | null>;
+    show(file: string): Promise<void>;
+  };
 }
 
 export const desktop: VoxaDesktop | undefined = (window as unknown as { voxaDesktop?: VoxaDesktop }).voxaDesktop;

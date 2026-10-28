@@ -25,6 +25,7 @@ import { ChannelSidebar } from "./ChannelSidebar.tsx";
 import { HomeSidebar } from "./HomeSidebar.tsx";
 import { SidebarFooter, type SetPresence } from "./SidebarFooter.tsx";
 import { ChatView } from "./ChatView.tsx";
+import { ReplayModal } from "./ReplayModal.tsx";
 import { FriendsView } from "./FriendsView.tsx";
 import { MemberList } from "./MemberList.tsx";
 import { VoiceView } from "./VoiceView.tsx";
@@ -42,7 +43,7 @@ interface ChannelMessages {
 }
 
 type ModalKind =
-  | { kind: "createServer" | "createChannel" | "invite" | "nickname" | "profile" | "settings" | "voiceSettings" }
+  | { kind: "createServer" | "createChannel" | "invite" | "nickname" | "profile" | "settings" | "voiceSettings" | "replay" }
   | { kind: "editChannel"; channel: Channel }
   | null;
 
@@ -218,10 +219,19 @@ export function Shell({ user, setUser, initialStatus, initialActivity, servers, 
         // Direct messages notify (servers would be too noisy without mentions), unless in "do not disturb".
         const isDm = dmsRef.current?.some((d) => d.channel.id === m.channelId);
         if (isDm && myStatusRef.current !== "dnd" && (document.visibilityState !== "visible" || !document.hasFocus())) {
-          notify(m.author.displayName, m.content.slice(0, 200), m.channelId, () => navigate(`/channels/${HOME}/${m.channelId}`));
+          notify(m.author.displayName, m.content.slice(0, 200) || (m.attachment ? "Enviou um replay 🎬" : ""), m.channelId, () => navigate(`/channels/${HOME}/${m.channelId}`));
           desktop?.flash();
         }
       }
+    });
+
+    // A message changed, e.g. its clip was deleted to free space on the server.
+    socket.on("message:update", (m) => {
+      setMessages((all) => {
+        const ch = all[m.channelId];
+        if (!ch) return all;
+        return { ...all, [m.channelId]: { ...ch, items: ch.items.map((x) => (x.id === m.id ? m : x)) } };
+      });
     });
 
     socket.on("channel:new", (c) => {
@@ -485,6 +495,7 @@ export function Shell({ user, setUser, initialStatus, initialActivity, servers, 
       setPresence={setPresence}
       onEditProfile={() => setModal({ kind: "profile" })}
       onVoiceSettings={() => setModal({ kind: "voiceSettings" })}
+      onReplay={() => setModal({ kind: "replay" })}
       voiceLocation={
         voiceServer && voiceChannel
           ? { label: `${voiceChannel.name} / ${voiceServer.server.name}`, path: `/channels/${voiceServer.server.id}/${voiceChannel.id}` }
@@ -649,6 +660,12 @@ export function Shell({ user, setUser, initialStatus, initialActivity, servers, 
         )}
         {modal?.kind === "profile" && <ProfileModal user={user} onClose={() => setModal(null)} />}
         {modal?.kind === "voiceSettings" && <VoiceSettingsModal onClose={() => setModal(null)} />}
+        {modal?.kind === "replay" && (
+          <ReplayModal
+            onClose={() => setModal(null)}
+            shareTarget={channel && channel.type !== "voice" ? { channelId: channel.id, label: dm ? `@${dm.user.displayName}` : `#${channel.name}` } : null}
+          />
+        )}
         {modal?.kind === "settings" && current && (
           <ServerSettings details={current} selfId={user.id} presence={presence} onClose={() => setModal(null)} />
         )}

@@ -50,4 +50,11 @@ contextBridge.exposeInMainWorld("voxaDesktop", {
 
   onUpdateReady: (cb: (version: string) => void) => subscribe(IPC.updateReady, cb),
   installUpdate: () => ipcRenderer.send(IPC.updateInstall),
+
+  replay: {
+    setHotkey: (accelerator: string | null): Promise<boolean> => ipcRenderer.invoke(IPC.replaySetHotkey, accelerator),
+    onHotkey: (cb: () => void) => subscribe(IPC.replayHotkey, cb),
+    save: (name: string, data: Uint8Array): Promise<string | null> => ipcRenderer.invoke(IPC.replaySave, name, data),
+    show: (file: string) => ipcRenderer.invoke(IPC.replayShow, file),
+  },
 });

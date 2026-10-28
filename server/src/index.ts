@@ -19,6 +19,8 @@ const { http, io } = createApp({
   webDist: path.resolve(here, "../../web/dist"),
   trustProxy: Number(process.env.TRUST_PROXY) || 0,
   mediaDir: MEDIA_DIR,
+  // Clips shared in chat may take this much disk in total (the oldest are deleted beyond it).
+  clipsMaxBytes: (Number(process.env.CLIPS_MAX_MB) || 600) * 1024 * 1024,
 });
 
 http.listen(PORT, () => {

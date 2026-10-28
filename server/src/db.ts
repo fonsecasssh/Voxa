@@ -151,6 +151,11 @@ const MIGRATIONS: string[] = [
   ALTER TABLE users ADD COLUMN avatar TEXT;
   ALTER TABLE users ADD COLUMN profile_banner TEXT;
   `,
+
+  // 8: a clip (instant replay video) attached to a message, as JSON (see store.ts).
+  `
+  ALTER TABLE messages ADD COLUMN attachment TEXT;
+  `,
 ];
 
 function migrate(db: DB) {

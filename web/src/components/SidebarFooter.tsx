@@ -10,6 +10,8 @@ import { Avatar, STATUS_LABEL } from "./Avatar.tsx";
 import { Icon } from "./Icon.tsx";
 import { useAudioSettings } from "../voice/useAudioSettings.ts";
 import { audioSettings, type NoiseSuppression } from "../voice/audioSettings.ts";
+import { replay, useReplay } from "../replay/replay.ts";
+import { useReplaySettings } from "../replay/useReplaySettings.ts";
 
 interface Props {
   user: User;
@@ -20,13 +22,17 @@ interface Props {
   setPresence: SetPresence;
   onEditProfile: () => void;
   onVoiceSettings: () => void;
+  onReplay: () => void;
   onLogout: () => void;
 }
 
 export type SetPresence = (patch: { status?: UserStatus; activity?: string | null }) => Promise<void>;
 
-export function SidebarFooter({ user, status, activity, voiceLocation, setPresence, onEditProfile, onVoiceSettings, onLogout }: Props) {
+export function SidebarFooter({ user, status, activity, voiceLocation, setPresence, onEditProfile, onVoiceSettings, onReplay, onLogout }: Props) {
   const [voice, vs] = useVoice();
+  const rp = useReplay();
+  const replaySettings = useReplaySettings();
+  const replayOn = rp.status !== "off";
   const settings = useAudioSettings();
   const [menuOpen, setMenuOpen] = useState(false);
   const inVoice = vs.status !== "idle";
@@ -50,6 +56,31 @@ export function SidebarFooter({ user, status, activity, voiceLocation, setPresen
             <strong className="ellipsis">{activity.name}</strong>
             <span className="muted small ellipsis">Jogando agora</span>
           </span>
+          {!replayOn && (
+            <button className="panel-icon" title="Ativar replay instantâneo" onClick={onReplay}>
+              <Icon name="replay" />
+            </button>
+          )}
+        </section>
+      )}
+
+      {replayOn && (
+        <section className={`panel-card replay-card ${rp.justSaved ? "saved" : ""}`}>
+          <span className={`rec-dot ${rp.status === "starting" ? "pending" : ""}`} aria-hidden />
+          <button className="panel-texts voice-where" title="Abrir replay instantâneo" onClick={onReplay}>
+            <strong className="ellipsis">{rp.justSaved ? "Clipe salvo!" : rp.saving ? "Salvando clipe…" : rp.status === "starting" ? "Escolha a tela…" : "Replay ativo"}</strong>
+            <span className="muted small ellipsis">
+              {rp.justSaved
+                ? "Clique para ver e enviar"
+                : `${rp.bufferedSeconds} de ${replaySettings.duration} s${replaySettings.hotkey ? ` · ${replaySettings.hotkey}` : ""}`}
+            </span>
+          </button>
+          <button className="panel-icon" title="Salvar clipe" disabled={rp.status !== "recording" || rp.saving} onClick={() => replay.save()}>
+            <Icon name="save" />
+          </button>
+          <button className="panel-icon" title="Desativar replay" onClick={() => replay.stop()}>
+            <Icon name="close" size={18} />
+          </button>
         </section>
       )}
 
@@ -88,6 +119,9 @@ export function SidebarFooter({ user, status, activity, voiceLocation, setPresen
             >
               <Icon name={vs.localScreen ? "screenOff" : "screen"} />
             </button>
+            <button className={`action-btn ${replayOn ? "live" : ""}`} title="Replay instantâneo" onClick={onReplay}>
+              <Icon name="replay" />
+            </button>
             <button className="action-btn" title="Configurações de voz" onClick={onVoiceSettings}>
               <Icon name="mic" />
             </button>
@@ -114,6 +148,10 @@ export function SidebarFooter({ user, status, activity, voiceLocation, setPresen
             onEditProfile={() => {
               setMenuOpen(false);
               onEditProfile();
+            }}
+            onReplay={() => {
+              setMenuOpen(false);
+              onReplay();
             }}
           />
         )}
@@ -172,6 +210,7 @@ function StatusMenu({
   onClose,
   onLogout,
   onEditProfile,
+  onReplay,
 }: {
   status: UserStatus;
   activity: Activity | null;
@@ -179,6 +218,7 @@ function StatusMenu({
   onClose: () => void;
   onLogout: () => void;
   onEditProfile: () => void;
+  onReplay: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [game, setGame] = useState(activity?.name ?? "");
@@ -250,6 +290,9 @@ function StatusMenu({
       <hr />
       <button className="status-option" onClick={onEditProfile}>
         Editar perfil
+      </button>
+      <button className="status-option" onClick={onReplay}>
+        Replay instantâneo
       </button>
       {!desktop && (
         <a className="status-option" href={DOWNLOAD_URL}>

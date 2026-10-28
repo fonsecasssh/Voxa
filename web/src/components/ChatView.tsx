@@ -1,8 +1,9 @@
 import { useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
-import type { Channel, Message, User, ServerDetails } from "../api.ts";
+import type { Channel, ClipAttachment, Message, User, ServerDetails } from "../api.ts";
 import { Avatar } from "./Avatar.tsx";
 import { memberColor, memberName } from "../members.ts";
 import { splitLinks } from "../../../shared/links.ts";
+import { formatDuration, formatSize } from "./ReplayModal.tsx";
 
 const GROUP_WINDOW_MS = 5 * 60_000;
 const TYPING_THROTTLE_MS = 2500;
@@ -31,8 +32,38 @@ function formatTime(ts: number): string {
   return `${d.toLocaleDateString("pt-BR")} ${time}`;
 }
 
-/** Message text with its web links made clickable (opened in a new tab, or the browser in the desktop app). */
-function MessageContent({ content }: { content: string }) {
+/** Message text with its web links made clickable (opened in a new tab, or the browser in the desktop app), and its clip. */
+function MessageContent({ content, attachment }: { content: string; attachment: ClipAttachment | null }) {
+  return (
+    <>
+      {content && <MessageText content={content} />}
+      {attachment && <ClipView clip={attachment} />}
+    </>
+  );
+}
+
+/** An instant replay posted in chat: a player sized to the clip, like Discord's video embeds. */
+function ClipView({ clip }: { clip: ClipAttachment }) {
+  const [broken, setBroken] = useState(false);
+  if (!clip.url || broken) {
+    return <div className="clip-embed expired">Este clipe expirou para liberar espaço no servidor.</div>;
+  }
+  return (
+    <div className="clip-embed">
+      <video src={clip.url} controls preload="metadata" playsInline style={{ aspectRatio: `${clip.width} / ${clip.height}` }} onError={() => setBroken(true)} />
+      <div className="clip-embed-meta">
+        <span className="clip-badge">REPLAY</span>
+        <span>{formatDuration(clip.duration)}</span>
+        <span className="muted">· {formatSize(clip.size)}</span>
+        <a href={clip.url} download className="clip-download">
+          Baixar
+        </a>
+      </div>
+    </div>
+  );
+}
+
+function MessageText({ content }: { content: string }) {
   return (
     <div className="message-content">
       {splitLinks(content).map((p, i) =>
@@ -173,7 +204,7 @@ export function ChatView({ channel, server, dmUser, messages, hasMore, typingUse
                   <span className="hover-time">
                     {new Date(m.createdAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
                   </span>
-                  <MessageContent content={m.content} />
+                  <MessageContent content={m.content} attachment={m.attachment} />
                 </div>
               ) : (
                 <div key={m.id} className="message">
@@ -183,7 +214,7 @@ export function ChatView({ channel, server, dmUser, messages, hasMore, typingUse
                       <strong style={{ color: memberColor(server, m.author.id) }}>{memberName(server, m.author)}</strong>
                       <span className="muted small">{formatTime(m.createdAt)}</span>
                     </div>
-                    <MessageContent content={m.content} />
+                    <MessageContent content={m.content} attachment={m.attachment} />
                   </div>
                 </div>
               );

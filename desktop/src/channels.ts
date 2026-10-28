@@ -18,6 +18,15 @@ export const IPC = {
   /** renderer -> main: restart now to install it. */
   updateInstall: "voxa:update:install",
 
+  /** renderer -> main: global shortcut that saves an instant replay (one of REPLAY_HOTKEYS, or null for none). */
+  replaySetHotkey: "voxa:replay:hotkey:set",
+  /** main -> renderer: the replay shortcut was pressed. */
+  replayHotkey: "voxa:replay:hotkey",
+  /** renderer -> main: save a clip to Videos\Voxa (returns its path). */
+  replaySave: "voxa:replay:save",
+  /** renderer -> main: show a saved clip in Explorer. */
+  replayShow: "voxa:replay:show",
+
   /** picker -> main: sources to choose from. */
   pickerList: "voxa:picker:list",
   /** picker -> main: the choice, or null when cancelled. */

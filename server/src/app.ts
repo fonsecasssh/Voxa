@@ -1,5 +1,6 @@
 import express, { type NextFunction, type Request, type Response } from "express";
 import { createServer as createHttpServer } from "node:http";
+import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { Server as IOServer } from "socket.io";
@@ -11,7 +12,7 @@ import { createIceProvider, type IceProvider } from "./ice.ts";
 import { failureLimiter, rateLimit } from "./rateLimit.ts";
 import { HttpError, str } from "./http.ts";
 import { registerAdminRoutes } from "./admin.ts";
-import { IMAGE_KINDS, createMediaStore, imageUrlPrefix } from "./media.ts";
+import { CLIP_URL_PREFIX, IMAGE_KINDS, createClipStore, createMediaStore, imageUrlPrefix } from "./media.ts";
 import { tmpdir } from "node:os";
 
 // Express's Request carries the authenticated user after `requireAuth`.
@@ -39,12 +40,18 @@ export interface AppOptions {
   trustProxy?: number;
   /** Signups allowed per IP per hour; 0 turns the limit off. Defaults to 20 when trustProxy is set. */
   signupsPerHour?: number;
-  /** Where uploaded images are stored (a temporary directory when not given, e.g. in tests). */
+  /** Where uploaded images and clips are stored (a temporary directory when not given, e.g. in tests). */
   mediaDir?: string;
+  /** Total size the clips may take on disk; the oldest are deleted beyond it. */
+  clipsMaxBytes?: number;
+  /** Largest single clip accepted. */
+  maxClipBytes?: number;
 }
 
-export function createApp({ db, webDist, ice = createIceProvider(), trustProxy = 0, signupsPerHour, mediaDir }: AppOptions) {
-  const media = createMediaStore(mediaDir ?? path.join(tmpdir(), `voxa-media-${process.pid}`));
+export function createApp({ db, webDist, ice = createIceProvider(), trustProxy = 0, signupsPerHour, mediaDir, clipsMaxBytes, maxClipBytes }: AppOptions) {
+  const mediaRoot = mediaDir ?? path.join(tmpdir(), `voxa-media-${process.pid}`);
+  const media = createMediaStore(mediaRoot);
+  const clips = createClipStore(path.join(mediaRoot, "clips"), clipsMaxBytes ?? 600 * 1024 * 1024, maxClipBytes);
   const store: Store = createStore(db);
   const app = express();
   const http = createHttpServer(app);
@@ -71,6 +78,11 @@ export function createApp({ db, webDist, ice = createIceProvider(), trustProxy =
       express.static(media.dirs[kind], { immutable: true, maxAge: "1y", index: false, dotfiles: "deny", fallthrough: false }),
     );
   }
+  // Clips are named after their message, so they never change either (static supports Range, for seeking).
+  app.use(
+    CLIP_URL_PREFIX.slice(0, -1),
+    express.static(clips.dir, { immutable: true, maxAge: "1y", index: false, dotfiles: "deny", fallthrough: false }),
+  );
 
   app.get("/api/health", (req, res) => {
     db.prepare("SELECT 1").get();
@@ -316,6 +328,45 @@ export function createApp({ db, webDist, ice = createIceProvider(), trustProxy =
     const content = str(req.body?.content, "mensagem", 1, 4000);
     const message = store.insertMessage(channel.id, req.user!, content);
     io.to(realtime.channelRooms(channel)).emit("message:new", message);
+    res.status(201).json({ message });
+  });
+
+  // A clip (instant replay) posted as a message. The body is the video itself; the
+  // details travel in the query string: ?duration=&width=&height=&content=
+  const clipLimit = rateLimit({ windowMs: 10 * 60_000, max: 20, message: "Muitos clipes enviados. Espere um pouco." });
+  app.post("/api/channels/:id/clips", requireAuth, clipLimit, async (req, res) => {
+    const channel = requireChannelAccess(req, req.params.id as string);
+    if (channel.type === "voice") throw new HttpError(400, "Esse canal não aceita mensagens.");
+    const q = req.query as Record<string, unknown>;
+    const num = (v: unknown, name: string, min: number, max: number) => {
+      const n = Number(v);
+      if (!Number.isFinite(n) || n < min || n > max) throw new HttpError(400, `Valor inválido para ${name}.`);
+      return n;
+    };
+    const duration = Math.round(num(q.duration, "duração", 0.1, 600) * 10) / 10;
+    const width = Math.round(num(q.width, "largura", 16, 7680));
+    const height = Math.round(num(q.height, "altura", 16, 4320));
+    const content = typeof q.content === "string" ? q.content.trim() : "";
+    if (content.length > 2000) throw new HttpError(400, "A legenda pode ter no máximo 2000 caracteres.");
+    if (Number(req.headers["content-length"]) > clips.maxClipBytes) {
+      throw new HttpError(413, `O clipe passa de ${Math.round(clips.maxClipBytes / 1024 / 1024)} MB.`);
+    }
+
+    const upload = await clips.receive(req);
+    if (!upload.type || upload.size === 0) {
+      clips.discard(upload.tmp);
+      throw new HttpError(400, "O arquivo não é um vídeo MP4 ou WebM.");
+    }
+    const id = randomUUID();
+    const file = clips.commit(upload.tmp, id, upload.type);
+    const message = store.insertMessage(channel.id, req.user!, content, { kind: "clip", file, type: upload.type, size: upload.size, duration, width, height }, id);
+    io.to(realtime.channelRooms(channel)).emit("message:new", message);
+
+    // Over the disk budget: the oldest clips go, and their messages show that they expired.
+    for (const m of store.expireClips(clips.evict(file))) {
+      const c = store.channelById(m.channelId);
+      if (c) io.to(realtime.channelRooms(c)).emit("message:update", m);
+    }
     res.status(201).json({ message });
   });
 

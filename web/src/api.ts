@@ -44,7 +44,22 @@ export interface Message {
   author: User;
   content: string;
   createdAt: number;
+  attachment: ClipAttachment | null;
 }
+
+/** An instant replay posted in chat. `url` is null once the server deleted it to free space. */
+export interface ClipAttachment {
+  kind: "clip";
+  url: string | null;
+  mime: string;
+  size: number;
+  duration: number;
+  width: number;
+  height: number;
+}
+
+/** Largest clip the server accepts. */
+export const MAX_CLIP_BYTES = 100 * 1024 * 1024;
 
 export type UserStatus = "online" | "idle" | "dnd" | "invisible";
 export type PresenceStatus = "online" | "idle" | "dnd" | "offline";
@@ -213,4 +228,34 @@ export const api = {
     request<{ messages: Message[] }>("GET", `/api/channels/${channelId}/messages${before ? `?before=${before}` : ""}`),
   sendMessage: (channelId: string, content: string) =>
     request<{ message: Message }>("POST", `/api/channels/${channelId}/messages`, { content }),
+  uploadClip,
 };
+
+/** Posts a clip as a message, reporting upload progress (0..1). fetch() can't report upload progress, XHR can. */
+function uploadClip(
+  channelId: string,
+  clip: { blob: Blob; duration: number; width: number; height: number; content: string },
+  onProgress: (fraction: number) => void,
+): Promise<Message> {
+  const q = new URLSearchParams({ duration: clip.duration.toFixed(1), width: String(clip.width), height: String(clip.height), content: clip.content });
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", `/api/channels/${channelId}/clips?${q}`);
+    xhr.setRequestHeader("content-type", clip.blob.type || "application/octet-stream");
+    const token = getToken();
+    if (token) xhr.setRequestHeader("authorization", `Bearer ${token}`);
+    xhr.upload.onprogress = (e) => e.lengthComputable && onProgress(e.loaded / e.total);
+    xhr.onload = () => {
+      let data: { message?: Message; error?: string } | null = null;
+      try {
+        data = JSON.parse(xhr.responseText);
+      } catch {
+        // Not JSON (e.g. a proxy error page).
+      }
+      if (xhr.status >= 200 && xhr.status < 300 && data?.message) resolve(data.message);
+      else reject(new ApiError(xhr.status, data?.error ?? "Não foi possível enviar o clipe."));
+    };
+    xhr.onerror = () => reject(new ApiError(0, "Falha de conexão ao enviar o clipe."));
+    xhr.send(clip.blob);
+  });
+}

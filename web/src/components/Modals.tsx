@@ -4,7 +4,7 @@ import { Avatar } from "./Avatar.tsx";
 import { ImageCropper } from "./ImageCropper.tsx";
 import { navigate } from "../router.ts";
 
-export function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+export function Modal({ title, onClose, children, className }: { title: string; onClose: () => void; children: ReactNode; className?: string }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
     window.addEventListener("keydown", onKey);
@@ -13,7 +13,7 @@ export function Modal({ title, onClose, children }: { title: string; onClose: ()
 
   return (
     <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="modal" role="dialog" aria-label={title}>
+      <div className={`modal ${className ?? ""}`} role="dialog" aria-label={title}>
         <h2>{title}</h2>
         {children}
       </div>

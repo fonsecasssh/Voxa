@@ -1,9 +1,9 @@
 {
   "name": "@voxa/desktop",
   "productName": "Voxa",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
-  "description": "Voxa \u2014 servidores, voz e amigos.",
+  "description": "Voxa — servidores, voz e amigos.",
   "author": "Voxa",
   "voxaAppUrl": "https://voxa-fr8h.onrender.com",
   "main": "dist/main.js",

@@ -203,9 +203,9 @@ describe("migrations", () => {
     old.close();
 
     const db = openDb(file);
-    expect(db.prepare("SELECT content FROM messages").all()).toEqual([{ content: "mensagem antiga" }]);
+    expect(db.prepare("SELECT content, attachment FROM messages").all()).toEqual([{ content: "mensagem antiga", attachment: null }]);
     expect(db.prepare("SELECT status FROM users").get()).toEqual({ status: "online" });
-    expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(7);
+    expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(8);
     // The old server got its @everyone role.
     expect(db.prepare("SELECT name, is_default, permissions FROM roles WHERE server_id = 's1'").all()).toEqual([
       { name: "@everyone", is_default: 1, permissions: 64 },

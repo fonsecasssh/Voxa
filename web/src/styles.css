@@ -2113,7 +2113,7 @@ select:focus {
 }
 .voice-card-actions {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 6px;
   margin-top: 8px;
 }
@@ -2246,4 +2246,221 @@ select:focus {
   color: #f2585b;
   display: inline-grid;
   flex-shrink: 0;
+}
+
+/* --- instant replay -------------------------------------------------------------- */
+.replay-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-left: 8px;
+}
+.replay-card.saved strong {
+  color: var(--online);
+}
+.rec-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--danger);
+  flex-shrink: 0;
+  box-shadow: 0 0 0 0 rgba(237, 66, 69, 0.6);
+  animation: rec-pulse 1.6s ease-out infinite;
+}
+.rec-dot.pending {
+  background: var(--offline);
+  animation: none;
+}
+@keyframes rec-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(237, 66, 69, 0.55); }
+  70% { box-shadow: 0 0 0 7px rgba(237, 66, 69, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(237, 66, 69, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rec-dot { animation: none; }
+}
+
+.modal.replay-modal {
+  max-width: 640px;
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.modal.replay-modal h2 {
+  margin: 0;
+}
+.replay-modal .group-label {
+  padding: 0;
+  margin-top: 4px;
+}
+.replay-status {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: var(--bg-sidebar);
+  border: 1px solid var(--border);
+}
+.replay-status.on {
+  border-color: rgba(237, 66, 69, 0.45);
+  background: linear-gradient(90deg, rgba(237, 66, 69, 0.1), transparent 60%), var(--bg-sidebar);
+}
+.replay-status-icon {
+  width: 46px;
+  height: 46px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  color: #fff;
+  background: linear-gradient(135deg, var(--accent), #e84393);
+}
+.replay-status-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1;
+  min-width: 0;
+}
+.replay-start {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.replay-modal .form-error,
+.replay-modal p {
+  margin: 0;
+}
+
+.clip-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.clip-card {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: 12px;
+  padding: 10px;
+  border-radius: 12px;
+  background: var(--bg-sidebar);
+  border: 1px solid var(--border);
+}
+.clip-card.new {
+  border-color: var(--online);
+}
+.clip-card video {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #000;
+  border-radius: 8px;
+  object-fit: contain;
+}
+.clip-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.clip-card-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.clip-share {
+  display: flex;
+  flex-direction: row !important;
+  gap: 6px !important;
+}
+.clip-share input {
+  flex: 1;
+  min-width: 0;
+}
+.clip-share .btn {
+  white-space: nowrap;
+}
+.clip-card-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: auto;
+}
+.clip-card-actions .btn {
+  padding: 6px 10px;
+  font-size: 13px;
+  text-decoration: none;
+}
+.progress {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--bg-input);
+  overflow: hidden;
+}
+.progress span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.2s;
+}
+@media (max-width: 560px) {
+  .clip-card {
+    grid-template-columns: 1fr;
+  }
+  .replay-status {
+    flex-wrap: wrap;
+  }
+}
+
+/* A clip posted in chat. */
+.clip-embed {
+  position: relative;
+  margin-top: 6px;
+  width: min(100%, 480px);
+  border-radius: 10px;
+  overflow: hidden;
+  background: #000;
+  border: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+}
+.clip-embed video {
+  width: 100%;
+  max-height: 360px;
+  background: #000;
+  display: block;
+}
+.clip-embed-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  font-size: 12px;
+  background: var(--bg-sidebar);
+}
+.clip-badge {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: #fff;
+  background: linear-gradient(135deg, var(--accent), #e84393);
+}
+.clip-download {
+  margin-left: auto;
+  color: #00a8fc;
+  text-decoration: none;
+}
+.clip-download:hover {
+  text-decoration: underline;
+}
+.clip-embed.expired {
+  aspect-ratio: auto;
+  padding: 14px;
+  color: var(--text-muted);
+  font-size: 13px;
+  background: var(--bg-sidebar);
 }

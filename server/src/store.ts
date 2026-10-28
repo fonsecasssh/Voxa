@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import type { DB } from "./db.ts";
 import { newInviteCode, newToken } from "./auth.ts";
 import { DEFAULT_PERMISSIONS } from "../../shared/permissions.ts";
-import { imageUrlPrefix, type ServerImageKind, type UserImageKind } from "./media.ts";
+import { CLIP_MIME, CLIP_URL_PREFIX, imageUrlPrefix, type ClipType, type ServerImageKind, type UserImageKind } from "./media.ts";
 
 export interface PublicUser {
   id: string;
@@ -79,6 +79,45 @@ export interface Message {
   author: PublicUser;
   content: string;
   createdAt: number;
+  attachment: ClipAttachment | null;
+}
+
+/** An instant-replay video. `url` is null once the clip was deleted to free space. */
+export interface ClipAttachment {
+  kind: "clip";
+  url: string | null;
+  mime: string;
+  size: number;
+  /** Seconds. */
+  duration: number;
+  width: number;
+  height: number;
+}
+
+/** How a clip is kept in messages.attachment (JSON). */
+export interface StoredClip {
+  kind: "clip";
+  file: string;
+  type: ClipType;
+  size: number;
+  duration: number;
+  width: number;
+  height: number;
+  expired?: boolean;
+}
+
+function toAttachment(json: unknown): ClipAttachment | null {
+  if (typeof json !== "string") return null;
+  const a = JSON.parse(json) as StoredClip;
+  return {
+    kind: "clip",
+    url: a.expired ? null : CLIP_URL_PREFIX + a.file,
+    mime: CLIP_MIME[a.type],
+    size: a.size,
+    duration: a.duration,
+    width: a.width,
+    height: a.height,
+  };
 }
 
 type Row = Record<string, unknown>;
@@ -126,6 +165,7 @@ const toMessage = (r: Row): Message => ({
   author: toUser(r, r.author_id as string),
   content: r.content as string,
   createdAt: r.created_at as number,
+  attachment: toAttachment(r.attachment),
 });
 
 /** Two user ids in canonical order, matching the (user_low, user_high) columns. */
@@ -541,11 +581,33 @@ export function createStore(db: DB) {
     },
 
     // --- messages ---------------------------------------------------------
-    insertMessage(channelId: string, author: PublicUser, content: string): Message {
-      const msg: Message = { id: randomUUID(), channelId, author, content, createdAt: Date.now() };
-      db.prepare("INSERT INTO messages (id, channel_id, author_id, content, created_at) VALUES (?, ?, ?, ?, ?)")
-        .run(msg.id, channelId, author.id, content, msg.createdAt);
+    insertMessage(channelId: string, author: PublicUser, content: string, clip?: StoredClip, id: string = randomUUID()): Message {
+      const json = clip ? JSON.stringify(clip) : null;
+      const msg: Message = { id, channelId, author, content, createdAt: Date.now(), attachment: toAttachment(json) };
+      db.prepare("INSERT INTO messages (id, channel_id, author_id, content, created_at, attachment) VALUES (?, ?, ?, ?, ?, ?)")
+        .run(msg.id, channelId, author.id, content, msg.createdAt, json);
       return msg;
+    },
+
+    /** Marks the clips of these messages as deleted; returns the messages that changed. */
+    expireClips(messageIds: string[]): Message[] {
+      const changed: Message[] = [];
+      for (const id of messageIds) {
+        const r = db
+          .prepare(
+            `UPDATE messages SET attachment = json_set(attachment, '$.expired', json('true'))
+             WHERE id = ? AND attachment IS NOT NULL RETURNING id`,
+          )
+          .get(id);
+        if (!r) continue;
+        const row = db
+          .prepare(
+            `SELECT m.*, u.username, u.display_name, u.avatar, u.profile_banner FROM messages m JOIN users u ON u.id = m.author_id WHERE m.id = ?`,
+          )
+          .get(id) as Row;
+        changed.push(toMessage(row));
+      }
+      return changed;
     },
 
     /** Newest `limit` messages older than `before`, returned oldest first. */

@@ -18,7 +18,10 @@ export type IconName =
   | "arrowRight"
   | "expand"
   | "shrink"
-  | "fullscreen";
+  | "fullscreen"
+  | "replay"
+  | "save"
+  | "close";
 
 /** A gear outline: `teeth` rectangular teeth around a ring. */
 function gearPath(teeth = 8, outer = 10, inner = 7.6): string {
@@ -105,6 +108,14 @@ const ICONS: Record<IconName, ReactNode> = {
   expand: <path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7" />,
   shrink: <path d="M4 14h6v6M20 10h-6V4M10 14l-7 7M14 10l7-7" />,
   fullscreen: <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />,
+  replay: (
+    <>
+      <path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3M4 4v4h4" />
+      <path d="M10.5 9.2v5.6l4.6-2.8z" />
+    </>
+  ),
+  save: <path d="M12 4v11M7.5 10.5 12 15l4.5-4.5M5 19.5h14" />,
+  close: <path d="M6 6l12 12M18 6 6 18" />,
 };
 
 export function Icon({ name, size = 20, title }: { name: IconName; size?: number; title?: string }) {
