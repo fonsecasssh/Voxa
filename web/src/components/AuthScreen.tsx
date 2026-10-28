@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { api } from "../api.ts";
+import { DOWNLOAD_URL, desktop } from "../desktop.ts";
 
 export function AuthScreen({ onAuthenticated }: { onAuthenticated: (token: string) => Promise<void> }) {
   const [mode, setMode] = useState<"login" | "register">("login");
@@ -75,6 +76,11 @@ export function AuthScreen({ onAuthenticated }: { onAuthenticated: (token: strin
           </button>
         </p>
       </form>
+      {!desktop && (
+        <a className="download-link" href={DOWNLOAD_URL} target="_blank" rel="noreferrer">
+          ⬇ Baixar o Voxa para Windows
+        </a>
+      )}
     </div>
   );
 }

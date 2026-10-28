@@ -36,7 +36,7 @@ O instalador (`Voxa-Setup-x.y.z.exe`) é gerado pelo GitHub Actions (workflow **
 
 1. O app abre o endereço em `voxaAppUrl` no `desktop/package.json` (produção: `https://voxa-fr8h.onrender.com`).
 2. Para um instalador de teste: *Actions → Desktop → Run workflow*; o `.exe` fica nos *Artifacts* da execução.
-3. Para lançar uma versão: atualize `version` em `desktop/package.json`, faça commit e crie a tag correspondente (`git tag v0.1.1 && git push origin v0.1.1`). O instalador vai para uma Release, e os apps instalados se atualizam sozinhos.
+3. Para lançar uma versão: *Actions → Desktop → Run workflow* com **Publicar** marcado (para as próximas, aumente antes `version` em `desktop/package.json`). O instalador vai para <https://github.com/fonsecasssh/Voxa/releases/latest>, e os apps instalados se atualizam sozinhos.
 
 O instalador não é assinado digitalmente, então o Windows SmartScreen vai mostrar um aviso na primeira instalação ("Mais informações → Executar assim mesmo"). Para tirar o aviso é preciso um certificado de assinatura de código.
 

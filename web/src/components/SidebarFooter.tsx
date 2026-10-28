@@ -5,6 +5,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { Activity, User, UserStatus } from "../api.ts";
 import { navigate } from "../router.ts";
 import { useVoice } from "../voice/useVoice.ts";
+import { DOWNLOAD_URL, desktop } from "../desktop.ts";
 import { Avatar, STATUS_LABEL } from "./Avatar.tsx";
 
 interface Props {
@@ -187,6 +188,11 @@ function StatusMenu({
       <button className="status-option" onClick={onEditProfile}>
         Editar perfil
       </button>
+      {!desktop && (
+        <a className="status-option" href={DOWNLOAD_URL} target="_blank" rel="noreferrer">
+          Baixar app para Windows
+        </a>
+      )}
       <button className="status-option danger" onClick={onLogout}>
         Sair da conta
       </button>

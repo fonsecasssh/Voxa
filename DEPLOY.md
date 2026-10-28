@@ -51,15 +51,16 @@ O endereço de produção fica em `desktop/package.json`, no campo `voxaAppUrl`
 troque esse campo — ou crie a variável `VOXA_APP_URL` em
 *Settings → Secrets and variables → Actions → Variables*, que tem prioridade.
 
-Para lançar uma versão com atualização automática:
+Para lançar uma versão (o link de download para os amigos):
 
-```bash
-# mude "version" em desktop/package.json (ex.: 0.1.1), faça commit, e então:
-git tag v0.1.1 && git push origin v0.1.1
-```
+1. No GitHub, abra **Actions → Desktop → Run workflow**.
+2. Marque **Publicar como nova versão** e clique em **Run workflow**.
+3. Em ~2 minutos o instalador aparece em <https://github.com/fonsecasssh/Voxa/releases/latest>
+   — esse é o link para mandar. O site também tem o botão "Baixar o Voxa para Windows".
 
-O GitHub Actions gera o instalador e publica em **Releases** — esse é o link para mandar para os amigos.
-Quem já tem o app instalado recebe a atualização sozinho.
+Para as próximas versões, antes aumente `version` em `desktop/package.json` (ex.: 0.1.1) e faça commit.
+Quem já tem o app instalado recebe a atualização sozinho. (Também dá para publicar criando a tag
+`v0.1.1` e enviando com `git push origin v0.1.1`.)
 
 ## Backup
 

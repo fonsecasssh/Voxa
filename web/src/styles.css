@@ -1746,3 +1746,26 @@ img.server-icon {
   box-shadow: 0 0 0 200px rgba(0, 0, 0, 0.55);
   pointer-events: none;
 }
+
+/* --- download link ------------------------------------------------------------------------------ */
+.auth-page {
+  grid-auto-rows: min-content;
+  align-content: center;
+  gap: 16px;
+}
+.download-link {
+  justify-self: center;
+  color: var(--text-muted);
+  text-decoration: none;
+  font-size: 14px;
+  padding: 8px 14px;
+  border-radius: 8px;
+}
+.download-link:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.06);
+}
+a.status-option {
+  color: inherit;
+  text-decoration: none;
+}
