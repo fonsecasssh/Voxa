@@ -11,6 +11,8 @@ import { createIceProvider, type IceProvider } from "./ice.ts";
 import { failureLimiter, rateLimit } from "./rateLimit.ts";
 import { HttpError, str } from "./http.ts";
 import { registerAdminRoutes } from "./admin.ts";
+import { createMediaStore } from "./media.ts";
+import { tmpdir } from "node:os";
 
 // Express's Request carries the authenticated user after `requireAuth`.
 declare module "express-serve-static-core" {
@@ -37,9 +39,12 @@ export interface AppOptions {
   trustProxy?: number;
   /** Signups allowed per IP per hour; 0 turns the limit off. Defaults to 20 when trustProxy is set. */
   signupsPerHour?: number;
+  /** Where uploaded images are stored (a temporary directory when not given, e.g. in tests). */
+  mediaDir?: string;
 }
 
-export function createApp({ db, webDist, ice = createIceProvider(), trustProxy = 0, signupsPerHour }: AppOptions) {
+export function createApp({ db, webDist, ice = createIceProvider(), trustProxy = 0, signupsPerHour, mediaDir }: AppOptions) {
+  const media = createMediaStore(mediaDir ?? path.join(tmpdir(), `voxa-media-${process.pid}`));
   const store: Store = createStore(db);
   const app = express();
   const http = createHttpServer(app);
@@ -58,6 +63,12 @@ export function createApp({ db, webDist, ice = createIceProvider(), trustProxy =
     next();
   });
   app.use(express.json({ limit: "100kb" }));
+
+  // Uploaded banners. File names contain a content hash, so they can be cached forever.
+  app.use(
+    "/media/banners",
+    express.static(media.bannersDir, { immutable: true, maxAge: "1y", index: false, dotfiles: "deny", fallthrough: false }),
+  );
 
   app.get("/api/health", (req, res) => {
     db.prepare("SELECT 1").get();
@@ -267,7 +278,7 @@ export function createApp({ db, webDist, ice = createIceProvider(), trustProxy =
   app.get("/api/invites/:code", (req, res) => {
     const server = store.serverByInvite(req.params.code as string);
     if (!server) throw new HttpError(404, "Convite inválido.");
-    res.json({ server: { id: server.id, name: server.name }, memberCount: store.members(server.id).length });
+    res.json({ server: { id: server.id, name: server.name, banner: server.banner }, memberCount: store.members(server.id).length });
   });
 
   app.post("/api/invites/:code", requireAuth, (req, res) => {
@@ -303,7 +314,7 @@ export function createApp({ db, webDist, ice = createIceProvider(), trustProxy =
     res.status(201).json({ message });
   });
 
-  registerAdminRoutes({ app, io, store, realtime, requireAuth, requireMember });
+  registerAdminRoutes({ app, io, store, realtime, media, requireAuth, requireMember });
 
   app.use("/api", (_req, _res) => {
     throw new HttpError(404, "Rota não encontrada.");
@@ -328,6 +339,13 @@ export function createApp({ db, webDist, ice = createIceProvider(), trustProxy =
     }
     if (err instanceof SyntaxError) {
       res.status(400).json({ error: "JSON inválido." });
+      return;
+    }
+    // Errors from Express itself (body too large, static file not found) carry a client status.
+    const status = (err as { status?: unknown })?.status;
+    if (typeof status === "number" && status >= 400 && status < 500) {
+      const tooLarge = (err as { type?: unknown }).type === "entity.too.large";
+      res.status(status).json({ error: tooLarge ? "Arquivo grande demais (máximo 2 MB)." : status === 404 ? "Não encontrado." : "Requisição inválida." });
       return;
     }
     console.error(err);

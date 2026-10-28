@@ -124,7 +124,10 @@ function ServerMenu({
   );
 
   return (
-    <div className="server-menu" ref={ref}>
+    <div className={`server-menu ${details.server.banner ? "with-banner" : ""}`} ref={ref}>
+      {details.server.banner && (
+        <div className="server-banner" style={{ backgroundImage: `url(${details.server.banner})` }} aria-hidden="true" />
+      )}
       <button className="sidebar-header server-menu-button" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
         <span className="ellipsis">{details.server.name}</span>
         <span className="chevron">{open ? "✕" : "▾"}</span>

@@ -13,6 +13,8 @@ export interface Server {
   name: string;
   ownerId: string;
   inviteCode: string;
+  /** URL of the banner image, or null. */
+  banner: string | null;
 }
 
 export type ChannelType = "text" | "voice" | "dm";
@@ -121,13 +123,15 @@ export class ApiError extends Error {
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const token = getToken();
+  // Blobs (images) are sent as-is; everything else as JSON.
+  const isBlob = body instanceof Blob;
   const res = await fetch(path, {
     method,
     headers: {
-      ...(body !== undefined ? { "content-type": "application/json" } : {}),
+      ...(body !== undefined ? { "content-type": isBlob ? body.type : "application/json" } : {}),
       ...(token ? { authorization: `Bearer ${token}` } : {}),
     },
-    body: body === undefined ? undefined : JSON.stringify(body),
+    body: body === undefined ? undefined : isBlob ? body : JSON.stringify(body),
   });
   const text = await res.text();
   const data = text ? JSON.parse(text) : null;
@@ -157,6 +161,8 @@ export const api = {
   createServer: (name: string) => request<{ server: Server; channels: Channel[]; roles: Role[] }>("POST", "/api/servers", { name }),
   renameServer: (id: string, name: string) => request<{ server: Server }>("PATCH", `/api/servers/${id}`, { name }),
   deleteServer: (id: string) => request<void>("DELETE", `/api/servers/${id}`),
+  uploadBanner: (id: string, image: Blob) => request<{ server: Server }>("PUT", `/api/servers/${id}/banner`, image),
+  removeBanner: (id: string) => request<{ server: Server }>("DELETE", `/api/servers/${id}/banner`),
   leaveServer: (id: string) => request<void>("POST", `/api/servers/${id}/leave`),
 
   setNickname: (serverId: string, userId: string, nickname: string | null) =>
@@ -185,7 +191,8 @@ export const api = {
   createChannel: (serverId: string, name: string, type: ChannelType) =>
     request<{ channel: Channel }>("POST", `/api/servers/${serverId}/channels`, { name, type }),
 
-  invite: (code: string) => request<{ server: { id: string; name: string }; memberCount: number }>("GET", `/api/invites/${code}`),
+  invite: (code: string) =>
+    request<{ server: { id: string; name: string; banner: string | null }; memberCount: number }>("GET", `/api/invites/${code}`),
   joinInvite: (code: string) => request<{ server: Server }>("POST", `/api/invites/${code}`),
 
   rtcConfig: () => request<{ iceServers: RTCIceServer[] }>("GET", "/api/rtc-config"),

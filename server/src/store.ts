@@ -16,7 +16,12 @@ export interface Server {
   name: string;
   ownerId: string;
   inviteCode: string;
+  /** URL of the banner image, or null. */
+  banner: string | null;
 }
+
+/** Where banner files are served from (see app.ts). */
+export const BANNER_URL_PREFIX = "/media/banners/";
 
 export type ChannelType = "text" | "voice" | "dm";
 
@@ -85,6 +90,7 @@ const toServer = (r: Row): Server => ({
   name: r.name as string,
   ownerId: r.owner_id as string,
   inviteCode: r.invite_code as string,
+  banner: r.banner ? BANNER_URL_PREFIX + (r.banner as string) : null,
 });
 
 const toChannel = (r: Row): Channel => ({
@@ -306,7 +312,7 @@ export function createStore(db: DB) {
     // --- servers & membership ---------------------------------------------
     createServer(ownerId: string, name: string): { server: Server; channels: Channel[]; roles: Role[] } {
       const now = Date.now();
-      const server: Server = { id: randomUUID(), name, ownerId, inviteCode: newInviteCode() };
+      const server: Server = { id: randomUUID(), name, ownerId, inviteCode: newInviteCode(), banner: null };
       db.exec("BEGIN");
       try {
         db.prepare("INSERT INTO servers (id, name, owner_id, invite_code, created_at) VALUES (?, ?, ?, ?, ?)")
@@ -379,6 +385,13 @@ export function createStore(db: DB) {
     /** Removes a member (kick or leave); their roles and nickname go with the membership row. */
     removeMember(serverId: string, userId: string): boolean {
       return db.prepare("DELETE FROM members WHERE server_id = ? AND user_id = ?").run(serverId, userId).changes > 0;
+    },
+
+    /** Sets the banner file name (or null) and returns the previous one, so its file can be removed. */
+    setBanner(serverId: string, file: string | null): string | null {
+      const prev = db.prepare("SELECT banner FROM servers WHERE id = ?").get(serverId) as Row | undefined;
+      db.prepare("UPDATE servers SET banner = ? WHERE id = ?").run(file, serverId);
+      return (prev?.banner as string | null) ?? null;
     },
 
     renameServer(serverId: string, name: string): void {

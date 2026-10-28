@@ -1,12 +1,13 @@
 // Full-screen server settings, like Discord's: overview (name), roles and members.
 
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { PERMISSION_INFO, Permission as P } from "../../../shared/permissions.ts";
 import { api, type Presence, type Role, type ServerDetails, type User } from "../api.ts";
 import { Permission, can, memberColor, memberName, memberRoles, myPermissions, myTop, outranks } from "../members.ts";
 import { navigate } from "../router.ts";
 import { Avatar } from "./Avatar.tsx";
 import { NicknameForm } from "./MemberList.tsx";
+import { BannerCropper } from "./BannerCropper.tsx";
 
 type Tab = "overview" | "roles" | "members";
 
@@ -120,6 +121,8 @@ function Overview({ details, selfId, perms, onClose }: { details: ServerDetails;
         </form>
       )}
 
+      {can(perms, Permission.MANAGE_SERVER) && <BannerSection details={details} />}
+
       {isOwner && (
         <section className="danger-zone">
           <h3>Excluir servidor</h3>
@@ -140,6 +143,56 @@ function Overview({ details, selfId, perms, onClose }: { details: ServerDetails;
         </section>
       )}
     </>
+  );
+}
+
+function BannerSection({ details }: { details: ServerDetails }) {
+  const input = useRef<HTMLInputElement>(null);
+  const [file, setFile] = useState<File | null>(null);
+  const { error, busy, run } = useAction();
+  const banner = details.server.banner;
+
+  return (
+    <section className="banner-section">
+      <h3>Banner do servidor</h3>
+      <p className="muted small">Aparece no topo da lista de canais e no convite. Tamanho ideal: 960×540 (16:9).</p>
+      <div className="banner-preview" style={banner ? { backgroundImage: `url(${banner})` } : undefined}>
+        {!banner && <span className="muted">Sem banner</span>}
+      </div>
+      <input
+        ref={input}
+        type="file"
+        accept="image/png,image/jpeg,image/webp,image/gif"
+        hidden
+        aria-label="Escolher imagem do banner"
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          e.target.value = ""; // allow picking the same file again
+          if (f) setFile(f);
+        }}
+      />
+      {error && <div className="form-error">{error}</div>}
+      <div className="modal-actions start">
+        <button className="btn primary" onClick={() => input.current?.click()} disabled={busy}>
+          {banner ? "Trocar imagem" : "Enviar imagem"}
+        </button>
+        {banner && (
+          <button className="btn subtle danger" onClick={() => run(() => api.removeBanner(details.server.id))} disabled={busy}>
+            Remover banner
+          </button>
+        )}
+      </div>
+      {file && (
+        <BannerCropper
+          file={file}
+          onCancel={() => setFile(null)}
+          onCropped={async (image) => {
+            await api.uploadBanner(details.server.id, image);
+            setFile(null);
+          }}
+        />
+      )}
+    </section>
   );
 }
 

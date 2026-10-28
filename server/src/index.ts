@@ -7,6 +7,8 @@ import { createIceProvider } from "./ice.ts";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT) || 3001;
 const DB_FILE = process.env.DB_FILE || path.resolve(here, "../data/voxa.db");
+// Uploaded images live next to the database, so they're on the same persistent disk.
+const MEDIA_DIR = process.env.MEDIA_DIR || path.join(path.dirname(DB_FILE), "media");
 
 const db = openDb(DB_FILE);
 const ice = createIceProvider();
@@ -16,6 +18,7 @@ const { http, io } = createApp({
   // Served when it has been built (`npm run build`); in development Vite serves the UI instead.
   webDist: path.resolve(here, "../../web/dist"),
   trustProxy: Number(process.env.TRUST_PROXY) || 0,
+  mediaDir: MEDIA_DIR,
 });
 
 http.listen(PORT, () => {

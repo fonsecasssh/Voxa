@@ -4,7 +4,7 @@ import { navigate } from "../router.ts";
 import { Avatar } from "./Avatar.tsx";
 
 export function InvitePage({ code, onJoined }: { code: string; onJoined: (server: Server) => void }) {
-  const [info, setInfo] = useState<{ server: { id: string; name: string }; memberCount: number } | null>(null);
+  const [info, setInfo] = useState<{ server: { id: string; name: string; banner: string | null }; memberCount: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -39,6 +39,7 @@ export function InvitePage({ code, onJoined }: { code: string; onJoined: (server
           <p className="muted">Carregando convite…</p>
         ) : (
           <>
+            {info.server.banner && <div className="invite-banner" style={{ backgroundImage: `url(${info.server.banner})` }} />}
             <p className="muted small">Você foi convidado para entrar em</p>
             <Avatar name={info.server.name} id={info.server.id} size={64} />
             <h1>{info.server.name}</h1>

@@ -135,6 +135,11 @@ const MIGRATIONS: string[] = [
   INSERT INTO roles (id, server_id, name, color, permissions, position, hoist, is_default, created_at)
     SELECT lower(hex(randomblob(16))), id, '@everyone', NULL, 64, 0, 0, 1, created_at FROM servers;
   `,
+
+  // 5: server banner (a file name inside the media directory).
+  `
+  ALTER TABLE servers ADD COLUMN banner TEXT;
+  `,
 ];
 
 function migrate(db: DB) {

@@ -10,6 +10,7 @@ export default defineConfig({
     proxy: {
       "/api": server,
       "/socket.io": { target: server, ws: true },
+      "/media": server,
     },
   },
 });

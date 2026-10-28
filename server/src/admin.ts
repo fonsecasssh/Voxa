@@ -1,19 +1,21 @@
 // Profile, server, member, role and channel management — the "names and roles" part of Voxa.
 // Every action checks the permissions in shared/permissions.ts, including the role hierarchy.
 
-import type { Express, NextFunction, Request, Response } from "express";
+import express, { type Express, type NextFunction, type Request, type Response } from "express";
 import type { Server as IOServer } from "socket.io";
 import { Permission, can, permissionsOf, topPosition } from "../../shared/permissions.ts";
 import { hashPassword, verifyPassword } from "./auth.ts";
 import { HttpError, str } from "./http.ts";
 import type { registerRealtime } from "./realtime.ts";
 import type { ChannelType, Role, Server, Store } from "./store.ts";
+import { MAX_BANNER_BYTES, detectImageType, type MediaStore } from "./media.ts";
 
 interface Deps {
   app: Express;
   io: IOServer;
   store: Store;
   realtime: ReturnType<typeof registerRealtime>;
+  media: MediaStore;
   requireAuth: (req: Request, res: Response, next: NextFunction) => void;
   requireMember: (req: Request, serverId: string) => Server;
 }
@@ -37,7 +39,7 @@ const channelName = (type: ChannelType, raw: unknown) => {
   return type === "text" ? name.toLowerCase().replace(/\s+/g, "-") : name;
 };
 
-export function registerAdminRoutes({ app, io, store, realtime, requireAuth, requireMember }: Deps) {
+export function registerAdminRoutes({ app, io, store, realtime, media, requireAuth, requireMember }: Deps) {
   /** The requesting member's standing in a server: permissions and highest role position. */
   const standing = (req: Request, serverId: string) => {
     const server = requireMember(req, serverId);
@@ -99,9 +101,39 @@ export function registerAdminRoutes({ app, io, store, realtime, requireAuth, req
     res.json({ server: updated });
   });
 
+  // The image is the raw request body (the browser sends the cropped 960x540 image).
+  app.put(
+    "/api/servers/:id/banner",
+    requireAuth,
+    express.raw({ type: () => true, limit: MAX_BANNER_BYTES }),
+    (req, res) => {
+      const { server, perms } = standing(req, req.params.id as string);
+      need(perms, Permission.MANAGE_SERVER, "Você não tem permissão para gerenciar este servidor.");
+      const data = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+      const type = detectImageType(data);
+      if (!type) throw new HttpError(400, "Envie uma imagem PNG, JPEG, WebP ou GIF.");
+      const file = media.saveBanner(server.id, data, type);
+      const previous = store.setBanner(server.id, file);
+      if (previous !== file) media.removeBanner(previous);
+      const updated = store.serverById(server.id)!;
+      io.to(`server:${server.id}`).emit("server:update", updated);
+      res.json({ server: updated });
+    },
+  );
+
+  app.delete("/api/servers/:id/banner", requireAuth, (req, res) => {
+    const { server, perms } = standing(req, req.params.id as string);
+    need(perms, Permission.MANAGE_SERVER, "Você não tem permissão para gerenciar este servidor.");
+    media.removeBanner(store.setBanner(server.id, null));
+    const updated = store.serverById(server.id)!;
+    io.to(`server:${server.id}`).emit("server:update", updated);
+    res.json({ server: updated });
+  });
+
   app.delete("/api/servers/:id", requireAuth, (req, res) => {
     const server = requireMember(req, req.params.id as string);
     if (server.ownerId !== req.user!.id) throw new HttpError(403, "Só o dono pode excluir o servidor.");
+    media.removeBanner(store.setBanner(server.id, null));
     for (const c of store.channels(server.id)) if (c.type === "voice") realtime.evictVoiceChannel(c.id);
     io.to(`server:${server.id}`).emit("server:removed", { serverId: server.id, reason: `O servidor "${server.name}" foi excluído.` });
     io.in(`server:${server.id}`).socketsLeave(`server:${server.id}`);
