@@ -6,14 +6,14 @@ import path from "node:path";
 import { Server as IOServer } from "socket.io";
 import { hashPassword, verifyPassword } from "./auth.ts";
 import type { DB } from "./db.ts";
-import { createStore, type DmSummary, type PublicUser, type Store, type UserStatus } from "./store.ts";
+import { FILE_URL_PREFIX, createStore, toFileAttachment, type DmSummary, type FileKind, type PublicUser, type Store, type UserStatus } from "./store.ts";
 import { registerRealtime } from "./realtime.ts";
 import { createIceProvider, type IceProvider } from "./ice.ts";
 import { failureLimiter, rateLimit } from "./rateLimit.ts";
 import { HttpError, str } from "./http.ts";
 import { registerAdminRoutes } from "./admin.ts";
 import { Permission, can, permissionsOf } from "../../shared/permissions.ts";
-import { CLIP_URL_PREFIX, IMAGE_KINDS, createClipStore, createMediaStore, imageUrlPrefix } from "./media.ts";
+import { CLIP_MIME, CLIP_URL_PREFIX, IMAGE_KINDS, IMAGE_MIME, createClipStore, createMediaStore, detectImageType, imageUrlPrefix } from "./media.ts";
 import { tmpdir } from "node:os";
 
 // Express's Request carries the authenticated user after `requireAuth`.
@@ -32,6 +32,19 @@ function bearer(req: Request): string | null {
   return h?.startsWith("Bearer ") ? h.slice(7) : null;
 }
 
+/** Largest chat attachment, and how many go with one message. */
+export const MAX_FILE_BYTES = 25 * 1024 * 1024;
+export const MAX_FILES_PER_MESSAGE = 10;
+
+/** A file name safe to show and to put in a download header: no folders, no control characters. */
+function fileName(raw: unknown): string {
+  const name = (typeof raw === "string" ? raw : "")
+    .replace(/[\u0000-\u001f\u007f/\\]/g, "")
+    .trim()
+    .slice(0, 120);
+  return name && name !== "." && name !== ".." ? name : "arquivo";
+}
+
 export interface AppOptions {
   db: DB;
   /** Directory with the built web app, served in production. */
@@ -47,12 +60,15 @@ export interface AppOptions {
   clipsMaxBytes?: number;
   /** Largest single clip accepted. */
   maxClipBytes?: number;
+  /** Total size chat attachments may take on disk; the oldest are deleted beyond it. */
+  filesMaxBytes?: number;
 }
 
-export function createApp({ db, webDist, ice = createIceProvider(), trustProxy = 0, signupsPerHour, mediaDir, clipsMaxBytes, maxClipBytes }: AppOptions) {
+export function createApp({ db, webDist, ice = createIceProvider(), trustProxy = 0, signupsPerHour, mediaDir, clipsMaxBytes, maxClipBytes, filesMaxBytes }: AppOptions) {
   const mediaRoot = mediaDir ?? path.join(tmpdir(), `voxa-media-${process.pid}`);
   const media = createMediaStore(mediaRoot);
-  const clips = createClipStore(path.join(mediaRoot, "clips"), clipsMaxBytes ?? 600 * 1024 * 1024, maxClipBytes);
+  const clips = createClipStore(path.join(mediaRoot, "clips"), clipsMaxBytes ?? 400 * 1024 * 1024, maxClipBytes);
+  const files = createClipStore(path.join(mediaRoot, "files"), filesMaxBytes ?? 300 * 1024 * 1024, MAX_FILE_BYTES, "O arquivo");
   const store: Store = createStore(db);
   const app = express();
   const http = createHttpServer(app);
@@ -79,6 +95,21 @@ export function createApp({ db, webDist, ice = createIceProvider(), trustProxy =
       express.static(media.dirs[kind], { immutable: true, maxAge: "1y", index: false, dotfiles: "deny", fallthrough: false }),
     );
   }
+  // Chat attachments, at /media/files/<id>/<name>. Only images and videos (recognized by their
+  // bytes) display inline; anything else is a download, and none of it can run as a page.
+  app.get(`${FILE_URL_PREFIX}:id/:name`, (req, res) => {
+    const u = store.uploadById(req.params.id as string);
+    if (!u || u.expired) throw new HttpError(404, "Arquivo não encontrado.");
+    const inline = u.kind === "image" || u.kind === "video";
+    res.setHeader("Content-Type", inline ? u.mime : "application/octet-stream");
+    res.setHeader("Content-Disposition", `${inline ? "inline" : "attachment"}; filename*=UTF-8''${encodeURIComponent(u.name)}`);
+    res.setHeader("Content-Security-Policy", "default-src 'none'; sandbox");
+    res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+    res.sendFile(path.join(files.dir, u.id), { dotfiles: "deny", headers: { "Content-Type": inline ? u.mime : "application/octet-stream" } }, (err) => {
+      if (err && !res.headersSent) res.status(404).end();
+    });
+  });
+
   // Clips are named after their message, so they never change either (static supports Range, for seeking).
   app.use(
     CLIP_URL_PREFIX.slice(0, -1),
@@ -326,11 +357,83 @@ export function createApp({ db, webDist, ice = createIceProvider(), trustProxy =
   app.post("/api/channels/:id/messages", requireAuth, (req, res) => {
     const channel = requireChannelAccess(req, req.params.id as string);
     if (channel.type === "voice") throw new HttpError(400, "Esse canal não aceita mensagens.");
-    const content = str(req.body?.content, "mensagem", 1, 4000);
-    const message = store.insertMessage(channel.id, req.user!, content);
+    const uploads: unknown = req.body?.uploads ?? [];
+    if (!Array.isArray(uploads) || uploads.length > MAX_FILES_PER_MESSAGE || !uploads.every((u) => typeof u === "string")) {
+      throw new HttpError(400, `Envie no máximo ${MAX_FILES_PER_MESSAGE} arquivos por mensagem.`);
+    }
+    // A message may be only files; otherwise it needs text.
+    const content = str(req.body?.content ?? "", "mensagem", uploads.length ? 0 : 1, 4000);
+    const id = randomUUID();
+    db.exec("BEGIN");
+    try {
+      store.insertMessage(channel.id, req.user!, content, undefined, id);
+      if (!store.attachUploads(id, req.user!.id, uploads as string[])) throw new HttpError(400, "Um dos arquivos não está mais disponível. Envie de novo.");
+      db.exec("COMMIT");
+    } catch (err) {
+      db.exec("ROLLBACK");
+      throw err;
+    }
+    const message = store.messageById(id)!;
     io.to(realtime.channelRooms(channel)).emit("message:new", message);
     res.status(201).json({ message });
   });
+
+  // A file for a message, sent before the message itself: the body is the file, its
+  // name (and, for images and videos, its size in pixels) in the query string.
+  const uploadLimit = rateLimit({ windowMs: 10 * 60_000, max: 120, message: "Muitos arquivos enviados. Espere um pouco." });
+  app.post("/api/uploads", requireAuth, uploadLimit, async (req, res) => {
+    const q = req.query as Record<string, unknown>;
+    if (Number(req.headers["content-length"]) > MAX_FILE_BYTES) throw new HttpError(413, `O arquivo passa de ${MAX_FILE_BYTES / 1024 / 1024} MB.`);
+    const name = fileName(q.name);
+    const dim = (v: unknown) => {
+      const n = Math.round(Number(v));
+      return Number.isFinite(n) && n >= 1 && n <= 20000 ? n : null;
+    };
+    const upload = await files.receive(req);
+    if (upload.size === 0) {
+      files.discard(upload.tmp);
+      throw new HttpError(400, "O arquivo está vazio.");
+    }
+    const image = detectImageType(upload.head);
+    const kind: FileKind = image ? "image" : upload.type ? "video" : "file";
+    const mime = image ? IMAGE_MIME[image] : upload.type ? CLIP_MIME[upload.type] : "application/octet-stream";
+    const id = randomUUID();
+    files.commitAs(upload.tmp, id);
+    const row = store.insertUpload({
+      id,
+      ownerId: req.user!.id,
+      name,
+      kind,
+      mime,
+      size: upload.size,
+      width: kind === "file" ? null : dim(q.width),
+      height: kind === "file" ? null : dim(q.height),
+    });
+    // Over the disk budget: the oldest attachments go, and their messages are updated.
+    for (const m of store.expireFiles(files.evict(id))) {
+      const c = store.channelById(m.channelId);
+      if (c) io.to(realtime.channelRooms(c)).emit("message:update", m);
+    }
+    res.status(201).json({ upload: toFileAttachment(row) });
+  });
+
+  /** Removes a file picked by mistake, before it was sent. */
+  app.delete("/api/uploads/:id", requireAuth, (req, res) => {
+    const u = store.uploadById(req.params.id as string);
+    if (!u || u.ownerId !== req.user!.id || u.messageId) throw new HttpError(404, "Arquivo não encontrado.");
+    store.deleteUpload(u.id);
+    files.remove(u.id);
+    res.status(204).end();
+  });
+
+  // Files picked but never sent are cleared after a couple of hours.
+  const sweep = setInterval(() => {
+    for (const id of store.staleUploads(Date.now() - 2 * 60 * 60_000)) {
+      store.deleteUpload(id);
+      files.remove(id);
+    }
+  }, 30 * 60_000);
+  sweep.unref();
 
   // Deleting a message: its author always can; in a server, so can members with "Gerenciar mensagens".
   app.delete("/api/channels/:id/messages/:messageId", requireAuth, (req, res) => {
@@ -343,8 +446,10 @@ export function createApp({ db, webDist, ice = createIceProvider(), trustProxy =
       const perms = server ? permissionsOf(server, store.roles(server.id), me, store.memberInfo(server.id, me)?.roleIds ?? []) : 0;
       if (!can(perms, Permission.MANAGE_MESSAGES)) throw new HttpError(403, "Você só pode apagar as suas mensagens.");
     }
+    const fileIds = store.fileIdsOf(req.params.messageId as string);
     store.deleteMessage(req.params.messageId as string);
     if (info.clipFile) clips.remove(info.clipFile);
+    for (const f of fileIds) files.remove(f);
     io.to(realtime.channelRooms(channel)).emit("message:delete", { channelId: channel.id, id: req.params.messageId as string });
     res.status(204).end();
   });

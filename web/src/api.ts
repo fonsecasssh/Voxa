@@ -45,7 +45,24 @@ export interface Message {
   content: string;
   createdAt: number;
   attachment: ClipAttachment | null;
+  files: FileAttachment[];
 }
+
+/** A file sent in chat. `url` is null once the server deleted it to free space. */
+export interface FileAttachment {
+  id: string;
+  name: string;
+  kind: "image" | "video" | "file";
+  mime: string;
+  size: number;
+  width: number | null;
+  height: number | null;
+  url: string | null;
+}
+
+/** Limits the server enforces on chat files. */
+export const MAX_FILE_BYTES = 25 * 1024 * 1024;
+export const MAX_FILES_PER_MESSAGE = 10;
 
 /** An instant replay posted in chat. `url` is null once the server deleted it to free space. */
 export interface ClipAttachment {
@@ -226,11 +243,42 @@ export const api = {
 
   messages: (channelId: string, before?: number) =>
     request<{ messages: Message[] }>("GET", `/api/channels/${channelId}/messages${before ? `?before=${before}` : ""}`),
-  sendMessage: (channelId: string, content: string) =>
-    request<{ message: Message }>("POST", `/api/channels/${channelId}/messages`, { content }),
+  sendMessage: (channelId: string, content: string, uploads: string[] = []) =>
+    request<{ message: Message }>("POST", `/api/channels/${channelId}/messages`, { content, uploads }),
+  uploadFile,
+  deleteUpload: (id: string) => request<void>("DELETE", `/api/uploads/${id}`),
   deleteMessage: (channelId: string, messageId: string) => request<void>("DELETE", `/api/channels/${channelId}/messages/${messageId}`),
   uploadClip,
 };
+
+/** Sends a file for a message that will follow; reports progress (0..1). */
+function uploadFile(file: File, size: { width?: number; height?: number }, onProgress: (fraction: number) => void): Promise<FileAttachment> {
+  const q = new URLSearchParams({ name: file.name || "arquivo" });
+  if (size.width && size.height) {
+    q.set("width", String(Math.round(size.width)));
+    q.set("height", String(Math.round(size.height)));
+  }
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", `/api/uploads?${q}`);
+    xhr.setRequestHeader("content-type", "application/octet-stream");
+    const token = getToken();
+    if (token) xhr.setRequestHeader("authorization", `Bearer ${token}`);
+    xhr.upload.onprogress = (e) => e.lengthComputable && onProgress(e.loaded / e.total);
+    xhr.onload = () => {
+      let data: { upload?: FileAttachment; error?: string } | null = null;
+      try {
+        data = JSON.parse(xhr.responseText);
+      } catch {
+        // Not JSON (e.g. a proxy error page).
+      }
+      if (xhr.status >= 200 && xhr.status < 300 && data?.upload) resolve(data.upload);
+      else reject(new ApiError(xhr.status, data?.error ?? "Não foi possível enviar o arquivo."));
+    };
+    xhr.onerror = () => reject(new ApiError(0, "Falha de conexão ao enviar o arquivo."));
+    xhr.send(file);
+  });
+}
 
 /** Posts a clip as a message, reporting upload progress (0..1). fetch() can't report upload progress, XHR can. */
 function uploadClip(

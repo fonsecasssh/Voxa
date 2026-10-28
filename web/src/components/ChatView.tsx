@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
-import type { Channel, ClipAttachment, Message, User, ServerDetails } from "../api.ts";
+import { MAX_FILES_PER_MESSAGE, type Channel, type ClipAttachment, type FileAttachment, type Message, type User, type ServerDetails } from "../api.ts";
+import { Lightbox, MessageFiles, PendingTray, usePendingFiles } from "./Attachments.tsx";
 import { Avatar } from "./Avatar.tsx";
 import { EmojiPicker } from "./EmojiPicker.tsx";
 import { Icon } from "./Icon.tsx";
@@ -20,7 +21,7 @@ interface Props {
   hasMore: boolean;
   typingUsers: User[];
   onLoadOlder: () => Promise<void> | undefined;
-  onSend: (content: string) => Promise<void>;
+  onSend: (content: string, uploads: string[]) => Promise<void>;
   onTyping: () => void;
   /** Whether the viewer may delete this message (their own, or as a moderator). */
   canDelete: (m: Message) => boolean;
@@ -38,11 +39,12 @@ function formatTime(ts: number): string {
 }
 
 /** Message text with its web links made clickable (opened in a new tab, or the browser in the desktop app), and its clip. */
-function MessageContent({ content, attachment }: { content: string; attachment: ClipAttachment | null }) {
+function MessageContent({ message, onOpenImage }: { message: Message; onOpenImage: (f: FileAttachment) => void }) {
   return (
     <>
-      {content && <MessageText content={content} />}
-      {attachment && <ClipView clip={attachment} />}
+      {message.content && <MessageText content={message.content} />}
+      {message.files.length > 0 && <MessageFiles files={message.files} onOpenImage={onOpenImage} />}
+      {message.attachment && <ClipView clip={message.attachment} />}
     </>
   );
 }
@@ -99,6 +101,11 @@ export function ChatView({ channel, server, dmUser, messages, hasMore, typingUse
   const prevHeight = useRef<number | null>(null);
   const lastTyping = useRef(0);
   const [draft, setDraft] = useState("");
+  const pending = usePendingFiles();
+  const [sending, setSending] = useState(false);
+  const [dragging, setDragging] = useState(false);
+  const [lightbox, setLightbox] = useState<FileAttachment | null>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
   const [emojiOpen, setEmojiOpen] = useState(false);
   const textarea = useRef<HTMLTextAreaElement>(null);
 
@@ -152,6 +159,7 @@ export function ChatView({ channel, server, dmUser, messages, hasMore, typingUse
     stickToBottom.current = true;
     setDraft("");
     setSendError(null);
+    pending.discard();
   }, [channel.id]);
 
   const loadOlder = async () => {
@@ -161,16 +169,28 @@ export function ChatView({ channel, server, dmUser, messages, hasMore, typingUse
 
   const send = async () => {
     const content = draft.trim();
-    if (!content) return;
+    if ((!content && pending.items.length === 0) || sending) return;
     setDraft("");
     setSendError(null);
+    setSending(true);
     stickToBottom.current = true;
     try {
-      await onSend(content);
+      // Files upload in the background as soon as they're picked; this waits for any still going.
+      const uploads = await pending.ready();
+      await onSend(content, uploads);
+      pending.clear();
     } catch (err) {
       setDraft(content);
       setSendError((err as Error).message);
+    } finally {
+      setSending(false);
     }
+  };
+
+  const addFiles = (files: File[]) => {
+    if (files.length === 0) return;
+    setSendError(pending.add(files));
+    textarea.current?.focus();
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -190,7 +210,33 @@ export function ChatView({ channel, server, dmUser, messages, hasMore, typingUse
   };
 
   return (
-    <main className="main chat">
+    <main
+      className="main chat"
+      onDragOver={(e) => {
+        if (!e.dataTransfer.types.includes("Files")) return;
+        e.preventDefault();
+        setDragging(true);
+      }}
+      onDragLeave={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragging(false);
+      }}
+      onDrop={(e) => {
+        if (!e.dataTransfer.files.length) return;
+        e.preventDefault();
+        setDragging(false);
+        addFiles([...e.dataTransfer.files]);
+      }}
+    >
+      {dragging && (
+        <div className="drop-overlay" aria-hidden="true">
+          <div>
+            <Icon name="file" size={40} />
+            <strong>Solte para enviar em {dmUser ? `@${dmUser.username}` : `#${channel.name}`}</strong>
+            <span className="muted small">Até {MAX_FILES_PER_MESSAGE} arquivos de 25 MB</span>
+          </div>
+        </div>
+      )}
+      {lightbox && <Lightbox file={lightbox} onClose={() => setLightbox(null)} />}
       <header className="chat-header">
         {dmUser ? (
           <Avatar name={dmUser.displayName} id={dmUser.id} size={24} src={dmUser.avatar} />
@@ -243,7 +289,7 @@ export function ChatView({ channel, server, dmUser, messages, hasMore, typingUse
                   <span className="hover-time">
                     {new Date(m.createdAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
                   </span>
-                  <MessageContent content={m.content} attachment={m.attachment} />
+                  <MessageContent message={m} onOpenImage={setLightbox} />
                   {actions(m)}
                 </div>
               ) : (
@@ -254,7 +300,7 @@ export function ChatView({ channel, server, dmUser, messages, hasMore, typingUse
                       <strong style={{ color: memberColor(server, m.author.id) }}>{memberName(server, m.author)}</strong>
                       <span className="muted small">{formatTime(m.createdAt)}</span>
                     </div>
-                    <MessageContent content={m.content} attachment={m.attachment} />
+                    <MessageContent message={m} onOpenImage={setLightbox} />
                   </div>
                   {actions(m)}
                 </div>
@@ -266,7 +312,22 @@ export function ChatView({ channel, server, dmUser, messages, hasMore, typingUse
 
       <div className="composer">
         {sendError && <div className="form-error">{sendError}</div>}
+        <PendingTray items={pending.items} onRemove={pending.remove} />
         <div className="composer-box">
+          <button type="button" className="attach-btn" title="Enviar arquivo" aria-label="Enviar arquivo" onClick={() => fileInput.current?.click()}>
+            <Icon name="plus" size={18} />
+          </button>
+          <input
+            ref={fileInput}
+            type="file"
+            multiple
+            hidden
+            aria-label="Escolher arquivos"
+            onChange={(e) => {
+              addFiles([...(e.target.files ?? [])]);
+              e.target.value = "";
+            }}
+          />
           <textarea
             ref={textarea}
             rows={1}
@@ -275,6 +336,13 @@ export function ChatView({ channel, server, dmUser, messages, hasMore, typingUse
             maxLength={4000}
             onChange={(e) => onChange(e.target.value)}
             onKeyDown={onKeyDown}
+            onPaste={(e) => {
+              // A screenshot (or any copied file) pasted with Ctrl+V becomes an attachment.
+              const files = [...e.clipboardData.files];
+              if (files.length === 0) return;
+              if (!e.clipboardData.getData("text/plain")) e.preventDefault();
+              addFiles(files);
+            }}
             autoFocus
           />
           <button

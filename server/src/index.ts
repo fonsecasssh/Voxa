@@ -20,7 +20,9 @@ const { http, io } = createApp({
   trustProxy: Number(process.env.TRUST_PROXY) || 0,
   mediaDir: MEDIA_DIR,
   // Clips shared in chat may take this much disk in total (the oldest are deleted beyond it).
-  clipsMaxBytes: (Number(process.env.CLIPS_MAX_MB) || 600) * 1024 * 1024,
+  clipsMaxBytes: (Number(process.env.CLIPS_MAX_MB) || 400) * 1024 * 1024,
+  // Same for files sent in chat (images, videos, documents).
+  filesMaxBytes: (Number(process.env.FILES_MAX_MB) || 300) * 1024 * 1024,
 });
 
 http.listen(PORT, () => {

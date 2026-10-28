@@ -226,7 +226,7 @@ export function Shell({ user, setUser, initialStatus, initialActivity, servers, 
         const isDm = dmsRef.current?.some((d) => d.channel.id === m.channelId);
         if (isDm && myStatusRef.current !== "dnd") playSound("message");
         if (isDm && myStatusRef.current !== "dnd" && (document.visibilityState !== "visible" || !document.hasFocus())) {
-          notify(m.author.displayName, m.content.slice(0, 200) || (m.attachment ? "Enviou um replay 🎬" : ""), m.channelId, () => navigate(`/channels/${HOME}/${m.channelId}`));
+          notify(m.author.displayName, m.content.slice(0, 200) || (m.attachment ? "Enviou um replay 🎬" : m.files.length ? `Enviou ${m.files.length === 1 ? "um arquivo" : `${m.files.length} arquivos`} 📎` : ""), m.channelId, () => navigate(`/channels/${HOME}/${m.channelId}`));
           desktop?.flash();
         }
       }
@@ -533,9 +533,9 @@ export function Shell({ user, setUser, initialStatus, initialActivity, servers, 
         const oldest = messages[channel.id]?.items[0];
         if (oldest) return loadMessages(channel.id, oldest.createdAt);
       }}
-      onSend={(content) => {
+      onSend={(content, uploads) => {
         requestNotificationPermission();
-        return api.sendMessage(channel.id, content).then(() => {});
+        return api.sendMessage(channel.id, content, uploads).then(() => {});
       }}
       onTyping={() => socketRef.current?.emit("typing", { channelId: channel.id })}
       canDelete={(m) => m.author.id === user.id || (!!current && !dm && can(myPermissions(current, user.id), Permission.MANAGE_MESSAGES))}

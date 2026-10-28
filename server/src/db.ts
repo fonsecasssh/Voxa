@@ -156,6 +156,26 @@ const MIGRATIONS: string[] = [
   `
   ALTER TABLE messages ADD COLUMN attachment TEXT;
   `,
+
+  // 9: files attached to messages. Uploaded first (message_id NULL), then attached when the
+  // message is sent. The file on disk is named after the id.
+  `
+  CREATE TABLE attachments (
+    id         TEXT PRIMARY KEY,
+    owner_id   TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    message_id TEXT REFERENCES messages(id) ON DELETE CASCADE,
+    name       TEXT NOT NULL,
+    kind       TEXT NOT NULL,
+    mime       TEXT NOT NULL,
+    size       INTEGER NOT NULL,
+    width      INTEGER,
+    height     INTEGER,
+    position   INTEGER NOT NULL DEFAULT 0,
+    expired    INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL
+  );
+  CREATE INDEX attachments_by_message ON attachments(message_id);
+  `,
 ];
 
 function migrate(db: DB) {

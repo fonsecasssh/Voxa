@@ -34,6 +34,7 @@ export type ImageKind = (typeof IMAGE_KINDS)[number];
 export const imageUrlPrefix = (kind: ImageKind) => `/media/${kind}s/`;
 
 type ImageType = "png" | "jpg" | "webp" | "gif";
+export const IMAGE_MIME: Record<ImageType, string> = { png: "image/png", jpg: "image/jpeg", webp: "image/webp", gif: "image/gif" };
 
 /** Recognizes an image by its first bytes (never by the declared content type). */
 export function detectImageType(buf: Buffer): ImageType | null {
@@ -90,7 +91,11 @@ export function detectClipType(buf: Buffer): ClipType | null {
   return null;
 }
 
-export function createClipStore(dir: string, maxTotalBytes: number, maxClipBytes = MAX_CLIP_BYTES) {
+/**
+ * A folder of uploaded files kept under a total size (the oldest go first). Used for clips
+ * and for chat attachments; `what` names the item in error messages ("O clipe", "O arquivo").
+ */
+export function createClipStore(dir: string, maxTotalBytes: number, maxClipBytes = MAX_CLIP_BYTES, what = "O clipe") {
   mkdirSync(dir, { recursive: true });
   // Uploads cut short by a restart.
   for (const f of readdirSync(dir)) if (f.startsWith(".upload-")) rmSync(path.join(dir, f), { force: true });
@@ -100,14 +105,14 @@ export function createClipStore(dir: string, maxTotalBytes: number, maxClipBytes
     maxClipBytes,
 
     /** Streams an upload into a temporary file (dot files are never served), enforcing the size limit. */
-    async receive(body: Readable): Promise<{ tmp: string; size: number; type: ClipType | null }> {
+    async receive(body: Readable): Promise<{ tmp: string; size: number; type: ClipType | null; head: Buffer }> {
       const tmp = path.join(dir, `.upload-${randomUUID()}`);
       let size = 0;
       let head = Buffer.alloc(0);
       const count = new Transform({
         transform(chunk: Buffer, _enc, cb) {
           size += chunk.length;
-          if (size > maxClipBytes) return cb(new HttpError(413, `O clipe passa de ${Math.round(maxClipBytes / 1024 / 1024)} MB.`));
+          if (size > maxClipBytes) return cb(new HttpError(413, `${what} passa de ${Math.round(maxClipBytes / 1024 / 1024)} MB.`));
           if (head.length < 64) head = Buffer.concat([head, chunk]).subarray(0, 64);
           cb(null, chunk);
         },
@@ -116,14 +121,20 @@ export function createClipStore(dir: string, maxTotalBytes: number, maxClipBytes
         await pipeline(body, count, createWriteStream(tmp));
       } catch (err) {
         rmSync(tmp, { force: true });
-        throw err instanceof HttpError ? err : new HttpError(400, "O envio do clipe foi interrompido.");
+        throw err instanceof HttpError ? err : new HttpError(400, `O envio foi interrompido.`);
       }
-      return { tmp, size, type: detectClipType(head) };
+      return { tmp, size, type: detectClipType(head), head };
     },
 
     /** Moves a received upload to its final name, `<id>.<type>`. */
     commit(tmp: string, id: string, type: ClipType): string {
       const file = `${id}.${type}`;
+      renameSync(tmp, path.join(dir, file));
+      return file;
+    },
+
+    /** Moves a received upload to a name of the caller's choosing. */
+    commitAs(tmp: string, file: string): string {
       renameSync(tmp, path.join(dir, file));
       return file;
     },

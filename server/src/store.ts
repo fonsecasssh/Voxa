@@ -80,7 +80,66 @@ export interface Message {
   content: string;
   createdAt: number;
   attachment: ClipAttachment | null;
+  /** Files sent with the message (images, videos, anything else). */
+  files: FileAttachment[];
 }
+
+export type FileKind = "image" | "video" | "file";
+
+/** A file sent in chat. `url` is null once it was deleted to free space. */
+export interface FileAttachment {
+  id: string;
+  name: string;
+  kind: FileKind;
+  mime: string;
+  size: number;
+  width: number | null;
+  height: number | null;
+  url: string | null;
+}
+
+/** An uploaded file before (and after) it is attached to a message. */
+export interface UploadRow {
+  id: string;
+  ownerId: string;
+  messageId: string | null;
+  name: string;
+  kind: FileKind;
+  mime: string;
+  size: number;
+  width: number | null;
+  height: number | null;
+  expired: boolean;
+  createdAt: number;
+}
+
+export const FILE_URL_PREFIX = "/media/files/";
+const fileUrl = (id: string, name: string) => `${FILE_URL_PREFIX}${id}/${encodeURIComponent(name)}`;
+
+const toUpload = (r: Row): UploadRow => ({
+  id: r.id as string,
+  ownerId: r.owner_id as string,
+  messageId: (r.message_id as string | null) ?? null,
+  name: r.name as string,
+  kind: r.kind as FileKind,
+  mime: r.mime as string,
+  size: r.size as number,
+  width: (r.width as number | null) ?? null,
+  height: (r.height as number | null) ?? null,
+  expired: !!r.expired,
+  createdAt: r.created_at as number,
+});
+
+export const toFileAttachment = (u: UploadRow): FileAttachment => ({
+  id: u.id,
+  name: u.name,
+  kind: u.kind,
+  mime: u.mime,
+  size: u.size,
+  width: u.width,
+  height: u.height,
+  url: u.expired ? null : fileUrl(u.id, u.name),
+});
 
 /** An instant-replay video. `url` is null once the clip was deleted to free space. */
 export interface ClipAttachment {
@@ -166,7 +225,10 @@ const toMessage = (r: Row): Message => ({
   content: r.content as string,
   createdAt: r.created_at as number,
   attachment: toAttachment(r.attachment),
+  files: [],
 });
+
+const MESSAGE_SELECT = `SELECT m.*, u.username, u.display_name, u.avatar, u.profile_banner FROM messages m JOIN users u ON u.id = m.author_id`;
 
 /** Two user ids in canonical order, matching the (user_low, user_high) columns. */
 const pair = (a: string, b: string): [string, string] => (a < b ? [a, b] : [b, a]);
@@ -583,7 +645,7 @@ export function createStore(db: DB) {
     // --- messages ---------------------------------------------------------
     insertMessage(channelId: string, author: PublicUser, content: string, clip?: StoredClip, id: string = randomUUID()): Message {
       const json = clip ? JSON.stringify(clip) : null;
-      const msg: Message = { id, channelId, author, content, createdAt: Date.now(), attachment: toAttachment(json) };
+      const msg: Message = { id, channelId, author, content, createdAt: Date.now(), attachment: toAttachment(json), files: [] };
       db.prepare("INSERT INTO messages (id, channel_id, author_id, content, created_at, attachment) VALUES (?, ?, ?, ?, ?, ?)")
         .run(msg.id, channelId, author.id, content, msg.createdAt, json);
       return msg;
@@ -612,27 +674,86 @@ export function createStore(db: DB) {
           )
           .get(id);
         if (!r) continue;
-        const row = db
-          .prepare(
-            `SELECT m.*, u.username, u.display_name, u.avatar, u.profile_banner FROM messages m JOIN users u ON u.id = m.author_id WHERE m.id = ?`,
-          )
-          .get(id) as Row;
-        changed.push(toMessage(row));
+        changed.push(this.messageById(id)!);
       }
       return changed;
+    },
+
+    messageById(id: string): Message | null {
+      const r = db.prepare(`${MESSAGE_SELECT} WHERE m.id = ?`).get(id) as Row | undefined;
+      return r ? hydrate([toMessage(r)])[0] : null;
+    },
+
+    // --- attachments --------------------------------------------------------
+    insertUpload(u: Omit<UploadRow, "messageId" | "expired" | "createdAt">): UploadRow {
+      const createdAt = Date.now();
+      db.prepare(
+        "INSERT INTO attachments (id, owner_id, name, kind, mime, size, width, height, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      ).run(u.id, u.ownerId, u.name, u.kind, u.mime, u.size, u.width, u.height, createdAt);
+      return { ...u, messageId: null, expired: false, createdAt };
+    },
+
+    uploadById(id: string): UploadRow | null {
+      const r = db.prepare("SELECT * FROM attachments WHERE id = ?").get(id) as Row | undefined;
+      return r ? toUpload(r) : null;
+    },
+
+    deleteUpload(id: string) {
+      db.prepare("DELETE FROM attachments WHERE id = ?").run(id);
+    },
+
+    /** Attaches the owner's pending uploads to a message, in the given order; false if any isn't theirs or is taken. */
+    attachUploads(messageId: string, ownerId: string, ids: string[]): boolean {
+      const stmt = db.prepare("UPDATE attachments SET message_id = ?, position = ? WHERE id = ? AND owner_id = ? AND message_id IS NULL");
+      return ids.every((id, i) => Number(stmt.run(messageId, i, id, ownerId).changes) === 1);
+    },
+
+    /** Ids of the files of a message (to delete them with it). */
+    fileIdsOf(messageId: string): string[] {
+      return (db.prepare("SELECT id FROM attachments WHERE message_id = ?").all(messageId) as Row[]).map((r) => r.id as string);
+    },
+
+    /** Uploads never attached to a message, older than `before`. */
+    staleUploads(before: number): string[] {
+      return (db.prepare("SELECT id FROM attachments WHERE message_id IS NULL AND created_at < ?").all(before) as Row[]).map((r) => r.id as string);
+    },
+
+    /** Marks files as deleted (to free space); returns the messages that changed. */
+    expireFiles(ids: string[]): Message[] {
+      const messageIds = new Set<string>();
+      for (const id of ids) {
+        const r = db.prepare("UPDATE attachments SET expired = 1 WHERE id = ? RETURNING message_id").get(id) as Row | undefined;
+        if (r?.message_id) messageIds.add(r.message_id as string);
+      }
+      return [...messageIds].map((id) => this.messageById(id)).filter((m): m is Message => !!m);
     },
 
     /** Newest `limit` messages older than `before`, returned oldest first. */
     messages(channelId: string, before: number, limit: number): Message[] {
       const rows = db
-        .prepare(
-          `SELECT m.*, u.username, u.display_name, u.avatar, u.profile_banner FROM messages m JOIN users u ON u.id = m.author_id
-           WHERE m.channel_id = ? AND m.created_at < ? ORDER BY m.created_at DESC, m.rowid DESC LIMIT ?`,
-        )
+        .prepare(`${MESSAGE_SELECT} WHERE m.channel_id = ? AND m.created_at < ? ORDER BY m.created_at DESC, m.rowid DESC LIMIT ?`)
         .all(channelId, before, limit) as Row[];
-      return rows.map(toMessage).reverse();
+      return hydrate(rows.map(toMessage).reverse());
     },
   };
+
+  /** Fills in what lives in other tables (files), for a page of messages at once. */
+  function hydrate(msgs: Message[]): Message[] {
+    if (msgs.length === 0) return msgs;
+    const marks = msgs.map(() => "?").join(",");
+    const files = db
+      .prepare(`SELECT * FROM attachments WHERE message_id IN (${marks}) ORDER BY position`)
+      .all(...msgs.map((m) => m.id)) as Row[];
+    const byMessage = new Map<string, FileAttachment[]>();
+    for (const r of files) {
+      const u = toUpload(r);
+      const list = byMessage.get(u.messageId!) ?? [];
+      list.push(toFileAttachment(u));
+      byMessage.set(u.messageId!, list);
+    }
+    for (const m of msgs) m.files = byMessage.get(m.id) ?? [];
+    return msgs;
+  }
 }
 
 export type Store = ReturnType<typeof createStore>;

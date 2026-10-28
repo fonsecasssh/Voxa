@@ -526,6 +526,7 @@ label .muted {
   max-height: 200px;
   field-sizing: content;
   padding-right: 48px;
+  padding-left: 48px;
 }
 .composer-box {
   position: relative;
@@ -2968,4 +2969,238 @@ select:focus {
 .emoji-footer-big {
   font-size: 26px;
   font-family: "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif;
+}
+
+/* --- files in chat ------------------------------------------------------------------ */
+.attach-btn {
+  position: absolute;
+  left: 9px;
+  bottom: 8px;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 50%;
+  background: var(--text-muted);
+  color: var(--bg-input);
+  display: grid;
+  place-items: center;
+  z-index: 1;
+}
+.attach-btn:hover {
+  background: var(--text);
+}
+.chat {
+  position: relative;
+}
+.drop-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--bg-rail) 70%, transparent);
+  pointer-events: none;
+}
+.drop-overlay > div {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 32px 48px;
+  border-radius: 16px;
+  border: 2px dashed var(--grad-1);
+  background: var(--bg-sidebar);
+  color: var(--link);
+}
+.drop-overlay strong {
+  color: var(--text);
+  font-size: 18px;
+}
+.pending-files {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 10px;
+  margin-bottom: -6px;
+  border-radius: 10px 10px 0 0;
+  background: var(--bg-input);
+  border-bottom: 1px solid var(--border);
+}
+.pending-file {
+  position: relative;
+  flex: 0 0 150px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+  border-radius: 10px;
+  background: var(--bg-sidebar);
+  min-width: 0;
+}
+.pending-file.failed {
+  outline: 1px solid var(--danger);
+}
+.pending-thumb {
+  position: relative;
+  height: 90px;
+  border-radius: 6px;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  background: var(--bg-main);
+  color: var(--text-muted);
+}
+.pending-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.pending-progress {
+  position: absolute;
+  left: 6px;
+  right: 6px;
+  bottom: 6px;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+.pending-progress span {
+  display: block;
+  height: 100%;
+  background: var(--grad);
+  transition: width 0.2s;
+}
+.pending-name {
+  font-size: 13px;
+}
+.pending-remove {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 2px solid var(--bg-input);
+  background: var(--bg-active);
+  color: var(--text);
+  display: grid;
+  place-items: center;
+}
+.pending-remove:hover {
+  background: var(--danger);
+}
+.message-files {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+  max-width: 520px;
+}
+.media-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  max-width: 420px;
+}
+.media-grid.single {
+  grid-template-columns: 1fr;
+  width: fit-content;
+  max-width: min(100%, 420px);
+}
+.media-item {
+  display: block;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--bg-sidebar);
+  cursor: zoom-in;
+  aspect-ratio: 1;
+  width: 100%;
+}
+.media-grid.single .media-item {
+  aspect-ratio: auto;
+  max-height: 320px;
+  width: auto;
+  max-width: 100%;
+}
+.media-item img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.media-grid.single .media-item img {
+  max-height: 320px;
+  width: auto;
+  max-width: 100%;
+  object-fit: contain;
+}
+video.media-item {
+  cursor: default;
+  background: #000;
+  aspect-ratio: 16 / 9;
+}
+.file-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-sidebar);
+  color: var(--text);
+  text-decoration: none;
+  max-width: 420px;
+}
+.file-card > .icon:first-child {
+  color: var(--link);
+  flex-shrink: 0;
+}
+.file-card:hover .file-card-name {
+  text-decoration: underline;
+}
+.file-card-texts {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+.file-card-name {
+  color: var(--link-2);
+  font-weight: 600;
+}
+.file-card.expired {
+  color: var(--text-muted);
+}
+.lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.85);
+}
+.lightbox img {
+  max-width: 100%;
+  max-height: calc(100vh - 110px);
+  border-radius: 8px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+}
+.lightbox-bar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  max-width: 100%;
+  color: #fff;
+  font-size: 14px;
+}
+.lightbox-bar a {
+  color: var(--link-2);
+  white-space: nowrap;
 }
