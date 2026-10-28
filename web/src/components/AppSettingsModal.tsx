@@ -1,7 +1,7 @@
 // "Aparência e sons": the app's theme and its interface sounds, for this device.
 
 import { THEMES, appSettings } from "../appSettings.ts";
-import { SOUND_LABELS, playSound, type SoundName } from "../sounds.ts";
+import { SOUND_LABELS, SOUND_STYLES, playSound, type SoundName } from "../sounds.ts";
 import { useAppSettings } from "../useAppSettings.ts";
 import { Icon } from "./Icon.tsx";
 import { Modal } from "./Modals.tsx";
@@ -44,33 +44,24 @@ export function AppSettingsModal({ onClose }: { onClose: () => void }) {
         <input type="checkbox" checked={settings.sounds} onChange={(e) => appSettings.update({ sounds: e.target.checked })} />
       </label>
       <div className="segmented" role="radiogroup" aria-label="Estilo dos sons">
-        {(
-          [
-            ["classic", "Clássico"],
-            ["voxa", "Voxa (sinos)"],
-          ] as const
-        ).map(([value, label]) => (
+        {SOUND_STYLES.map((st) => (
           <button
-            key={value}
+            key={st.id}
             type="button"
             role="radio"
-            aria-checked={settings.soundStyle === value}
-            className={settings.soundStyle === value ? "active" : ""}
+            aria-checked={settings.soundStyle === st.id}
+            className={settings.soundStyle === st.id ? "active" : ""}
             disabled={!settings.sounds}
             onClick={() => {
-              appSettings.update({ soundStyle: value });
+              appSettings.update({ soundStyle: st.id, soundStyleChosen: true });
               playSound("join");
             }}
           >
-            {label}
+            {st.label}
           </button>
         ))}
       </div>
-      <p className="muted small">
-        {settings.soundStyle === "classic"
-          ? "Curtos e arredondados, no estilo dos apps de chat de voz."
-          : "Acordes com timbre de sino, estéreo e um pouco de ambiente."}
-      </p>
+      <p className="muted small">{SOUND_STYLES.find((st) => st.id === settings.soundStyle)?.hint}</p>
       <label className="volume-row">
         Volume
         <input

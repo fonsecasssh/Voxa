@@ -38,6 +38,10 @@ interface Note {
   attack?: number;
   /** Bell timbre: a modulator at f × ratio whose depth (f × index) fades over the note. */
   fm?: { ratio: number; index: number };
+  /** Part of the note over which the FM depth fades (default 0.6); short = a mallet hit. */
+  fmDecay?: number;
+  /** Lowpass on this note, sweeping from → to over d: closing fast gives a "pluck". */
+  lp?: { from: number; to: number; d: number };
   /** Stereo position, -1 (left) to 1 (right). */
   pan?: number;
   /** Adds a second voice this many cents apart, for a gentle chorus. */
@@ -52,6 +56,8 @@ interface Sound {
   air?: { from: number; to: number; d: number; g: number; pan: [number, number] };
   /** Reverb send level. */
   reverb?: number;
+  /** Loudness trim, so every style plays at about the same level. */
+  gain?: number;
 }
 
 const A3 = 220;
@@ -159,7 +165,14 @@ const SOUNDS: Record<SoundName, Sound> = {
   },
 };
 
-export type SoundStyle = "classic" | "voxa";
+export type SoundStyle = "impacto" | "arcade" | "marimba" | "classic" | "voxa";
+export const SOUND_STYLES: { id: SoundStyle; label: string; hint: string }[] = [
+  { id: "impacto", label: "Impacto", hint: "Pluck de sintetizador com um grave forte no ataque. Marcante e moderno." },
+  { id: "arcade", label: "Arcade", hint: "Ondas quadradas brilhantes, como um level up de videogame." },
+  { id: "marimba", label: "Marimba", hint: "Uma pequena melodia de marimba, como a vinheta de uma marca." },
+  { id: "classic", label: "Clássico", hint: "Curtos e arredondados, discretos." },
+  { id: "voxa", label: "Sinos", hint: "Acordes com timbre de sino, estéreo e um pouco de ambiente." },
+];
 
 /**
  * "Clássico": the familiar chat-app style — short, round sine "bloops" that slide up
@@ -168,6 +181,68 @@ export type SoundStyle = "classic" | "voxa";
  */
 const bloop = (from: number, f: number, t: number, d: number, g = 0.95): Note => ({ f, t, d, g, slide: { from, d: 0.045 }, attack: 0.006 });
 const ROUND = { from: 2800, to: 2800, d: 0.01 };
+
+// --- "Impacto": saw plucks (filter snapping shut) over a sub "thump" ---
+const pluck = (f: number, t: number, d: number, g: number, pan = 0): Note => ({
+  f,
+  t,
+  d,
+  g,
+  pan,
+  wave: "sawtooth",
+  attack: 0.003,
+  detune: 7,
+  lp: { from: 5200, to: 500, d: d * 0.8 },
+});
+const thump = (from: number, to: number, g = 0.9): Note => ({ f: to, t: 0, d: 0.16, g, attack: 0.002, slide: { from, d: 0.05 } });
+const E5n = 659.3;
+const B5n = 987.8;
+const E6n = 1318.5;
+const IMPACTO: Partial<Record<SoundName, Sound>> = {
+  join: { notes: [thump(180, 62), pluck(E5n, 0, 0.3, 0.42, -0.3), pluck(B5n, 0.07, 0.32, 0.42), pluck(E6n, 0.14, 0.5, 0.46, 0.3)], reverb: 0.18, gain: 1.25 },
+  leave: { notes: [thump(150, 48), pluck(E6n, 0, 0.26, 0.38, 0.3), pluck(B5n, 0.07, 0.3, 0.42), pluck(E5n, 0.14, 0.5, 0.46, -0.3)], reverb: 0.18, gain: 1.25 },
+  userJoin: { notes: [thump(160, 70, 0.6), pluck(B5n, 0, 0.22, 0.38, -0.2), pluck(E6n, 0.07, 0.36, 0.4, 0.2)], reverb: 0.14, gain: 1.3 },
+  userLeave: { notes: [thump(140, 55, 0.6), pluck(E6n, 0, 0.22, 0.36, 0.2), pluck(B5n, 0.07, 0.36, 0.4, -0.2)], reverb: 0.14, gain: 1.3 },
+  mute: { notes: [pluck(784, 0, 0.12, 0.4), pluck(523.3, 0.05, 0.18, 0.4)], gain: 1.8 },
+  unmute: { notes: [pluck(523.3, 0, 0.12, 0.4), pluck(784, 0.05, 0.18, 0.4)], gain: 1.8 },
+  deafen: { notes: [thump(130, 55, 0.5), pluck(523.3, 0, 0.12, 0.4), pluck(349.2, 0.05, 0.2, 0.4)], gain: 1.6 },
+  undeafen: { notes: [thump(130, 70, 0.5), pluck(349.2, 0, 0.12, 0.4), pluck(523.3, 0.05, 0.2, 0.4)], gain: 1.6 },
+};
+
+// --- "Arcade": bright square waves, a little "level up" ---
+const sq = (f: number, t: number, d: number, g = 0.3, pan = 0): Note => ({ f, t, d, g, pan, wave: "square", attack: 0.004, lp: { from: 4200, to: 2600, d } });
+const ARCADE: Partial<Record<SoundName, Sound>> = {
+  join: { notes: [sq(523.3, 0, 0.09), sq(784, 0.075, 0.09), sq(1046.5, 0.15, 0.3, 0.32), sq(1568, 0.15, 0.3, 0.1)], reverb: 0.12, gain: 2.25 },
+  leave: { notes: [sq(1046.5, 0, 0.09), sq(784, 0.075, 0.09), sq(523.3, 0.15, 0.3, 0.32), sq(392, 0.15, 0.3, 0.1)], reverb: 0.12, gain: 2.25 },
+  userJoin: { notes: [sq(784, 0, 0.08, 0.26), sq(1174.7, 0.07, 0.22, 0.28)], reverb: 0.1, gain: 2.25 },
+  userLeave: { notes: [sq(1174.7, 0, 0.08, 0.26), sq(784, 0.07, 0.22, 0.28)], reverb: 0.1, gain: 2.25 },
+  mute: { notes: [{ f: 330, t: 0, d: 0.1, g: 0.28, wave: "square", slide: { from: 660, d: 0.06 }, lp: { from: 3500, to: 2000, d: 0.1 } }], gain: 3.2 },
+  unmute: { notes: [{ f: 660, t: 0, d: 0.1, g: 0.28, wave: "square", slide: { from: 330, d: 0.06 }, lp: { from: 3500, to: 2000, d: 0.1 } }], gain: 3.2 },
+  deafen: { notes: [sq(523.3, 0, 0.07, 0.26), sq(261.6, 0.06, 0.14, 0.26)], gain: 2.8 },
+  undeafen: { notes: [sq(261.6, 0, 0.07, 0.26), sq(523.3, 0.06, 0.14, 0.26)], gain: 2.8 },
+};
+
+// --- "Marimba": mallet hits playing a short signature melody ---
+const mallet = (f: number, t: number, d = 0.45, g = 0.85, pan = 0): Note => ({
+  f,
+  t,
+  d,
+  g,
+  pan,
+  attack: 0.002,
+  fm: { ratio: 4, index: 2.2 },
+  fmDecay: 0.12,
+});
+const MARIMBA: Partial<Record<SoundName, Sound>> = {
+  join: { notes: [mallet(784, 0, 0.3, 0.8, -0.3), mallet(987.8, 0.09, 0.3, 0.8, -0.1), mallet(1174.7, 0.18, 0.3, 0.8, 0.1), mallet(1568, 0.27, 0.6, 0.85, 0.3)], reverb: 0.22, gain: 1.4 },
+  leave: { notes: [mallet(1174.7, 0, 0.3, 0.8, 0.3), mallet(987.8, 0.09, 0.3, 0.8, 0.1), mallet(784, 0.18, 0.3, 0.8, -0.1), mallet(587.3, 0.27, 0.6, 0.9, -0.3)], reverb: 0.22, gain: 1.4 },
+  userJoin: { notes: [mallet(987.8, 0, 0.3, 0.75, -0.2), mallet(1174.7, 0.09, 0.45, 0.75, 0.2)], reverb: 0.18, gain: 1.2 },
+  userLeave: { notes: [mallet(1174.7, 0, 0.3, 0.75, 0.2), mallet(987.8, 0.09, 0.45, 0.75, -0.2)], reverb: 0.18, gain: 1.2 },
+  mute: { notes: [mallet(784, 0, 0.18, 0.8), mallet(587.3, 0.06, 0.25, 0.8)], gain: 0.95 },
+  unmute: { notes: [mallet(587.3, 0, 0.18, 0.8), mallet(784, 0.06, 0.25, 0.8)], gain: 0.95 },
+  deafen: { notes: [mallet(587.3, 0, 0.18, 0.8), mallet(392, 0.06, 0.3, 0.85)], gain: 0.95 },
+  undeafen: { notes: [mallet(392, 0, 0.18, 0.8), mallet(587.3, 0.06, 0.3, 0.85)], gain: 0.95 },
+};
 
 const CLASSIC: Partial<Record<SoundName, Sound>> = {
   join: { notes: [bloop(587.3, 698.5, 0, 0.13), bloop(880, 1046.5, 0.085, 0.2)], filter: ROUND },
@@ -240,13 +315,20 @@ function panner(c: BaseAudioContext, pan: number | undefined, into: AudioNode): 
  * Schedules a sound on any audio context (live, or offline to render a preview)
  * starting at `when`, and returns its output node and the time it has fully died away.
  */
-export function renderSound(c: BaseAudioContext, out: AudioNode, name: SoundName, volume: number, when: number, style: SoundStyle = "classic") {
-  const s = (style === "classic" && CLASSIC[name]) || SOUNDS[name];
+export function renderSound(c: BaseAudioContext, out: AudioNode, name: SoundName, volume: number, when: number, style: SoundStyle = "impacto") {
+  const overrides: Record<SoundStyle, Partial<Record<SoundName, Sound>>> = {
+    impacto: IMPACTO,
+    arcade: ARCADE,
+    marimba: MARIMBA,
+    classic: CLASSIC,
+    voxa: {},
+  };
+  const s = overrides[style][name] ?? SOUNDS[name];
   // Everything ends in `bus`, so disconnecting it releases the whole sound (reverb included).
   const bus = c.createGain();
   bus.connect(out);
   const master = c.createGain();
-  master.gain.value = 0.22 * volume;
+  master.gain.value = 0.3 * volume * (s.gain ?? 1);
   master.connect(bus);
 
   let input: AudioNode = master;
@@ -278,6 +360,16 @@ export function renderSound(c: BaseAudioContext, out: AudioNode, name: SoundName
     env.gain.exponentialRampToValueAtTime(peak, start + (n.attack ?? 0.008));
     env.gain.exponentialRampToValueAtTime(0.0001, stop);
     env.connect(panner(c, n.pan, input));
+    let into: AudioNode = env;
+    if (n.lp) {
+      const lp = c.createBiquadFilter();
+      lp.type = "lowpass";
+      lp.Q.value = 1.2;
+      lp.frequency.setValueAtTime(n.lp.from, start);
+      lp.frequency.exponentialRampToValueAtTime(n.lp.to, start + n.lp.d);
+      lp.connect(env);
+      into = lp;
+    }
 
     // Plain notes get a soft octave above (the "glassy" shimmer); bells get FM instead.
     const voices: [number, number, number][] = n.fm ? [[1, 1, 0]] : [[1, 1, 0], [2, 0.18, 0]];
@@ -298,14 +390,14 @@ export function renderSound(c: BaseAudioContext, out: AudioNode, name: SoundName
         const depth = c.createGain();
         mod.frequency.value = n.f * n.fm.ratio;
         depth.gain.setValueAtTime(n.f * n.fm.index, start);
-        depth.gain.exponentialRampToValueAtTime(n.f * n.fm.index * 0.04 + 0.01, start + n.d * 0.6);
+        depth.gain.exponentialRampToValueAtTime(n.f * n.fm.index * 0.04 + 0.01, start + n.d * (n.fmDecay ?? 0.6));
         mod.connect(depth).connect(osc.frequency);
         mod.start(start);
         mod.stop(stop + 0.02);
       }
       const lvl = c.createGain();
       lvl.gain.value = level;
-      osc.connect(lvl).connect(env);
+      osc.connect(lvl).connect(into);
       osc.start(start);
       osc.stop(stop + 0.02);
     }
