@@ -132,6 +132,46 @@ describe("server banner", () => {
     expect(existsSync(path.join(mediaDir, "icons", path.basename(icon.icon)))).toBe(false);
   });
 
+  it("sets the profile picture and banner, shown wherever the user appears", async () => {
+    const me = await user();
+    const friend = await user();
+    const { body } = await api("POST", "/api/servers", { name: "Perfis" }, me.token);
+    await api("POST", `/api/invites/${body.server.inviteCode}`, undefined, friend.token);
+    const channelId = body.channels[0].id;
+    await api("POST", `/api/channels/${channelId}/messages`, { content: "oi" }, me.token);
+
+    const fsock: Socket = await new Promise((resolve) => {
+      const s = connect(base, { auth: { token: friend.token }, transports: ["websocket"] });
+      s.on("connect", () => resolve(s));
+    });
+    const put = (p: string, data: Buffer) =>
+      fetch(`${base}${p}`, { method: "PUT", headers: { "content-type": "image/webp", authorization: `Bearer ${me.token}` }, body: new Uint8Array(data) }).then(
+        async (r) => ({ status: r.status, body: await r.json() }),
+      );
+
+    expect((await put("/api/me/avatar", Buffer.from("not an image"))).status).toBe(400);
+    const live = new Promise<{ avatar: string }>((r) => fsock.once("user:update", r));
+    const avatar = (await put("/api/me/avatar", WEBP)).body.user.avatar;
+    expect(avatar).toMatch(new RegExp(`^/media/avatars/${me.user.id}-[0-9a-f]{16}\\.webp$`));
+    expect((await live).avatar).toBe(avatar);
+    const banner = (await put("/api/me/banner", PNG)).body.user.banner;
+    expect(banner).toMatch(/^\/media\/profile-banners\/.+\.png$/);
+    expect((await fetch(base + avatar)).status).toBe(200);
+
+    // Everywhere the user shows up: /api/me, member list, message authors.
+    expect((await api("GET", "/api/me", undefined, me.token)).body.user).toMatchObject({ avatar, banner });
+    const members = (await api("GET", `/api/servers/${body.server.id}`, undefined, friend.token)).body.members;
+    expect(members.find((m: { id: string }) => m.id === me.user.id)).toMatchObject({ avatar, banner });
+    const msgs = (await api("GET", `/api/channels/${channelId}/messages`, undefined, friend.token)).body.messages;
+    expect(msgs[0].author).toMatchObject({ avatar });
+
+    // Removing deletes the file and clears it everywhere.
+    expect((await api("DELETE", "/api/me/avatar", undefined, me.token)).body.user.avatar).toBeNull();
+    expect(existsSync(path.join(mediaDir, "avatars", path.basename(avatar)))).toBe(false);
+    expect((await api("GET", "/api/me", undefined, me.token)).body.user.banner).toBe(banner);
+    fsock.close();
+  });
+
   it("deletes the image files with the server, and refuses path tricks", async () => {
     const owner = await user();
     const sid = (await api("POST", "/api/servers", { name: "Temporário" }, owner.token)).body.server.id;

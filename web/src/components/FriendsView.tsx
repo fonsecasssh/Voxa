@@ -78,6 +78,7 @@ export function FriendsView({ friends, presence, onOpenDm }: Props) {
                     id={f.user.id}
                     size={36}
                     status={f.state === "accepted" ? (presence[f.user.id]?.status ?? "offline") : undefined}
+                    src={f.user.avatar}
                   />
                   <div className="friend-names">
                     <strong className="ellipsis">

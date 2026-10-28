@@ -4,12 +4,16 @@ import { randomUUID } from "node:crypto";
 import type { DB } from "./db.ts";
 import { newInviteCode, newToken } from "./auth.ts";
 import { DEFAULT_PERMISSIONS } from "../../shared/permissions.ts";
-import { imageUrlPrefix, type ImageKind } from "./media.ts";
+import { imageUrlPrefix, type ServerImageKind, type UserImageKind } from "./media.ts";
 
 export interface PublicUser {
   id: string;
   username: string;
   displayName: string;
+  /** URL of the profile picture, or null (initials are shown instead). */
+  avatar: string | null;
+  /** URL of the profile banner, or null. */
+  banner: string | null;
 }
 
 export interface Server {
@@ -79,10 +83,13 @@ export interface Message {
 
 type Row = Record<string, unknown>;
 
-const toUser = (r: Row): PublicUser => ({
-  id: r.id as string,
+/** A user from a row with the users columns; `id` overrides the id when the row's own id is something else (a joined query). */
+const toUser = (r: Row, id = r.id as string): PublicUser => ({
+  id,
   username: r.username as string,
   displayName: r.display_name as string,
+  avatar: r.avatar ? imageUrlPrefix("avatar") + (r.avatar as string) : null,
+  banner: r.profile_banner ? imageUrlPrefix("profile-banner") + (r.profile_banner as string) : null,
 });
 
 const toServer = (r: Row): Server => ({
@@ -116,7 +123,7 @@ const toRole = (r: Row): Role => ({
 const toMessage = (r: Row): Message => ({
   id: r.id as string,
   channelId: r.channel_id as string,
-  author: { id: r.author_id as string, username: r.username as string, displayName: r.display_name as string },
+  author: toUser(r, r.author_id as string),
   content: r.content as string,
   createdAt: r.created_at as number,
 });
@@ -131,7 +138,7 @@ export function createStore(db: DB) {
       const id = randomUUID();
       db.prepare("INSERT INTO users (id, username, display_name, password_hash, created_at) VALUES (?, ?, ?, ?, ?)")
         .run(id, username, displayName, passwordHash, Date.now());
-      return { id, username, displayName };
+      return { id, username, displayName, avatar: null, banner: null };
     },
 
     findUserForLogin(username: string): (PublicUser & { passwordHash: string }) | null {
@@ -168,6 +175,15 @@ export function createStore(db: DB) {
     userByUsername(username: string): PublicUser | null {
       const r = db.prepare("SELECT * FROM users WHERE username = ?").get(username) as Row | undefined;
       return r ? toUser(r) : null;
+    },
+
+    /** Sets a profile image's file name (or null) and returns the previous one, so its file can be removed. */
+    setUserImage(kind: UserImageKind, userId: string, file: string | null): string | null {
+      // The column name comes from a fixed list, never from user input.
+      const column = ({ avatar: "avatar", "profile-banner": "profile_banner" } as const)[kind];
+      const prev = db.prepare(`SELECT ${column} AS f FROM users WHERE id = ?`).get(userId) as Row | undefined;
+      db.prepare(`UPDATE users SET ${column} = ? WHERE id = ?`).run(file, userId);
+      return (prev?.f as string | null) ?? null;
     },
 
     setDisplayName(userId: string, displayName: string): void {
@@ -294,7 +310,7 @@ export function createStore(db: DB) {
     dmsForUser(userId: string): DmSummary[] {
       const rows = db
         .prepare(
-          `SELECT c.*, u.id AS u_id, u.username, u.display_name,
+          `SELECT c.*, u.id AS u_id, u.username, u.display_name, u.avatar, u.profile_banner,
                   (SELECT MAX(created_at) FROM messages m WHERE m.channel_id = c.id) AS last_at
            FROM dms d
            JOIN channels c ON c.id = d.channel_id
@@ -305,7 +321,7 @@ export function createStore(db: DB) {
         .all(userId, userId, userId) as Row[];
       return rows.map((r) => ({
         channel: toChannel(r),
-        user: { id: r.u_id as string, username: r.username as string, displayName: r.display_name as string },
+        user: toUser(r, r.u_id as string),
         lastMessageAt: (r.last_at as number | null) ?? null,
       }));
     },
@@ -380,7 +396,7 @@ export function createStore(db: DB) {
         db
           .prepare("SELECT u.* FROM members m JOIN users u ON u.id = m.user_id WHERE m.server_id = ? ORDER BY u.display_name COLLATE NOCASE")
           .all(serverId) as Row[]
-      ).map(toUser);
+      ).map((r) => toUser(r));
     },
 
     /** Removes a member (kick or leave); their roles and nickname go with the membership row. */
@@ -389,7 +405,7 @@ export function createStore(db: DB) {
     },
 
     /** Sets a server image's file name (or null) and returns the previous one, so its file can be removed. */
-    setServerImage(kind: ImageKind, serverId: string, file: string | null): string | null {
+    setServerImage(kind: ServerImageKind, serverId: string, file: string | null): string | null {
       // The column name comes from a fixed list, never from user input.
       const column = ({ banner: "banner", icon: "icon" } as const)[kind];
       const prev = db.prepare(`SELECT ${column} AS f FROM servers WHERE id = ?`).get(serverId) as Row | undefined;
@@ -536,7 +552,7 @@ export function createStore(db: DB) {
     messages(channelId: string, before: number, limit: number): Message[] {
       const rows = db
         .prepare(
-          `SELECT m.*, u.username, u.display_name FROM messages m JOIN users u ON u.id = m.author_id
+          `SELECT m.*, u.username, u.display_name, u.avatar, u.profile_banner FROM messages m JOIN users u ON u.id = m.author_id
            WHERE m.channel_id = ? AND m.created_at < ? ORDER BY m.created_at DESC, m.rowid DESC LIMIT ?`,
         )
         .all(channelId, before, limit) as Row[];

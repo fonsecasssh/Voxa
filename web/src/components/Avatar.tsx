@@ -27,10 +27,22 @@ export function presenceText(p: Presence | undefined): string {
   return STATUS_LABEL[p?.status ?? "offline"];
 }
 
-export function Avatar({ name, id, size = 40, status }: { name: string; id: string; size?: number; status?: PresenceStatus }) {
+interface AvatarProps {
+  name: string;
+  id: string;
+  size?: number;
+  status?: PresenceStatus;
+  /** Profile picture URL; the colored initials are shown without one. */
+  src?: string | null;
+}
+
+export function Avatar({ name, id, size = 40, status, src }: AvatarProps) {
   return (
-    <span className="avatar" style={{ width: size, height: size, background: colorFor(id), fontSize: size * 0.38 }}>
-      {initials(name)}
+    <span
+      className={`avatar ${src ? "has-image" : ""}`}
+      style={{ width: size, height: size, background: src ? undefined : colorFor(id), fontSize: size * 0.38 }}
+    >
+      {src ? <img src={src} alt="" draggable={false} /> : initials(name)}
       {status && <span className={`presence-dot ${status}`} title={STATUS_LABEL[status]} />}
     </span>
   );

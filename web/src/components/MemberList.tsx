@@ -45,7 +45,7 @@ export function MemberList({ details, presence, selfId, onOpenDm }: Props) {
                 className={`member ${isOnline(m) ? "" : "offline"} ${card?.user.id === m.id ? "selected" : ""}`}
                 onClick={(e) => setCard(card?.user.id === m.id ? null : { user: m, top: e.currentTarget.getBoundingClientRect().top })}
               >
-                <Avatar name={name} id={m.id} size={32} status={p?.status ?? "offline"} />
+                <Avatar name={name} id={m.id} size={32} status={p?.status ?? "offline"} src={m.avatar} />
                 <span className="member-names">
                   <span className="member-name">
                     <span className="ellipsis" style={{ color: memberColor(details, m.id) }}>
@@ -154,10 +154,13 @@ export function MemberCard({
 
   return (
     <div className="member-card" ref={ref} style={{ top }} role="dialog" aria-label={`Perfil de ${name}`}>
-      <div className="member-card-banner" style={{ background: memberColor(details, user.id) ?? "var(--accent)" }} />
+      <div
+        className={`member-card-banner ${user.banner ? "has-image" : ""}`}
+        style={user.banner ? { backgroundImage: `url(${user.banner})` } : { background: memberColor(details, user.id) ?? "var(--accent)" }}
+      />
       <div className="member-card-body">
         <div className="member-card-avatar">
-          <Avatar name={name} id={user.id} size={72} status={presence?.status ?? "offline"} />
+          <Avatar name={name} id={user.id} size={72} status={presence?.status ?? "offline"} src={user.avatar} />
         </div>
         <h3 style={{ color: memberColor(details, user.id) }}>{name}</h3>
         <p className="muted small">

@@ -66,7 +66,7 @@ export function VoiceView({ channel, members, server }: { channel: Channel; memb
     if (t.kind === "user") {
       return (
         <div key={t.key} className={`tile user ${speaking ? "speaking" : ""} ${big ? "big" : ""}`}>
-          <Avatar name={name} id={t.member.user.id} size={big ? 96 : 64} />
+          <Avatar name={name} id={t.member.user.id} size={big ? 96 : 64} src={t.member.user.avatar} />
           {label}
         </div>
       );
@@ -77,7 +77,7 @@ export function VoiceView({ channel, members, server }: { channel: Channel; memb
       return (
         <div key={t.key} className="tile screen preview">
           <div className="preview-inner">
-            <Avatar name={name} id={t.member.user.id} size={48} />
+            <Avatar name={name} id={t.member.user.id} size={48} src={t.member.user.avatar} />
             <span className="muted small">{name} está transmitindo</span>
             <button className="btn primary watch-btn" onClick={() => watch(t)}>
               Assistir transmissão

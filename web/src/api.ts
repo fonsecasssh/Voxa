@@ -6,7 +6,13 @@ export interface User {
   id: string;
   username: string;
   displayName: string;
+  /** URL of the profile picture, or null (initials are shown instead). */
+  avatar: string | null;
+  /** URL of the profile banner, or null. */
+  banner: string | null;
 }
+
+export type ProfileImageKind = "avatar" | "banner";
 
 export interface Server {
   id: string;
@@ -189,6 +195,8 @@ export const api = {
   deleteChannel: (id: string) => request<void>("DELETE", `/api/channels/${id}`),
 
   updateProfile: (displayName: string) => request<{ user: User }>("PATCH", "/api/me", { displayName }),
+  uploadProfileImage: (kind: ProfileImageKind, image: Blob) => request<{ user: User }>("PUT", `/api/me/${kind}`, image),
+  removeProfileImage: (kind: ProfileImageKind) => request<{ user: User }>("DELETE", `/api/me/${kind}`),
   changePassword: (currentPassword: string, newPassword: string) =>
     request<void>("POST", "/api/me/password", { currentPassword, newPassword }),
   server: (id: string) => request<ServerDetails>("GET", `/api/servers/${id}`),

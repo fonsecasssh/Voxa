@@ -8,7 +8,7 @@ import { hashPassword, verifyPassword } from "./auth.ts";
 import { HttpError, str } from "./http.ts";
 import type { registerRealtime } from "./realtime.ts";
 import type { ChannelType, Role, Server, Store } from "./store.ts";
-import { IMAGE_KINDS, MAX_IMAGE_BYTES, detectImageType, type MediaStore } from "./media.ts";
+import { MAX_IMAGE_BYTES, SERVER_IMAGE_KINDS, USER_IMAGE_KINDS, detectImageType, type MediaStore } from "./media.ts";
 
 interface Deps {
   app: Express;
@@ -82,6 +82,33 @@ export function registerAdminRoutes({ app, io, store, realtime, media, requireAu
     res.json({ user });
   });
 
+  // Profile picture and banner: PUT /api/me/avatar|banner with the cropped image as the body, DELETE to remove.
+  for (const kind of USER_IMAGE_KINDS) {
+    const route = kind === "avatar" ? "/api/me/avatar" : "/api/me/banner";
+    const publish = (userId: string, res: Response) => {
+      const user = store.userById(userId)!;
+      realtime.updateUser(user);
+      res.json({ user });
+    };
+
+    app.put(route, requireAuth, express.raw({ type: () => true, limit: MAX_IMAGE_BYTES }), (req, res) => {
+      const me = req.user!.id;
+      const data = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+      const type = detectImageType(data);
+      if (!type) throw new HttpError(400, "Envie uma imagem PNG, JPEG, WebP ou GIF.");
+      const file = media.save(kind, me, data, type);
+      const previous = store.setUserImage(kind, me, file);
+      if (previous !== file) media.remove(kind, previous);
+      publish(me, res);
+    });
+
+    app.delete(route, requireAuth, (req, res) => {
+      const me = req.user!.id;
+      media.remove(kind, store.setUserImage(kind, me, null));
+      publish(me, res);
+    });
+  }
+
   app.post("/api/me/password", requireAuth, async (req, res) => {
     const current = str(req.body?.currentPassword, "senha atual", 1, 200);
     const next = str(req.body?.newPassword, "nova senha", 8, 200);
@@ -103,7 +130,7 @@ export function registerAdminRoutes({ app, io, store, realtime, media, requireAu
 
   // Banner and icon: PUT /api/servers/:id/banner|icon with the image as the raw request
   // body (the browser sends it already cropped), DELETE to remove it.
-  for (const kind of IMAGE_KINDS) {
+  for (const kind of SERVER_IMAGE_KINDS) {
     const publish = (serverId: string, res: Response) => {
       const updated = store.serverById(serverId)!;
       io.to(`server:${serverId}`).emit("server:update", updated);
@@ -133,7 +160,7 @@ export function registerAdminRoutes({ app, io, store, realtime, media, requireAu
   app.delete("/api/servers/:id", requireAuth, (req, res) => {
     const server = requireMember(req, req.params.id as string);
     if (server.ownerId !== req.user!.id) throw new HttpError(403, "Só o dono pode excluir o servidor.");
-    for (const kind of IMAGE_KINDS) media.remove(kind, store.setServerImage(kind, server.id, null));
+    for (const kind of SERVER_IMAGE_KINDS) media.remove(kind, store.setServerImage(kind, server.id, null));
     for (const c of store.channels(server.id)) if (c.type === "voice") realtime.evictVoiceChannel(c.id);
     io.to(`server:${server.id}`).emit("server:removed", { serverId: server.id, reason: `O servidor "${server.name}" foi excluído.` });
     io.in(`server:${server.id}`).socketsLeave(`server:${server.id}`);

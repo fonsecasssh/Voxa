@@ -105,7 +105,7 @@ export function ChatView({ channel, server, dmUser, messages, hasMore, typingUse
     <main className="main chat">
       <header className="chat-header">
         {dmUser ? (
-          <Avatar name={dmUser.displayName} id={dmUser.id} size={24} />
+          <Avatar name={dmUser.displayName} id={dmUser.id} size={24} src={dmUser.avatar} />
         ) : (
           <span className="channel-icon">#</span>
         )}
@@ -132,7 +132,7 @@ export function ChatView({ channel, server, dmUser, messages, hasMore, typingUse
               <div className="channel-intro">
                 {dmUser ? (
                   <>
-                    <Avatar name={dmUser.displayName} id={dmUser.id} size={72} />
+                    <Avatar name={dmUser.displayName} id={dmUser.id} size={72} src={dmUser.avatar} />
                     <h2>{dmUser.displayName}</h2>
                     <p className="muted">
                       Este é o começo do seu histórico de mensagens diretas com <strong>@{dmUser.username}</strong>.
@@ -159,7 +159,7 @@ export function ChatView({ channel, server, dmUser, messages, hasMore, typingUse
                 </div>
               ) : (
                 <div key={m.id} className="message">
-                  <Avatar name={memberName(server, m.author)} id={m.author.id} />
+                  <Avatar name={memberName(server, m.author)} id={m.author.id} src={m.author.avatar} />
                   <div>
                     <div className="message-meta">
                       <strong style={{ color: memberColor(server, m.author.id) }}>{memberName(server, m.author)}</strong>

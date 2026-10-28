@@ -5,17 +5,21 @@
 import { useEffect, useRef, useState, type PointerEvent } from "react";
 import type { ServerImageKind } from "../api.ts";
 
+export type CropKind = ServerImageKind | "avatar" | "profileBanner";
+
 const MAX_BYTES = 2 * 1024 * 1024;
 
 /** On-screen frame and output size for each kind. */
-const SHAPES: Record<ServerImageKind, { frameW: number; frameH: number; outW: number; outH: number; title: string; hint: string }> = {
-  banner: { frameW: 480, frameH: 270, outW: 960, outH: 540, title: "Recortar banner", hint: "O banner aparece no topo da lista de canais." },
-  icon: { frameW: 256, frameH: 256, outW: 256, outH: 256, title: "Recortar ícone", hint: "O ícone aparece na barra de servidores." },
+const SHAPES: Record<CropKind, { frameW: number; frameH: number; outW: number; outH: number; round: boolean; title: string; hint: string }> = {
+  banner: { frameW: 480, frameH: 270, outW: 960, outH: 540, round: false, title: "Recortar banner", hint: "O banner aparece no topo da lista de canais." },
+  icon: { frameW: 256, frameH: 256, outW: 256, outH: 256, round: true, title: "Recortar ícone", hint: "O ícone aparece na barra de servidores." },
+  avatar: { frameW: 256, frameH: 256, outW: 256, outH: 256, round: true, title: "Recortar foto de perfil", hint: "Sua foto aparece no chat, na lista de membros e na voz." },
+  profileBanner: { frameW: 480, frameH: 192, outW: 600, outH: 240, round: false, title: "Recortar banner do perfil", hint: "Aparece no topo do seu cartão de perfil." },
 };
 
 interface Props {
   file: File;
-  kind: ServerImageKind;
+  kind: CropKind;
   onCancel: () => void;
   onCropped: (image: Blob) => Promise<void>;
 }
@@ -32,7 +36,7 @@ async function encode(canvas: HTMLCanvasElement): Promise<Blob> {
 }
 
 export function ImageCropper({ file, kind, onCancel, onCropped }: Props) {
-  const { frameW: FRAME_W, frameH: FRAME_H, outW, outH, title, hint } = SHAPES[kind];
+  const { frameW: FRAME_W, frameH: FRAME_H, outW, outH, round, title, hint } = SHAPES[kind];
   const [img, setImg] = useState<HTMLImageElement | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -117,7 +121,7 @@ export function ImageCropper({ file, kind, onCancel, onCropped }: Props) {
         <h2>{title}</h2>
         <p className="muted small">Arraste a imagem para enquadrar. {hint}</p>
         <div
-          className={`crop-frame ${kind}`}
+          className={`crop-frame ${round ? "round" : ""}`}
           style={{ width: FRAME_W, height: FRAME_H }}
           onPointerDown={onDown}
           onPointerMove={onMove}

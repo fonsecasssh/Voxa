@@ -490,7 +490,7 @@ function MemberRow({
 
   return (
     <div className="member-row">
-      <Avatar name={name} id={user.id} size={36} status={presence?.status ?? "offline"} />
+      <Avatar name={name} id={user.id} size={36} status={presence?.status ?? "offline"} src={user.avatar} />
       <div className="member-row-main">
         <div>
           <strong style={{ color: memberColor(details, user.id) }}>{name}</strong>

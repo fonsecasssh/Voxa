@@ -69,7 +69,7 @@ export function SidebarFooter({ user, status, activity, voiceLocation, setPresen
           />
         )}
         <button className="user-card" title="Definir status" onClick={() => setMenuOpen((o) => !o)}>
-          <Avatar name={user.displayName} id={user.id} size={32} status={status === "invisible" ? "offline" : status} />
+          <Avatar name={user.displayName} id={user.id} size={32} status={status === "invisible" ? "offline" : status} src={user.avatar} />
           <span className="user-names">
             <strong className="ellipsis">{user.displayName}</strong>
             <span className="muted small ellipsis">{activity ? `Jogando ${activity.name}` : STATUS_LABEL[status]}</span>

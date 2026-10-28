@@ -165,7 +165,7 @@ function VoiceMembers({
         return (
           <li key={m.socketId}>
             <span className={`speak-ring ${isSpeaking ? "speaking" : ""}`}>
-              <Avatar name={name} id={m.user.id} size={22} />
+              <Avatar name={name} id={m.user.id} size={22} src={m.user.avatar} />
             </span>
             <span className="ellipsis" style={{ color: memberColor(details, m.user.id) }}>
               {name}

@@ -1819,12 +1819,12 @@ img.server-icon {
 .icon-preview {
   margin: 12px 0;
 }
-.crop-frame.icon {
+.crop-frame.round {
   margin-left: auto;
   margin-right: auto;
 }
-/* The icon is shown round: dim what will be cut off. */
-.crop-frame.icon::after {
+/* Icons and avatars are shown round: dim what will be cut off. */
+.crop-frame.round::after {
   content: "";
   position: absolute;
   inset: 0;
@@ -1950,4 +1950,55 @@ select:focus {
   .device-row {
     grid-template-columns: 1fr;
   }
+}
+
+/* --- profile pictures ------------------------------------------------------------------------- */
+.avatar.has-image {
+  background: var(--bg-active);
+}
+.avatar > img {
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  object-fit: cover;
+  display: block;
+}
+.profile-images {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.profile-preview {
+  border-radius: 10px;
+  overflow: hidden;
+  background: #18191f;
+}
+.profile-preview-banner {
+  height: 96px;
+  background: var(--accent) center / cover no-repeat;
+}
+.profile-preview-body {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  padding: 0 14px 12px;
+}
+.profile-preview-body .avatar {
+  margin-top: -36px;
+  border: 5px solid #18191f;
+  box-sizing: content-box;
+}
+.profile-image-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.profile-image-actions .btn {
+  padding: 7px 12px;
+  font-size: 13px;
+}
+.member-card-banner.has-image {
+  height: 104px;
+  background-size: cover;
+  background-position: center;
 }

@@ -1,5 +1,7 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from "react";
-import { api, type Channel, type ChannelType, type Role, type Server, type ServerDetails, type User } from "../api.ts";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { api, type Channel, type ChannelType, type ProfileImageKind, type Role, type Server, type ServerDetails, type User } from "../api.ts";
+import { Avatar } from "./Avatar.tsx";
+import { ImageCropper } from "./ImageCropper.tsx";
 import { navigate } from "../router.ts";
 
 export function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
@@ -251,7 +253,88 @@ export function NicknameModal({
   );
 }
 
-/** Account settings: display name (shown everywhere) and password. */
+type ProfileCrop = { kind: ProfileImageKind; file: File };
+
+/** Profile picture and banner, with a preview of the profile card. */
+function ProfileImages({ user }: { user: User }) {
+  const avatarInput = useRef<HTMLInputElement>(null);
+  const bannerInput = useRef<HTMLInputElement>(null);
+  const [crop, setCrop] = useState<ProfileCrop | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const remove = async (kind: ProfileImageKind) => {
+    setError(null);
+    try {
+      await api.removeProfileImage(kind);
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  };
+
+  const picker = (kind: ProfileImageKind, ref: typeof avatarInput, label: string) => (
+    <input
+      ref={ref}
+      type="file"
+      accept="image/png,image/jpeg,image/webp,image/gif"
+      hidden
+      aria-label={label}
+      onChange={(e) => {
+        const file = e.target.files?.[0];
+        e.target.value = "";
+        if (file) setCrop({ kind, file });
+      }}
+    />
+  );
+
+  return (
+    <div className="profile-images">
+      <div className="profile-preview">
+        <div className="profile-preview-banner" style={user.banner ? { backgroundImage: `url(${user.banner})` } : undefined} />
+        <div className="profile-preview-body">
+          <Avatar name={user.displayName} id={user.id} size={72} src={user.avatar} />
+          <div>
+            <strong>{user.displayName}</strong>
+            <div className="muted small">@{user.username}</div>
+          </div>
+        </div>
+      </div>
+      {picker("avatar", avatarInput, "Escolher foto de perfil")}
+      {picker("banner", bannerInput, "Escolher banner do perfil")}
+      <div className="profile-image-actions">
+        <button type="button" className="btn primary" onClick={() => avatarInput.current?.click()}>
+          {user.avatar ? "Trocar foto" : "Enviar foto"}
+        </button>
+        {user.avatar && (
+          <button type="button" className="btn subtle danger" onClick={() => remove("avatar")}>
+            Remover foto
+          </button>
+        )}
+        <button type="button" className="btn subtle" onClick={() => bannerInput.current?.click()}>
+          {user.banner ? "Trocar banner" : "Enviar banner"}
+        </button>
+        {user.banner && (
+          <button type="button" className="btn subtle danger" onClick={() => remove("banner")}>
+            Remover banner
+          </button>
+        )}
+      </div>
+      {error && <div className="form-error">{error}</div>}
+      {crop && (
+        <ImageCropper
+          file={crop.file}
+          kind={crop.kind === "avatar" ? "avatar" : "profileBanner"}
+          onCancel={() => setCrop(null)}
+          onCropped={async (image) => {
+            await api.uploadProfileImage(crop.kind, image);
+            setCrop(null);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+/** Account settings: picture, banner, display name (shown everywhere) and password. */
 export function ProfileModal({ user, onClose }: { user: User; onClose: () => void }) {
   const [displayName, setDisplayName] = useState(user.displayName);
   const [saved, setSaved] = useState(false);
@@ -274,6 +357,8 @@ export function ProfileModal({ user, onClose }: { user: User; onClose: () => voi
 
   return (
     <Modal title="Meu perfil" onClose={onClose}>
+      <ProfileImages user={user} />
+      <hr />
       <form onSubmit={profile.submit}>
         <label>
           Nome de exibição

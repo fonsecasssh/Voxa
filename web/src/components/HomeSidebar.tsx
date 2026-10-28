@@ -43,7 +43,7 @@ export function HomeSidebar({ dms, presence, unread, activeChannelId, pendingCou
                 className={`channel dm ${d.channel.id === activeChannelId ? "active" : ""} ${isUnread ? "unread" : ""}`}
                 onClick={() => navigate(`/channels/@me/${d.channel.id}`)}
               >
-                <Avatar name={d.user.displayName} id={d.user.id} size={32} status={p?.status ?? "offline"} />
+                <Avatar name={d.user.displayName} id={d.user.id} size={32} status={p?.status ?? "offline"} src={d.user.avatar} />
                 <span className="dm-names">
                   <span className="ellipsis">{d.user.displayName}</span>
                   {p?.activity && <span className="muted small ellipsis">{presenceText(p)}</span>}

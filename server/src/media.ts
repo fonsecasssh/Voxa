@@ -1,7 +1,7 @@
-// Uploaded server images (banner and icon), stored as files in the media directory,
+// Uploaded images (server banner and icon, user avatar and profile banner), stored as files in the media directory,
 // which lives next to the database so it is on the persistent disk in production.
 //
-// The browser already crops and resizes them (banner 960x540, icon 256x256) before
+// The browser already crops and resizes them (e.g. banner 960x540, icon/avatar 256x256) before
 // uploading, so the server only checks that the bytes really are an image and stores them.
 
 import { createHash } from "node:crypto";
@@ -10,10 +10,14 @@ import path from "node:path";
 
 export const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
 
-export const IMAGE_KINDS = ["banner", "icon"] as const;
+export const SERVER_IMAGE_KINDS = ["banner", "icon"] as const;
+export const USER_IMAGE_KINDS = ["avatar", "profile-banner"] as const;
+export const IMAGE_KINDS = [...SERVER_IMAGE_KINDS, ...USER_IMAGE_KINDS] as const;
+export type ServerImageKind = (typeof SERVER_IMAGE_KINDS)[number];
+export type UserImageKind = (typeof USER_IMAGE_KINDS)[number];
 export type ImageKind = (typeof IMAGE_KINDS)[number];
 
-/** URL prefix each kind is served under (see app.ts), e.g. /media/banners/. */
+/** URL prefix each kind is served under (see app.ts), e.g. /media/banners/ or /media/avatars/. */
 export const imageUrlPrefix = (kind: ImageKind) => `/media/${kind}s/`;
 
 type ImageType = "png" | "jpg" | "webp" | "gif";
@@ -38,9 +42,9 @@ export function createMediaStore(dir: string) {
      * Saves an image and returns its file name. The name includes a hash of the content,
      * so it can be cached forever: a new image always gets a new URL.
      */
-    save(kind: ImageKind, serverId: string, data: Buffer, type: ImageType): string {
+    save(kind: ImageKind, ownerId: string, data: Buffer, type: ImageType): string {
       const hash = createHash("sha256").update(data).digest("hex").slice(0, 16);
-      const file = `${serverId}-${hash}.${type}`;
+      const file = `${ownerId}-${hash}.${type}`;
       writeFileSync(path.join(dirs[kind], file), data);
       return file;
     },

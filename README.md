@@ -105,3 +105,4 @@ npm run typecheck
 7. ✅ Banner do servidor (recorte 16:9 no navegador, aparece no topo dos canais e no convite)
 8. ✅ Ícone do servidor (recorte redondo, aparece na barra de servidores e no convite)
 9. ✅ Configurações de voz: escolher microfone e fone (troca durante a chamada), supressão de ruído com IA que remove teclado (GTCRN/RNNoise, roda no próprio dispositivo), sensibilidade de entrada automática ou manual com medidor, "ouvir meu microfone" e cancelamento de eco
+10. ✅ Transmissão de tela como no Discord (cabe na área, "Assistir"/"Parar de assistir" — só quem assiste recebe o vídeo) e foto de perfil + banner do perfil

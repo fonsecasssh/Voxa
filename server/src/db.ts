@@ -145,6 +145,12 @@ const MIGRATIONS: string[] = [
   `
   ALTER TABLE servers ADD COLUMN icon TEXT;
   `,
+
+  // 7: user profile picture and profile banner.
+  `
+  ALTER TABLE users ADD COLUMN avatar TEXT;
+  ALTER TABLE users ADD COLUMN profile_banner TEXT;
+  `,
 ];
 
 function migrate(db: DB) {
