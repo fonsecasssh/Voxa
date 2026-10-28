@@ -81,6 +81,8 @@ A voz usa WebRTC em malha (cada participante conecta direto aos outros), com can
 
 O navegador só libera microfone e tela em `https://` ou em `http://localhost`.
 
+O microfone passa por uma cadeia de processamento antes de ser enviado (`web/src/voice/audioPipeline.ts`): supressão de ruído por rede neural ([@sapphi-red/web-noise-suppressor](https://github.com/sapphi-red/web-noise-suppressor): GTCRN no modo "Forte", o padrão, e RNNoise no "Leve") e um portão de sensibilidade. Num áudio de teste com digitação, o modo Forte deixou o teclado cerca de 45 dB mais baixo, e com o portão nada foi transmitido enquanto só se digitava. O custo medido foi de cerca de 5% de um núcleo do processador.
+
 ## Banco de dados
 
 O esquema evolui por migrações numeradas em `server/src/db.ts` (registradas em `PRAGMA user_version`). Ao atualizar o Voxa, o banco existente é migrado automaticamente na inicialização, sem perder dados. Faça backup do arquivo `.db` antes de atualizar em produção.
@@ -102,3 +104,4 @@ npm run typecheck
 6. ✅ Nomes e cargos como no Discord: perfil (nome de exibição, senha), apelido por servidor, cargos com cor, permissões e hierarquia, cargo destacado na lista de membros, expulsar e sair, renomear/excluir servidor e canais
 7. ✅ Banner do servidor (recorte 16:9 no navegador, aparece no topo dos canais e no convite)
 8. ✅ Ícone do servidor (recorte redondo, aparece na barra de servidores e no convite)
+9. ✅ Configurações de voz: escolher microfone e fone (troca durante a chamada), supressão de ruído com IA que remove teclado (GTCRN/RNNoise, roda no próprio dispositivo), sensibilidade de entrada automática ou manual com medidor, "ouvir meu microfone" e cancelamento de eco

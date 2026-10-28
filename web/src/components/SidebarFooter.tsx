@@ -16,12 +16,13 @@ interface Props {
   voiceLocation: { label: string; path: string } | null;
   setPresence: SetPresence;
   onEditProfile: () => void;
+  onVoiceSettings: () => void;
   onLogout: () => void;
 }
 
 export type SetPresence = (patch: { status?: UserStatus; activity?: string | null }) => Promise<void>;
 
-export function SidebarFooter({ user, status, activity, voiceLocation, setPresence, onEditProfile, onLogout }: Props) {
+export function SidebarFooter({ user, status, activity, voiceLocation, setPresence, onEditProfile, onVoiceSettings, onLogout }: Props) {
   const [voice, vs] = useVoice();
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -89,6 +90,9 @@ export function SidebarFooter({ user, status, activity, voiceLocation, setPresen
           onClick={() => voice?.setDeafened(!vs.deafened)}
         >
           {vs.deafened ? "🔕" : "🎧"}
+        </button>
+        <button className="icon-btn" title="Configurações de voz" onClick={onVoiceSettings}>
+          ⚙
         </button>
       </footer>
     </>

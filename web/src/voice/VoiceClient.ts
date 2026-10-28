@@ -13,6 +13,8 @@
 
 import { api } from "../api.ts";
 import type { AppSocket } from "../socket.ts";
+import { applyOutputDevice, audioSettings, type AudioSettings } from "./audioSettings.ts";
+import { buildMicPipeline, getAudioContext, openMic, type MicPipeline } from "./audioPipeline.ts";
 
 type Signal = { description?: RTCSessionDescriptionInit; candidate?: RTCIceCandidateInit };
 
@@ -69,12 +71,15 @@ export class VoiceClient {
   private snapshot: VoiceSnapshot = initial;
   private listeners = new Set<() => void>();
   private peers = new Map<string, Peer>();
+  /** Raw microphone, and the processed audio actually sent (noise suppression + gate). */
   private mic: MediaStream | null = null;
+  private pipeline: MicPipeline | null = null;
   private screen: MediaStream | null = null;
   private iceServers: RTCIceServer[] | null = null;
-  private audioCtx: AudioContext | null = null;
-  private localAnalyser: AnalyserNode | null = null;
   private speakingTimer: ReturnType<typeof setInterval> | null = null;
+  private settings: AudioSettings = audioSettings.get();
+  /** Bumped on every mic (re)open, so a slow, outdated one is discarded. */
+  private micVersion = 0;
 
   constructor(private socket: AppSocket) {
     socket.on("voice:signal", ({ from, data }) => this.onSignal(from, data as Signal));
@@ -89,6 +94,7 @@ export class VoiceClient {
     socket.on("disconnect", () => {
       if (this.snapshot.status !== "idle") this.cleanup("Conexão perdida com o servidor.");
     });
+    audioSettings.subscribe(() => this.onSettingsChange(audioSettings.get()));
   }
 
   // --- store plumbing ---------------------------------------------------------
@@ -121,10 +127,10 @@ export class VoiceClient {
     this.set({ status: "connecting", channelId, serverId, error: null });
 
     try {
+      // Created during the click that joins, so the browser lets it start.
+      getAudioContext();
       this.iceServers ??= (await api.rtcConfig()).iceServers;
-      this.mic = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-      });
+      await this.openMic();
     } catch (err) {
       this.cleanup(
         (err as Error).name === "NotAllowedError"
@@ -133,7 +139,7 @@ export class VoiceClient {
       );
       return;
     }
-    this.mic.getAudioTracks().forEach((t) => (t.enabled = !this.snapshot.muted && !this.snapshot.deafened));
+    if (this.snapshot.channelId !== channelId) return;
     this.startSpeakingDetection();
 
     const res = await this.socket.emitWithAck("voice:join", { channelId });
@@ -154,12 +160,14 @@ export class VoiceClient {
 
   private cleanup(error: string | null) {
     for (const id of [...this.peers.keys()]) this.closePeer(id);
+    this.micVersion++;
+    this.pipeline?.dispose();
     this.mic?.getTracks().forEach((t) => t.stop());
     this.screen?.getTracks().forEach((t) => t.stop());
     this.mic = this.screen = null;
+    this.pipeline = null;
     if (this.speakingTimer) clearInterval(this.speakingTimer);
     this.speakingTimer = null;
-    this.localAnalyser = null;
     this.set({ ...initial, muted: this.snapshot.muted, deafened: this.snapshot.deafened, error });
   }
 
@@ -178,9 +186,58 @@ export class VoiceClient {
 
   private applyLocalState() {
     const { muted, deafened } = this.snapshot;
-    this.mic?.getAudioTracks().forEach((t) => (t.enabled = !muted && !deafened));
+    if (this.pipeline) this.pipeline.track.enabled = !muted && !deafened;
     for (const p of this.peers.values()) p.audio.muted = deafened;
     this.emitState();
+  }
+
+  // --- microphone and devices ------------------------------------------------------
+
+  /** Opens the mic with the current settings and swaps it into every call, without renegotiating. */
+  private async openMic() {
+    const version = ++this.micVersion;
+    const raw = await openMic(this.settings);
+    let pipeline: MicPipeline;
+    try {
+      pipeline = await buildMicPipeline(raw, this.settings);
+    } catch (err) {
+      raw.getTracks().forEach((t) => t.stop());
+      throw err;
+    }
+    // Left, or a newer change superseded this one while it was opening.
+    if (version !== this.micVersion || this.snapshot.status === "idle") {
+      pipeline.dispose();
+      raw.getTracks().forEach((t) => t.stop());
+      return;
+    }
+    const { muted, deafened } = this.snapshot;
+    pipeline.track.enabled = !muted && !deafened;
+    const old = this.pipeline;
+    for (const p of this.peers.values()) {
+      const sender = p.pc.getSenders().find((x) => x.track && x.track === old?.track);
+      if (sender) await sender.replaceTrack(pipeline.track).catch(() => {});
+    }
+    old?.dispose();
+    this.mic?.getTracks().forEach((t) => t.stop());
+    this.mic = raw;
+    this.pipeline = pipeline;
+  }
+
+  private onSettingsChange(next: AudioSettings) {
+    const prev = this.settings;
+    this.settings = next;
+    if (next.outputDeviceId !== prev.outputDeviceId) {
+      for (const p of this.peers.values()) applyOutputDevice(p.audio, next.outputDeviceId);
+    }
+    const inputChanged =
+      next.inputDeviceId !== prev.inputDeviceId ||
+      next.echoCancellation !== prev.echoCancellation ||
+      next.noiseSuppression !== prev.noiseSuppression ||
+      next.autoSensitivity !== prev.autoSensitivity ||
+      next.sensitivityDb !== prev.sensitivityDb;
+    if (inputChanged && this.pipeline) {
+      this.openMic().catch(() => this.set({ error: "Não foi possível usar o microfone escolhido." }));
+    }
   }
 
   private emitState() {
@@ -245,6 +302,7 @@ export class VoiceClient {
     const audio = new Audio();
     audio.autoplay = true;
     audio.muted = this.snapshot.deafened;
+    applyOutputDevice(audio, this.settings.outputDeviceId);
 
     const peer: Peer = {
       socketId,
@@ -295,7 +353,7 @@ export class VoiceClient {
       this.syncRemote();
     };
 
-    this.mic?.getTracks().forEach((t) => pc.addTrack(t, this.mic!));
+    if (this.pipeline) pc.addTrack(this.pipeline.track, this.pipeline.stream);
     this.addScreenTracks(peer);
     this.syncRemote();
     return peer;
@@ -339,11 +397,10 @@ export class VoiceClient {
   // --- speaking indicators -----------------------------------------------------------
   private analyse(stream: MediaStream): AnalyserNode | undefined {
     try {
-      this.audioCtx ??= new AudioContext();
-      if (this.audioCtx.state === "suspended") this.audioCtx.resume().catch(() => {});
-      const analyser = this.audioCtx.createAnalyser();
+      const ctx = getAudioContext();
+      const analyser = ctx.createAnalyser();
       analyser.fftSize = 512;
-      this.audioCtx.createMediaStreamSource(stream).connect(analyser);
+      ctx.createMediaStreamSource(stream).connect(analyser);
       return analyser;
     } catch {
       return undefined;
@@ -351,7 +408,6 @@ export class VoiceClient {
   }
 
   private startSpeakingDetection() {
-    this.localAnalyser = this.mic ? (this.analyse(this.mic) ?? null) : null;
     const buf = new Float32Array(512);
     const level = (a?: AnalyserNode | null) => {
       if (!a) return 0;
@@ -365,7 +421,8 @@ export class VoiceClient {
     this.speakingTimer = setInterval(() => {
       const now = Date.now();
       const { muted, deafened } = this.snapshot;
-      if (!muted && !deafened && level(this.localAnalyser) > SPEAKING_THRESHOLD) lastLoud.set("self", now);
+      // Our own indicator follows what is actually sent (after noise suppression and the gate).
+      if (!muted && !deafened && level(this.pipeline?.outputAnalyser) > SPEAKING_THRESHOLD) lastLoud.set("self", now);
       if (muted || deafened) lastLoud.delete("self");
       for (const [id, p] of this.peers) if (level(p.analyser) > SPEAKING_THRESHOLD) lastLoud.set(id, now);
       for (const id of lastLoud.keys()) if (id !== "self" && !this.peers.has(id)) lastLoud.delete(id);

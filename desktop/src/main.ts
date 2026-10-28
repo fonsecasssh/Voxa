@@ -185,7 +185,7 @@ function openExternal(url: string) {
 // --- permissions ---------------------------------------------------------------------
 
 function configurePermissions() {
-  const allowed = new Set(["media", "display-capture", "notifications", "clipboard-sanitized-write", "fullscreen"]);
+  const allowed = new Set(["media", "display-capture", "notifications", "clipboard-sanitized-write", "fullscreen", "speaker-selection"]);
   session.defaultSession.setPermissionRequestHandler((wc, permission, callback) => {
     callback(allowed.has(permission) && isAppUrl(wc.getURL()));
   });

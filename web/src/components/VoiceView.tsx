@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import type { Channel, ServerDetails } from "../api.ts";
 import { memberName } from "../members.ts";
 import { useVoice } from "../voice/useVoice.ts";
+import { useAudioSettings } from "../voice/useAudioSettings.ts";
+import { applyOutputDevice } from "../voice/audioSettings.ts";
 import type { VoiceMember } from "../voice/types.ts";
 import { Avatar } from "./Avatar.tsx";
 
@@ -126,10 +128,15 @@ export function VoiceView({ channel, members, server }: { channel: Channel; memb
 
 function StreamVideo({ stream, muted }: { stream: MediaStream; muted: boolean }) {
   const ref = useRef<HTMLVideoElement>(null);
+  const { outputDeviceId } = useAudioSettings();
   useEffect(() => {
     const v = ref.current;
     if (v && v.srcObject !== stream) v.srcObject = stream;
   }, [stream]);
+  // Screen-share audio goes to the same headphones as voices.
+  useEffect(() => {
+    if (ref.current) applyOutputDevice(ref.current, outputDeviceId);
+  }, [outputDeviceId]);
   return (
     <video
       ref={ref}

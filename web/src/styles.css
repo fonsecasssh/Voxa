@@ -1769,3 +1769,99 @@ a.status-option {
   color: inherit;
   text-decoration: none;
 }
+
+/* --- voice settings ---------------------------------------------------------------------------- */
+.voice-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.voice-settings p {
+  margin: 0;
+}
+.device-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.no-transform {
+  text-transform: none;
+  font-weight: 400;
+}
+select {
+  font: inherit;
+  color: var(--text);
+  background: var(--bg-input);
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  padding: 9px 10px;
+  width: 100%;
+  text-transform: none;
+  font-weight: 400;
+}
+select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.segmented {
+  display: flex;
+  background: var(--bg-input);
+  border-radius: var(--radius);
+  padding: 3px;
+  gap: 3px;
+}
+.segmented button {
+  flex: 1;
+  border: none;
+  background: none;
+  padding: 7px 10px;
+  border-radius: 6px;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+.segmented button:hover {
+  color: var(--text);
+}
+.segmented button.active {
+  background: var(--accent);
+  color: #fff;
+}
+.toggle-row.compact {
+  padding: 6px 0;
+  border-bottom: none;
+}
+.meter {
+  position: relative;
+  height: 10px;
+  border-radius: 5px;
+  background: var(--bg-input);
+  overflow: hidden;
+}
+.meter-fill {
+  height: 100%;
+  background: #faa61a;
+  transition: width 60ms linear;
+}
+.meter-fill.open {
+  background: var(--online);
+}
+.meter-threshold {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 2px;
+  background: #fff;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5);
+}
+.sensitivity-slider {
+  padding: 0;
+  accent-color: var(--accent);
+}
+.modal:has(.voice-settings) {
+  max-width: 560px;
+}
+@media (max-width: 600px) {
+  .device-row {
+    grid-template-columns: 1fr;
+  }
+}

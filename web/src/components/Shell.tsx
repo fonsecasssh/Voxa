@@ -30,6 +30,7 @@ import { MemberList } from "./MemberList.tsx";
 import { VoiceView } from "./VoiceView.tsx";
 import { CreateChannelModal, CreateServerModal, EditChannelModal, InviteModal, NicknameModal, ProfileModal } from "./Modals.tsx";
 import { ServerSettings } from "./ServerSettings.tsx";
+import { VoiceSettingsModal } from "./VoiceSettingsModal.tsx";
 import type { Channel } from "../api.ts";
 
 const TYPING_MS = 4000;
@@ -41,7 +42,7 @@ interface ChannelMessages {
 }
 
 type ModalKind =
-  | { kind: "createServer" | "createChannel" | "invite" | "nickname" | "profile" | "settings" }
+  | { kind: "createServer" | "createChannel" | "invite" | "nickname" | "profile" | "settings" | "voiceSettings" }
   | { kind: "editChannel"; channel: Channel }
   | null;
 
@@ -483,6 +484,7 @@ export function Shell({ user, setUser, initialStatus, initialActivity, servers, 
       activity={myActivity}
       setPresence={setPresence}
       onEditProfile={() => setModal({ kind: "profile" })}
+      onVoiceSettings={() => setModal({ kind: "voiceSettings" })}
       voiceLocation={
         voiceServer && voiceChannel
           ? { label: `${voiceChannel.name} / ${voiceServer.server.name}`, path: `/channels/${voiceServer.server.id}/${voiceChannel.id}` }
@@ -646,6 +648,7 @@ export function Shell({ user, setUser, initialStatus, initialActivity, servers, 
           <NicknameModal details={current} target={user} selfId={user.id} onClose={() => setModal(null)} />
         )}
         {modal?.kind === "profile" && <ProfileModal user={user} onClose={() => setModal(null)} />}
+        {modal?.kind === "voiceSettings" && <VoiceSettingsModal onClose={() => setModal(null)} />}
         {modal?.kind === "settings" && current && (
           <ServerSettings details={current} selfId={user.id} presence={presence} onClose={() => setModal(null)} />
         )}
