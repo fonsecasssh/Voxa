@@ -1,0 +1,31 @@
+# Render Blueprint: one web service (API + site + realtime) with a persistent
+# disk for the SQLite database. See DEPLOY.md for the step-by-step.
+services:
+  - type: web
+    name: voxa
+    runtime: node
+    plan: starter
+    # Render has no South American region; Virginia (US East) is the closest to Brazil.
+    region: virginia
+    # Only the server and the web app: the desktop app (Electron) isn't needed here.
+    buildCommand: npm ci --workspace=server --workspace=web --include-workspace-root && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    autoDeploy: true
+    disk:
+      name: voxa-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: NODE_VERSION
+        value: "24"
+      - key: DB_FILE
+        value: /var/data/voxa.db
+      # Proxies between the internet and the app. Check it with /api/health after deploying (see DEPLOY.md).
+      - key: TRUST_PROXY
+        value: "3"
+      # Cloudflare TURN, so voice works on any network. Filled in on the Render dashboard.
+      - key: CLOUDFLARE_TURN_KEY_ID
+        sync: false
+      - key: CLOUDFLARE_TURN_API_TOKEN
+        sync: false

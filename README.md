@@ -50,7 +50,11 @@ npm run dev
 
 Abra http://localhost:5173. O servidor roda em http://localhost:3001 e o Vite repassa `/api` e `/socket.io` para ele.
 
-## Produção
+## Colocar no ar
+
+Passo a passo para publicar no Render (endereço gratuito com HTTPS, sem precisar de domínio): veja **[DEPLOY.md](DEPLOY.md)**.
+
+## Produção (qualquer servidor)
 
 ```bash
 npm run build   # gera web/dist
@@ -64,7 +68,9 @@ Variáveis de ambiente:
 | `PORT` | Porta HTTP (padrão 3001) |
 | `DB_FILE` | Arquivo do banco (padrão `server/data/voxa.db`) |
 | `STUN_URLS` | Servidores STUN, separados por vírgula (padrão: STUN público do Google) |
-| `TURN_URLS`, `TURN_USERNAME`, `TURN_CREDENTIAL` | Servidor TURN, necessário em produção para quem está atrás de NAT restritivo |
+| `CLOUDFLARE_TURN_KEY_ID`, `CLOUDFLARE_TURN_API_TOKEN` | TURN da Cloudflare (credenciais temporárias geradas pelo servidor) — faz a voz funcionar em qualquer rede |
+| `TURN_URLS`, `TURN_USERNAME`, `TURN_CREDENTIAL` | Alternativa: um servidor TURN próprio (ex.: coturn) |
+| `TRUST_PROXY` | Quantos proxies ficam na frente do app (para obter o IP real do usuário) |
 
 ## Voz
 
@@ -89,4 +95,4 @@ npm run typecheck
 2. ✅ Canais de voz, mutar/ensurdecer, indicador de fala, compartilhamento de tela com áudio
 3. ✅ Amigos (pedidos, aceitar, recusar), mensagens diretas com não lidas, status (disponível, ausente, não perturbe, invisível) e "Jogando X"
 4. ✅ App desktop para Windows (seletor de tela, bandeja, iniciar com o Windows, contador, notificações, detecção de jogos, atualização automática)
-5. Deploy em produção
+5. ✅ Pronto para produção: Render (`render.yaml`), TURN da Cloudflare, proteção contra tentativas de senha, backup
