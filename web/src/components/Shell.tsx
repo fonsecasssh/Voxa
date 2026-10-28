@@ -20,12 +20,15 @@ import { desktop, notify, requestNotificationPermission } from "../desktop.ts";
 import { connectSocket, type AppSocket } from "../socket.ts";
 import { VoiceClient } from "../voice/VoiceClient.ts";
 import { VoiceContext, useVoiceSnapshot } from "../voice/useVoice.ts";
+import { useVoiceSounds } from "../voice/useVoiceSounds.ts";
+import { playSound } from "../sounds.ts";
 import { ServerRail } from "./ServerRail.tsx";
 import { ChannelSidebar } from "./ChannelSidebar.tsx";
 import { HomeSidebar } from "./HomeSidebar.tsx";
 import { SidebarFooter, type SetPresence } from "./SidebarFooter.tsx";
 import { ChatView } from "./ChatView.tsx";
 import { ReplayModal } from "./ReplayModal.tsx";
+import { AppSettingsModal } from "./AppSettingsModal.tsx";
 import { FriendsView } from "./FriendsView.tsx";
 import { MemberList } from "./MemberList.tsx";
 import { VoiceView } from "./VoiceView.tsx";
@@ -43,7 +46,7 @@ interface ChannelMessages {
 }
 
 type ModalKind =
-  | { kind: "createServer" | "createChannel" | "invite" | "nickname" | "profile" | "settings" | "voiceSettings" | "replay" }
+  | { kind: "createServer" | "createChannel" | "invite" | "nickname" | "profile" | "settings" | "voiceSettings" | "replay" | "appSettings" }
   | { kind: "editChannel"; channel: Channel }
   | null;
 
@@ -94,6 +97,8 @@ export function Shell({ user, setUser, initialStatus, initialActivity, servers, 
   const voiceState = useVoiceSnapshot(voice);
 
   const [details, setDetails] = useState<Record<string, ServerDetails>>({});
+  const myVoiceMembers = voiceState.serverId && voiceState.channelId ? details[voiceState.serverId]?.voice[voiceState.channelId] : undefined;
+  useVoiceSounds(voiceState, myVoiceMembers);
   const [messages, setMessages] = useState<Record<string, ChannelMessages>>({});
   const [typing, setTyping] = useState<Record<string, Record<string, { user: User; until: number }>>>({});
   const [presence, setPresenceMap] = useState<Record<string, Presence>>({});
@@ -218,6 +223,7 @@ export function Shell({ user, setUser, initialStatus, initialActivity, servers, 
         setUnread((u) => (u.has(m.channelId) ? u : new Set(u).add(m.channelId)));
         // Direct messages notify (servers would be too noisy without mentions), unless in "do not disturb".
         const isDm = dmsRef.current?.some((d) => d.channel.id === m.channelId);
+        if (isDm && myStatusRef.current !== "dnd") playSound("message");
         if (isDm && myStatusRef.current !== "dnd" && (document.visibilityState !== "visible" || !document.hasFocus())) {
           notify(m.author.displayName, m.content.slice(0, 200) || (m.attachment ? "Enviou um replay 🎬" : ""), m.channelId, () => navigate(`/channels/${HOME}/${m.channelId}`));
           desktop?.flash();
@@ -496,6 +502,7 @@ export function Shell({ user, setUser, initialStatus, initialActivity, servers, 
       onEditProfile={() => setModal({ kind: "profile" })}
       onVoiceSettings={() => setModal({ kind: "voiceSettings" })}
       onReplay={() => setModal({ kind: "replay" })}
+      onAppSettings={() => setModal({ kind: "appSettings" })}
       voiceLocation={
         voiceServer && voiceChannel
           ? { label: `${voiceChannel.name} / ${voiceServer.server.name}`, path: `/channels/${voiceServer.server.id}/${voiceChannel.id}` }
@@ -660,6 +667,7 @@ export function Shell({ user, setUser, initialStatus, initialActivity, servers, 
         )}
         {modal?.kind === "profile" && <ProfileModal user={user} onClose={() => setModal(null)} />}
         {modal?.kind === "voiceSettings" && <VoiceSettingsModal onClose={() => setModal(null)} />}
+        {modal?.kind === "appSettings" && <AppSettingsModal onClose={() => setModal(null)} />}
         {modal?.kind === "replay" && (
           <ReplayModal
             onClose={() => setModal(null)}

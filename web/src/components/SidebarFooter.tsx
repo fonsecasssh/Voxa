@@ -23,12 +23,13 @@ interface Props {
   onEditProfile: () => void;
   onVoiceSettings: () => void;
   onReplay: () => void;
+  onAppSettings: () => void;
   onLogout: () => void;
 }
 
 export type SetPresence = (patch: { status?: UserStatus; activity?: string | null }) => Promise<void>;
 
-export function SidebarFooter({ user, status, activity, voiceLocation, setPresence, onEditProfile, onVoiceSettings, onReplay, onLogout }: Props) {
+export function SidebarFooter({ user, status, activity, voiceLocation, setPresence, onEditProfile, onVoiceSettings, onReplay, onAppSettings, onLogout }: Props) {
   const [voice, vs] = useVoice();
   const rp = useReplay();
   const replaySettings = useReplaySettings();
@@ -153,6 +154,10 @@ export function SidebarFooter({ user, status, activity, voiceLocation, setPresen
               setMenuOpen(false);
               onReplay();
             }}
+            onAppSettings={() => {
+              setMenuOpen(false);
+              onAppSettings();
+            }}
           />
         )}
         <button className="user-card" title="Definir status" onClick={() => setMenuOpen((o) => !o)}>
@@ -211,6 +216,7 @@ function StatusMenu({
   onLogout,
   onEditProfile,
   onReplay,
+  onAppSettings,
 }: {
   status: UserStatus;
   activity: Activity | null;
@@ -219,6 +225,7 @@ function StatusMenu({
   onLogout: () => void;
   onEditProfile: () => void;
   onReplay: () => void;
+  onAppSettings: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [game, setGame] = useState(activity?.name ?? "");
@@ -293,6 +300,9 @@ function StatusMenu({
       </button>
       <button className="status-option" onClick={onReplay}>
         Replay instantâneo
+      </button>
+      <button className="status-option" onClick={onAppSettings}>
+        Aparência e sons
       </button>
       {!desktop && (
         <a className="status-option" href={DOWNLOAD_URL}>

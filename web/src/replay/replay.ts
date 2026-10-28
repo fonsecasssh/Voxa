@@ -7,6 +7,7 @@ import { MAX_CLIP_BYTES, api } from "../api.ts";
 import { desktop, notify } from "../desktop.ts";
 import { ReplayRecorder, canRecordReplay } from "./recorder.ts";
 import { REPLAY_QUALITIES, matchesHotkey, replaySettings } from "./settings.ts";
+import { playSound } from "../sounds.ts";
 
 export interface ClipShare {
   channelId: string;
@@ -52,28 +53,6 @@ export const desktopReplay = desktop?.replay ?? null;
 function clipName(at: Date, ext: string) {
   const p = (n: number) => String(n).padStart(2, "0");
   return `Voxa ${at.getFullYear()}-${p(at.getMonth() + 1)}-${p(at.getDate())} ${p(at.getHours())}-${p(at.getMinutes())}-${p(at.getSeconds())}.${ext}`;
-}
-
-/** A short two-note chime, so you know the clip was saved without leaving the game. */
-function chime() {
-  try {
-    const ctx = new AudioContext();
-    const gain = ctx.createGain();
-    gain.connect(ctx.destination);
-    gain.gain.setValueAtTime(0.0001, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.18, ctx.currentTime + 0.02);
-    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.35);
-    [660, 990].forEach((f, i) => {
-      const osc = ctx.createOscillator();
-      osc.frequency.value = f;
-      osc.connect(gain);
-      osc.start(ctx.currentTime + i * 0.09);
-      osc.stop(ctx.currentTime + 0.35);
-    });
-    setTimeout(() => ctx.close().catch(() => {}), 600);
-  } catch {
-    // No audio output available.
-  }
 }
 
 class ReplayController {
@@ -225,7 +204,7 @@ class ReplayController {
       this.set({ clips: [clip, ...this.state.clips.slice(0, MAX_CLIPS - 1)], saving: false, justSaved: clip.id });
       if (this.justSavedTimer) clearTimeout(this.justSavedTimer);
       this.justSavedTimer = setTimeout(() => this.set({ justSaved: null }), 4000);
-      chime();
+      playSound("replay"); // so you know it saved without leaving the game
 
       if (desktopReplay && replaySettings.get().saveToDisk) {
         const path = await desktopReplay.save(name, new Uint8Array(await blob.arrayBuffer())).catch(() => null);
