@@ -16,7 +16,12 @@ import type { AppSocket } from "../socket.ts";
 import { applyOutputDevice, audioSettings, type AudioSettings } from "./audioSettings.ts";
 import { buildMicPipeline, getAudioContext, openMic, type MicPipeline } from "./audioPipeline.ts";
 
-type Signal = { description?: RTCSessionDescriptionInit; candidate?: RTCIceCandidateInit };
+type Signal = {
+  description?: RTCSessionDescriptionInit;
+  candidate?: RTCIceCandidateInit;
+  /** A viewer asking us to start (true) or stop (false) sending them our screen share. */
+  watch?: boolean;
+};
 
 interface Peer {
   socketId: string;
@@ -43,6 +48,8 @@ export interface VoiceSnapshot {
   remoteStreams: Record<string, Record<string, MediaStream>>;
   /** socketIds currently speaking; "self" for the local user. */
   speaking: string[];
+  /** socketIds whose screen share we are watching. */
+  watching: string[];
   /** socketId -> connection state, for diagnostics. */
   connections: Record<string, RTCPeerConnectionState>;
   error: string | null;
@@ -63,6 +70,7 @@ const initial: VoiceSnapshot = {
   localScreen: null,
   remoteStreams: {},
   speaking: [],
+  watching: [],
   connections: {},
   error: null,
 };
@@ -78,6 +86,8 @@ export class VoiceClient {
   private iceServers: RTCIceServer[] | null = null;
   private speakingTimer: ReturnType<typeof setInterval> | null = null;
   private settings: AudioSettings = audioSettings.get();
+  /** Peers watching our screen share: only they receive its tracks (like Discord, watching is opt-in). */
+  private watchers = new Set<string>();
   /** Bumped on every mic (re)open, so a slow, outdated one is discarded. */
   private micVersion = 0;
 
@@ -87,6 +97,10 @@ export class VoiceClient {
       if (channelId !== this.snapshot.channelId || this.snapshot.status === "idle") return;
       const present = new Set(members.map((m) => m.socketId));
       for (const id of [...this.peers.keys()]) if (!present.has(id)) this.closePeer(id);
+      // A stream that ended can't be watched anymore; starting a new one needs a new click.
+      const live = new Set(members.filter((m) => m.screenStreamId).map((m) => m.socketId));
+      const watching = this.snapshot.watching.filter((id) => live.has(id));
+      if (watching.length !== this.snapshot.watching.length) this.set({ watching });
     });
     socket.on("voice:replaced", () => this.cleanup("Você entrou na voz em outra aba ou dispositivo."));
     socket.on("voice:kicked", ({ reason }) => this.cleanup(reason));
@@ -166,6 +180,7 @@ export class VoiceClient {
     this.screen?.getTracks().forEach((t) => t.stop());
     this.mic = this.screen = null;
     this.pipeline = null;
+    this.watchers.clear();
     if (this.speakingTimer) clearInterval(this.speakingTimer);
     this.speakingTimer = null;
     this.set({ ...initial, muted: this.snapshot.muted, deafened: this.snapshot.deafened, error });
@@ -262,26 +277,52 @@ export class VoiceClient {
     }
     this.screen = stream;
     stream.getVideoTracks()[0]?.addEventListener("ended", () => this.stopScreenShare());
-    for (const p of this.peers.values()) this.addScreenTracks(p);
+    this.watchers.clear(); // a new stream starts with no viewers
     this.set({ localScreen: stream });
     this.emitState();
   }
 
   stopScreenShare() {
     if (!this.screen) return;
-    const tracks = new Set(this.screen.getTracks());
-    for (const p of this.peers.values()) {
-      for (const sender of p.pc.getSenders()) if (sender.track && tracks.has(sender.track)) p.pc.removeTrack(sender);
-    }
-    tracks.forEach((t) => t.stop());
+    for (const p of this.peers.values()) this.removeScreenTracks(p);
+    this.screen.getTracks().forEach((t) => t.stop());
     this.screen = null;
+    this.watchers.clear();
     this.set({ localScreen: null });
     this.emitState();
   }
 
-  private addScreenTracks(p: Peer) {
+  /** Starts watching someone's screen share: they begin sending it to us. */
+  watch(socketId: string) {
+    if (this.snapshot.status !== "connected" || this.snapshot.watching.includes(socketId)) return;
+    this.set({ watching: [...this.snapshot.watching, socketId] });
+    this.socket.emit("voice:signal", { to: socketId, data: { watch: true } });
+  }
+
+  /** Stops watching: they stop sending us the video, which saves bandwidth on both sides. */
+  unwatch(socketId: string) {
+    if (!this.snapshot.watching.includes(socketId)) return;
+    this.set({ watching: this.snapshot.watching.filter((id) => id !== socketId) });
+    this.socket.emit("voice:signal", { to: socketId, data: { watch: false } });
+    const p = this.peers.get(socketId);
+    if (p) {
+      // Keep only the microphone stream; the screen stream goes away right now, not after renegotiation.
+      for (const id of [...p.streams.keys()]) if (p.streams.get(id) !== p.audio.srcObject) p.streams.delete(id);
+      this.syncRemote();
+    }
+  }
+
+  private removeScreenTracks(p: Peer) {
     if (!this.screen) return;
+    const tracks = new Set(this.screen.getTracks());
+    for (const sender of p.pc.getSenders()) if (sender.track && tracks.has(sender.track)) p.pc.removeTrack(sender);
+  }
+
+  private addScreenTracks(p: Peer) {
+    if (!this.screen || !this.watchers.has(p.socketId)) return;
+    const sending = new Set(p.pc.getSenders().map((x) => x.track));
     for (const track of this.screen.getTracks()) {
+      if (sending.has(track)) continue;
       const sender = p.pc.addTrack(track, this.screen);
       if (track.kind === "video") {
         // Favor sharpness over smoothness: text on a shared screen must stay readable.
@@ -362,18 +403,28 @@ export class VoiceClient {
   private closePeer(socketId: string) {
     const p = this.peers.get(socketId);
     if (!p) return;
+    this.watchers.delete(socketId);
+    if (this.snapshot.watching.includes(socketId)) this.set({ watching: this.snapshot.watching.filter((id) => id !== socketId) });
     p.pc.close();
     p.audio.srcObject = null;
     this.peers.delete(socketId);
     this.syncRemote();
   }
 
-  private async onSignal(from: string, { description, candidate }: Signal) {
+  private async onSignal(from: string, { description, candidate, watch }: Signal) {
     if (this.snapshot.status !== "connected") return;
     const peer = this.createPeer(from);
     const { pc } = peer;
     try {
-      if (description) {
+      if (typeof watch === "boolean") {
+        if (watch) {
+          this.watchers.add(from);
+          this.addScreenTracks(peer);
+        } else {
+          this.watchers.delete(from);
+          this.removeScreenTracks(peer);
+        }
+      } else if (description) {
         const collision = description.type === "offer" && (peer.makingOffer || pc.signalingState !== "stable");
         peer.ignoreOffer = !peer.polite && collision;
         if (peer.ignoreOffer) return;

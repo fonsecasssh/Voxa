@@ -675,31 +675,49 @@ label .muted {
 .stage {
   flex: 1;
   min-height: 0;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 12px;
   padding: 16px;
-  overflow: auto;
+  overflow: hidden;
 }
+/* The focused stream takes the free space and always fits inside it (letterboxed), never overflowing. */
 .stage-focus {
   flex: 1;
   min-height: 0;
+  min-width: 0;
   display: flex;
 }
 .tiles {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 12px;
-  align-content: center;
   flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-content: center;
+  justify-content: center;
+  gap: 12px;
+}
+/* Discord-like tile size: grows with the window, but within limits. */
+.tiles > .tile {
+  width: clamp(200px, 30%, 420px);
 }
 .stage.has-focus .tiles {
   flex: 0 0 auto;
-  grid-template-columns: repeat(auto-fill, minmax(160px, 200px));
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
   justify-content: center;
+  padding: 4px; /* room for the speaking outline */
+}
+.stage.has-focus .tiles > .tile {
+  width: 176px;
+  flex-shrink: 0;
 }
 .tile {
   position: relative;
+  min-width: 0;
   aspect-ratio: 16 / 9;
   border-radius: 10px;
   background: var(--bg-sidebar);
@@ -711,6 +729,8 @@ label .muted {
 }
 .tile.big {
   flex: 1;
+  min-width: 0;
+  min-height: 0;
   aspect-ratio: auto;
 }
 .tile.speaking {
@@ -723,10 +743,76 @@ label .muted {
 .tile.screen.big {
   cursor: zoom-out;
 }
+.tile.screen.preview {
+  cursor: default;
+  background: linear-gradient(135deg, #2a2348, #18323a);
+  container-type: size;
+}
+.preview-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 8px 36px; /* keep clear of the name label at the bottom */
+  text-align: center;
+}
+/* Small cards show just the button; the label already says who is live. */
+@container (max-height: 199px) {
+  .preview-inner .avatar,
+  .preview-inner .muted {
+    display: none;
+  }
+}
+.watch-btn {
+  padding: 7px 14px;
+  font-size: 13px;
+}
 .tile video {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
   object-fit: contain;
+  display: block;
+}
+.tile:fullscreen {
+  border-radius: 0;
+}
+.tile-controls {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  gap: 6px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.tile.screen:hover .tile-controls,
+.tile.screen:focus-within .tile-controls {
+  opacity: 1;
+}
+.tile-btn {
+  height: 32px;
+  min-width: 32px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.65);
+  color: #fff;
+  font-size: 15px;
+}
+.tile-btn.text {
+  font-size: 13px;
+  font-weight: 600;
+}
+.tile-btn:hover {
+  background: rgba(0, 0, 0, 0.85);
+}
+.tile-btn.danger:hover {
+  background: var(--danger);
+}
+.stage.has-focus .tiles .tile-controls {
+  display: none;
 }
 .tile-label {
   position: absolute;

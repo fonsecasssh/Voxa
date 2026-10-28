@@ -13,6 +13,8 @@ interface Tile {
   member: VoiceMember;
   stream?: MediaStream;
   isSelf: boolean;
+  /** For someone else's screen share: whether we're watching it. */
+  watching?: boolean;
 }
 
 export function VoiceView({ channel, members, server }: { channel: Channel; members: VoiceMember[]; server?: ServerDetails }) {
@@ -24,8 +26,9 @@ export function VoiceView({ channel, members, server }: { channel: Channel; memb
   for (const m of members) {
     const isSelf = m.socketId === vs.selfSocketId;
     if (m.screenStreamId && inThisChannel) {
-      const stream = isSelf ? (vs.localScreen ?? undefined) : vs.remoteStreams[m.socketId]?.[m.screenStreamId];
-      tiles.push({ key: `screen:${m.socketId}`, kind: "screen", member: m, stream, isSelf });
+      const watching = isSelf || vs.watching.includes(m.socketId);
+      const stream = isSelf ? (vs.localScreen ?? undefined) : watching ? vs.remoteStreams[m.socketId]?.[m.screenStreamId] : undefined;
+      tiles.push({ key: `screen:${m.socketId}`, kind: "screen", member: m, stream, isSelf, watching });
     }
   }
   for (const m of members) {
@@ -37,31 +40,79 @@ export function VoiceView({ channel, members, server }: { channel: Channel; memb
     if (focused && !focusedTile) setFocused(null);
   }, [focused, focusedTile]);
 
+  const watch = (t: Tile) => {
+    voice?.watch(t.member.socketId);
+    setFocused(t.key); // like Discord, a stream you start watching opens big
+  };
+  const stopWatching = (t: Tile) => {
+    voice?.unwatch(t.member.socketId);
+    if (focused === t.key) setFocused(null);
+  };
+
   const renderTile = (t: Tile, big = false) => {
     const speaking = vs.speaking.includes(t.isSelf ? "self" : t.member.socketId);
+    const name = memberName(server, t.member.user);
+    const label = (
+      <div className="tile-label">
+        {t.kind === "screen" && <span className="live-badge">AO VIVO</span>}
+        <span className="ellipsis">
+          {name}
+          {t.isSelf && " (você)"}
+        </span>
+        {t.kind === "user" && (t.member.deafened ? "🔕" : t.member.muted ? "🔇" : "")}
+      </div>
+    );
+
+    if (t.kind === "user") {
+      return (
+        <div key={t.key} className={`tile user ${speaking ? "speaking" : ""} ${big ? "big" : ""}`}>
+          <Avatar name={name} id={t.member.user.id} size={big ? 96 : 64} />
+          {label}
+        </div>
+      );
+    }
+
+    // Someone else's stream we aren't watching: a card with "Assistir", like Discord.
+    if (!t.watching) {
+      return (
+        <div key={t.key} className="tile screen preview">
+          <div className="preview-inner">
+            <Avatar name={name} id={t.member.user.id} size={48} />
+            <span className="muted small">{name} está transmitindo</span>
+            <button className="btn primary watch-btn" onClick={() => watch(t)}>
+              Assistir transmissão
+            </button>
+          </div>
+          {label}
+        </div>
+      );
+    }
+
+    const isFocused = focused === t.key;
     return (
-      <div
-        key={t.key}
-        className={`tile ${t.kind} ${speaking && t.kind === "user" ? "speaking" : ""} ${big ? "big" : ""}`}
-        onClick={() => t.kind === "screen" && setFocused(focused === t.key ? null : t.key)}
-        title={t.kind === "screen" ? (focused === t.key ? "Clique para reduzir" : "Clique para ampliar") : undefined}
-      >
-        {t.kind === "screen" ? (
-          t.stream ? (
-            <StreamVideo stream={t.stream} muted={t.isSelf || vs.deafened} />
+      <div key={t.key} className={`tile screen ${big ? "big" : ""}`} onClick={() => setFocused(isFocused ? null : t.key)}>
+        {t.stream ? <StreamVideo stream={t.stream} muted={t.isSelf || vs.deafened} /> : <span className="muted">Conectando à transmissão…</span>}
+        {label}
+        <div className="tile-controls" onClick={(e) => e.stopPropagation()}>
+          <button className="tile-btn" title={isFocused ? "Reduzir" : "Ampliar"} onClick={() => setFocused(isFocused ? null : t.key)}>
+            {isFocused ? "⤡" : "⤢"}
+          </button>
+          <button
+            className="tile-btn"
+            title="Tela cheia"
+            onClick={(e) => (e.currentTarget.closest(".tile") as HTMLElement | null)?.requestFullscreen?.().catch(() => {})}
+          >
+            ⛶
+          </button>
+          {t.isSelf ? (
+            <button className="tile-btn text danger" title="Parar de transmitir" onClick={() => voice?.stopScreenShare()}>
+              Parar de transmitir
+            </button>
           ) : (
-            <span className="muted">Conectando à transmissão…</span>
-          )
-        ) : (
-          <Avatar name={memberName(server, t.member.user)} id={t.member.user.id} size={big ? 96 : 72} />
-        )}
-        <div className="tile-label">
-          {t.kind === "screen" && <span className="live-badge">AO VIVO</span>}
-          <span className="ellipsis">
-            {memberName(server, t.member.user)}
-            {t.isSelf && " (você)"}
-          </span>
-          {t.kind === "user" && (t.member.deafened ? "🔕" : t.member.muted ? "🔇" : "")}
+            <button className="tile-btn text" title="Parar de assistir" onClick={() => stopWatching(t)}>
+              Parar de assistir
+            </button>
+          )}
         </div>
       </div>
     );
