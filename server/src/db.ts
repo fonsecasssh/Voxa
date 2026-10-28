@@ -190,6 +190,12 @@ const MIGRATIONS: string[] = [
   );
   CREATE INDEX reactions_by_message ON reactions(message_id, created_at);
   `,
+
+  // 11: who a message mentions (user ids, as JSON) and whether it pings @everyone.
+  `
+  ALTER TABLE messages ADD COLUMN mentions TEXT;
+  ALTER TABLE messages ADD COLUMN mention_everyone INTEGER NOT NULL DEFAULT 0;
+  `,
 ];
 
 /** The schema version a fully migrated database has. */

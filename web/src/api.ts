@@ -50,6 +50,11 @@ export interface Message {
   replyTo: { id: string; author: User | null; content: string; hasFiles: boolean } | null;
   editedAt: number | null;
   reactions: Reaction[];
+  /** Ids of the people it pings (by @name or by replying), and whether it pings @everyone. */
+  mentions: string[];
+  mentionsEveryone: boolean;
+  /** Only on live "message:new" events: the server of the channel (null in DMs). */
+  serverId?: string | null;
 }
 
 export interface Reaction {

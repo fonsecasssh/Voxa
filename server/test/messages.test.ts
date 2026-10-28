@@ -124,3 +124,24 @@ describe("reactions", () => {
     s.close();
   });
 });
+
+describe("mentions", () => {
+  it("pings members by @name and by reply, @everyone only with permission, never the author", async () => {
+    const { owner, friend, say } = await setup();
+    const outsider = await user();
+    const names = await Promise.all(
+      [owner, friend, outsider].map(async (u) => (await api("GET", "/api/me", undefined, u.token)).body.user.username as string),
+    );
+    const [ownerName, friendName, outsiderName] = names;
+
+    const m = (await say(owner, `@${friendName.toUpperCase()} e @${outsiderName} e @${ownerName} e \`@${friendName}\``)).body.message;
+    expect(m.mentions).toEqual([friend.user.id]);
+    expect(m.mentionsEveryone).toBe(false);
+
+    const reply = (await say(friend, "beleza", { replyTo: m.id })).body.message;
+    expect(reply.mentions).toEqual([owner.user.id]);
+
+    expect((await say(friend, "@everyone acordem")).body.message.mentionsEveryone).toBe(false);
+    expect((await say(owner, "@everyone acordem")).body.message.mentionsEveryone).toBe(true);
+  });
+});

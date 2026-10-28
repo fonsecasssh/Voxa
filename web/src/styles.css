@@ -3324,3 +3324,117 @@ video.media-item {
   display: grid;
   place-items: center;
 }
+
+/* --- formatting and mentions -------------------------------------------------------- */
+.mention {
+  padding: 0 3px;
+  border-radius: 4px;
+  font-weight: 600;
+  color: var(--link);
+  background: color-mix(in srgb, var(--grad-1) 18%, transparent);
+}
+.mention.me {
+  color: var(--text);
+  background: color-mix(in srgb, var(--grad-1) 34%, transparent);
+}
+.message.mentioned {
+  background: color-mix(in srgb, #f0b232 9%, transparent);
+  box-shadow: inset 2px 0 0 #f0b232;
+}
+.message.mentioned:hover {
+  background: color-mix(in srgb, #f0b232 13%, transparent);
+}
+.inline-code {
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-family: "Cascadia Code", Consolas, "SFMono-Regular", Menlo, monospace;
+  font-size: 0.88em;
+  background: var(--bg-rail);
+  border: 1px solid var(--border);
+}
+.code-block {
+  margin: 4px 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  max-width: 100%;
+  overflow-x: auto;
+  white-space: pre;
+  font-family: "Cascadia Code", Consolas, "SFMono-Regular", Menlo, monospace;
+  font-size: 13px;
+  line-height: 1.45;
+  background: var(--bg-rail);
+  border: 1px solid var(--border);
+}
+.message-content blockquote {
+  margin: 2px 0;
+  padding: 0 0 0 12px;
+  border-left: 4px solid var(--bg-strong);
+}
+.spoiler {
+  border-radius: 4px;
+  padding: 0 2px;
+  background: var(--bg-strong);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.spoiler:not(.shown) > span {
+  opacity: 0;
+}
+.spoiler:not(.shown):hover {
+  background: color-mix(in srgb, var(--bg-strong) 80%, var(--text-muted));
+}
+.spoiler.shown {
+  background: color-mix(in srgb, var(--bg-strong) 55%, transparent);
+  cursor: text;
+}
+.mention-popup {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 8px);
+  z-index: 15;
+  padding: 6px;
+  border-radius: 10px;
+  background: var(--bg-float);
+  border: 1px solid var(--border);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+}
+.mention-popup-title {
+  padding: 4px 8px 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.mention-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--text);
+  text-align: left;
+  min-width: 0;
+}
+.mention-option.active {
+  background: var(--bg-active);
+}
+.mention-option strong {
+  font-size: 14px;
+  flex-shrink: 1;
+}
+.mention-everyone {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-weight: 800;
+  color: var(--on-grad);
+  background: var(--grad);
+  flex-shrink: 0;
+}

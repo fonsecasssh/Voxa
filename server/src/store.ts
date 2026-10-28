@@ -86,6 +86,9 @@ export interface Message {
   replyTo: ReplyPreview | null;
   editedAt: number | null;
   reactions: Reaction[];
+  /** Ids of the people this message pings (by @name, or by replying to them). */
+  mentions: string[];
+  mentionsEveryone: boolean;
 }
 
 export interface ReplyPreview {
@@ -246,6 +249,8 @@ const toMessage = (r: Row): Message => ({
   replyTo: r.reply_to ? { id: r.reply_to as string, author: null, content: "", hasFiles: false } : null,
   editedAt: (r.edited_at as number | null) ?? null,
   reactions: [],
+  mentions: typeof r.mentions === "string" ? (JSON.parse(r.mentions) as string[]) : [],
+  mentionsEveryone: !!r.mention_everyone,
 });
 
 const MESSAGE_SELECT = `SELECT m.*, u.username, u.display_name, u.avatar, u.profile_banner FROM messages m JOIN users u ON u.id = m.author_id`;
@@ -692,6 +697,27 @@ export function createStore(db: DB) {
       db.prepare("INSERT INTO messages (id, channel_id, author_id, content, created_at, attachment, reply_to) VALUES (?, ?, ?, ?, ?, ?, ?)")
         .run(id, channelId, author.id, content, createdAt, json, replyTo);
       return this.messageById(id)!;
+    },
+
+    setMentions(id: string, userIds: string[], everyone: boolean) {
+      db.prepare("UPDATE messages SET mentions = ?, mention_everyone = ? WHERE id = ?").run(userIds.length ? JSON.stringify(userIds) : null, everyone ? 1 : 0, id);
+    },
+
+    /** Ids of the people who can read a channel among these usernames (server members, or the DM's two). */
+    audienceByUsernames(channel: Channel, usernames: string[]): string[] {
+      if (usernames.length === 0) return [];
+      const marks = usernames.map(() => "?").join(",");
+      if (channel.serverId) {
+        return (
+          db
+            .prepare(`SELECT u.id FROM users u JOIN members m ON m.user_id = u.id WHERE m.server_id = ? AND lower(u.username) IN (${marks})`)
+            .all(channel.serverId, ...usernames) as Row[]
+        ).map((r) => r.id as string);
+      }
+      const people: string[] = this.dmParticipants(channel.id) ?? [];
+      return (db.prepare(`SELECT id FROM users WHERE lower(username) IN (${marks})`).all(...usernames) as Row[])
+        .map((r) => r.id as string)
+        .filter((id) => people.includes(id));
     },
 
     /** Changes a message's text and marks it edited. */

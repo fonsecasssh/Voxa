@@ -4,11 +4,11 @@
 
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import type { ClipAttachment, FileAttachment, Message, ServerDetails } from "../api.ts";
-import { splitLinks } from "../../../shared/links.ts";
 import { memberColor, memberName } from "../members.ts";
 import { MessageFiles } from "./Attachments.tsx";
 import { Avatar } from "./Avatar.tsx";
 import { Icon } from "./Icon.tsx";
+import { Markdown, type MentionTarget } from "./Markdown.tsx";
 import { formatDuration, formatSize } from "./ReplayModal.tsx";
 
 export function formatTime(ts: number): string {
@@ -42,19 +42,11 @@ function ClipView({ clip }: { clip: ClipAttachment }) {
   );
 }
 
-/** Message text with its web links made clickable (opened in a new tab, or the browser in the desktop app). */
-function MessageText({ content, edited }: { content: string; edited: number | null }) {
+/** Message text with its formatting, mentions and links (opened in a new tab, or the browser in the desktop app). */
+function MessageText({ content, edited, selfId, resolveUsername }: { content: string; edited: number | null; selfId: string; resolveUsername: (u: string) => MentionTarget | null }) {
   return (
     <div className="message-content">
-      {splitLinks(content).map((p, i) =>
-        p.type === "link" ? (
-          <a key={i} href={p.href} target="_blank" rel="noopener noreferrer nofollow ugc">
-            {p.text}
-          </a>
-        ) : (
-          p.text
-        ),
-      )}
+      <Markdown content={content} selfId={selfId} resolveUsername={resolveUsername} />
       {edited && (
         <span className="edited" title={`Editada ${formatTime(edited).toLowerCase()}`}>
           {" "}
@@ -107,6 +99,7 @@ export interface MessageItemProps {
   highlighted: boolean;
   canDelete: boolean;
   resolveName: (userId: string) => string;
+  resolveUsername: (username: string) => MentionTarget | null;
   onOpenImage: (f: FileAttachment) => void;
   onReply: () => void;
   onStartEdit: () => void;
@@ -121,6 +114,7 @@ export interface MessageItemProps {
 export function MessageItem(p: MessageItemProps) {
   const m = p.message;
   const mine = m.author.id === p.selfId;
+  const mentionsMe = (m.mentions.includes(p.selfId) || m.mentionsEveryone) && !mine;
   const name = memberName(p.server, m.author);
   const time = new Date(m.createdAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
 
@@ -128,7 +122,7 @@ export function MessageItem(p: MessageItemProps) {
     <EditBox initial={m.content} onSave={p.onEdit} onCancel={p.onCancelEdit} />
   ) : (
     <>
-      {m.content && <MessageText content={m.content} edited={m.editedAt} />}
+      {m.content && <MessageText content={m.content} edited={m.editedAt} selfId={p.selfId} resolveUsername={p.resolveUsername} />}
       {m.files.length > 0 && <MessageFiles files={m.files} onOpenImage={p.onOpenImage} />}
       {m.attachment && <ClipView clip={m.attachment} />}
     </>
@@ -203,7 +197,10 @@ export function MessageItem(p: MessageItemProps) {
   );
 
   return (
-    <div id={`msg-${m.id}`} className={`message ${p.grouped ? "grouped" : ""} ${p.highlighted ? "highlight" : ""} ${p.editing ? "editing" : ""}`}>
+    <div
+      id={`msg-${m.id}`}
+      className={`message ${p.grouped ? "grouped" : ""} ${p.highlighted ? "highlight" : ""} ${p.editing ? "editing" : ""} ${mentionsMe ? "mentioned" : ""}`}
+    >
       {reply}
       {p.grouped ? (
         <>

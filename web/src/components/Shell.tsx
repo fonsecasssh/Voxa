@@ -106,6 +106,8 @@ export function Shell({ user, setUser, initialStatus, initialActivity, servers, 
   const [friends, setFriends] = useState<Friend[] | null>(null);
   const [dms, setDms] = useState<DmSummary[] | null>(null);
   const [unread, setUnread] = useState<Set<string>>(new Set());
+  /** Unseen mentions of you, per channel (with its server, for the badge on the server icon). */
+  const [mentionCounts, setMentionCounts] = useState<Record<string, { n: number; serverId: string | null }>>({});
   const [myStatus, setMyStatus] = useState<UserStatus>(initialStatus);
   const [myActivity, setMyActivity] = useState<Activity | null>(initialActivity);
   const [modal, setModal] = useState<ModalKind>(null);
@@ -224,6 +226,17 @@ export function Shell({ user, setUser, initialStatus, initialActivity, servers, 
         setUnread((u) => (u.has(m.channelId) ? u : new Set(u).add(m.channelId)));
         // Direct messages notify (servers would be too noisy without mentions), unless in "do not disturb".
         const isDm = dmsRef.current?.some((d) => d.channel.id === m.channelId);
+        const mentioned = m.mentions.includes(user.id) || m.mentionsEveryone;
+        if (mentioned && !isDm) {
+          setMentionCounts((c) => ({ ...c, [m.channelId]: { n: (c[m.channelId]?.n ?? 0) + 1, serverId: m.serverId ?? null } }));
+          if (myStatusRef.current !== "dnd") {
+            playSound("message");
+            if (document.visibilityState !== "visible" || !document.hasFocus()) {
+              notify(`${m.author.displayName} mencionou você`, m.content.slice(0, 200) || "📎", m.channelId, () => navigate(`/channels/${m.serverId}/${m.channelId}`));
+              desktop?.flash();
+            }
+          }
+        }
         if (isDm && myStatusRef.current !== "dnd") playSound("message");
         if (isDm && myStatusRef.current !== "dnd" && (document.visibilityState !== "visible" || !document.hasFocus())) {
           notify(m.author.displayName, m.content.slice(0, 200) || (m.attachment ? "Enviou um replay 🎬" : m.files.length ? `Enviou ${m.files.length === 1 ? "um arquivo" : `${m.files.length} arquivos`} 📎` : ""), m.channelId, () => navigate(`/channels/${HOME}/${m.channelId}`));
@@ -451,6 +464,11 @@ export function Shell({ user, setUser, initialStatus, initialActivity, servers, 
         next.delete(channelId);
         return next;
       });
+      setMentionCounts((c) => {
+        if (!c[channelId]) return c;
+        const { [channelId]: _, ...rest } = c;
+        return rest;
+      });
     };
     clear();
     document.addEventListener("visibilitychange", clear);
@@ -561,6 +579,14 @@ export function Shell({ user, setUser, initialStatus, initialActivity, servers, 
         return id === user.id ? user.displayName : "Alguém";
       }}
       onEdit={(m, content) => api.editMessage(channel.id, m.id, content).then(() => {})}
+      mentionables={
+        current && !dm
+          ? current.members.map((u) => ({ id: u.id, username: u.username, label: memberName(current, u), avatar: u.avatar }))
+          : dm
+            ? [dm.user, user].map((u) => ({ id: u.id, username: u.username, label: u.displayName, avatar: u.avatar }))
+            : []
+      }
+      canMentionEveryone={!!current && !dm && can(myPermissions(current, user.id), Permission.MENTION_EVERYONE)}
       onReact={(m, emoji, add) => api.react(channel.id, m.id, emoji, add)}
       onTyping={() => socketRef.current?.emit("typing", { channelId: channel.id })}
       canDelete={(m) => m.author.id === user.id || (!!current && !dm && can(myPermissions(current, user.id), Permission.MANAGE_MESSAGES))}
@@ -603,6 +629,8 @@ export function Shell({ user, setUser, initialStatus, initialActivity, servers, 
           onOpenSettings={() => setModal({ kind: "settings" })}
           onEditNickname={() => setModal({ kind: "nickname" })}
           onEditChannel={(c) => setModal({ kind: "editChannel", channel: c })}
+          unread={unread}
+          mentionCounts={Object.fromEntries(Object.entries(mentionCounts).map(([id, x]) => [id, x.n]))}
           onLeave={async () => {
             if (!confirm(`Sair de "${current.server.name}"? Você só volta com um novo convite.`)) return;
             try {
@@ -655,7 +683,16 @@ export function Shell({ user, setUser, initialStatus, initialActivity, servers, 
         </div>
       )}
       <div className={`shell ${current ? "" : "no-members"}`}>
-        <ServerRail servers={servers} activeId={serverId} unreadDms={unreadDms} onCreate={() => setModal({ kind: "createServer" })} />
+        <ServerRail
+          servers={servers}
+          activeId={serverId}
+          unreadDms={unreadDms}
+          mentionsByServer={Object.values(mentionCounts).reduce<Record<string, number>>((acc, x) => {
+            if (x.serverId) acc[x.serverId] = (acc[x.serverId] ?? 0) + x.n;
+            return acc;
+          }, {})}
+          onCreate={() => setModal({ kind: "createServer" })}
+        />
         {body}
 
         {modal?.kind === "createServer" && (

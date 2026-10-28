@@ -7,10 +7,12 @@ interface Props {
   servers: Server[];
   activeId?: string;
   unreadDms: number;
+  /** Mentions of you not seen yet, per server. */
+  mentionsByServer: Record<string, number>;
   onCreate: () => void;
 }
 
-export function ServerRail({ servers, activeId, unreadDms, onCreate }: Props) {
+export function ServerRail({ servers, activeId, unreadDms, mentionsByServer, onCreate }: Props) {
   return (
     <nav className="rail" aria-label="Servidores">
       <button
@@ -30,6 +32,7 @@ export function ServerRail({ servers, activeId, unreadDms, onCreate }: Props) {
           onClick={() => navigate(`/channels/${s.id}`)}
         >
           <ServerIcon server={s} size={48} />
+          {!!mentionsByServer[s.id] && <span className="rail-badge">{mentionsByServer[s.id]}</span>}
         </button>
       ))}
       <button className="rail-item add" title="Criar servidor" onClick={onCreate}>

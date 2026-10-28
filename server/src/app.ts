@@ -13,6 +13,7 @@ import { failureLimiter, rateLimit } from "./rateLimit.ts";
 import { HttpError, str } from "./http.ts";
 import { registerAdminRoutes } from "./admin.ts";
 import { Permission, can, permissionsOf } from "../../shared/permissions.ts";
+import { findMentions } from "../../shared/markdown.ts";
 import { CLIP_MIME, CLIP_URL_PREFIX, IMAGE_KINDS, IMAGE_MIME, createClipStore, createMediaStore, detectImageType, imageUrlPrefix } from "./media.ts";
 import { tmpdir } from "node:os";
 
@@ -383,10 +384,32 @@ export function createApp({ db, webDist, ice = createIceProvider(), trustProxy =
       db.exec("ROLLBACK");
       throw err;
     }
+    recordMentions(channel, id, content, replyTo, req);
     const message = store.messageById(id)!;
-    io.to(realtime.channelRooms(channel)).emit("message:new", message);
+    io.to(realtime.channelRooms(channel)).emit("message:new", { ...message, serverId: channel.serverId });
     res.status(201).json({ message });
   });
+
+  /**
+   * Who a message pings: the @names who can read the channel, the author of the message it
+   * replies to, and @everyone when the author may use it (servers only). Never the author.
+   */
+  function recordMentions(channel: Channel, messageId: string, content: string, replyTo: string | null, req: Request) {
+    const me = req.user!.id;
+    const found = findMentions(content);
+    const ids = new Set(store.audienceByUsernames(channel, found.usernames));
+    if (replyTo) {
+      const original = store.messageInfo(replyTo);
+      if (original) ids.add(original.authorId);
+    }
+    ids.delete(me);
+    let everyone = false;
+    if (found.everyone && channel.serverId) {
+      const server = store.serverById(channel.serverId);
+      everyone = !!server && can(permissionsOf(server, store.roles(server.id), me, store.memberInfo(server.id, me)?.roleIds ?? []), Permission.MENTION_EVERYONE);
+    }
+    store.setMentions(messageId, [...ids], everyone);
+  }
 
   // A file for a message, sent before the message itself: the body is the file, its
   // name (and, for images and videos, its size in pixels) in the query string.
@@ -473,6 +496,8 @@ export function createApp({ db, webDist, ice = createIceProvider(), trustProxy =
     if (info.authorId !== req.user!.id) throw new HttpError(403, "Você só pode editar as suas mensagens.");
     const content = str(req.body?.content ?? "", "mensagem", store.hasMedia(id) ? 0 : 1, 4000);
     store.editMessage(id, content);
+    // Mentions follow the new text (for highlighting; edits don't notify again).
+    recordMentions(channel, id, content, store.messageById(id)?.replyTo?.id ?? null, req);
     const message = store.messageById(id)!;
     io.to(realtime.channelRooms(channel)).emit("message:update", message);
     res.json({ message });
@@ -533,7 +558,7 @@ export function createApp({ db, webDist, ice = createIceProvider(), trustProxy =
     const id = randomUUID();
     const file = clips.commit(upload.tmp, id, upload.type);
     const message = store.insertMessage(channel.id, req.user!, content, { kind: "clip", file, type: upload.type, size: upload.size, duration, width, height }, id);
-    io.to(realtime.channelRooms(channel)).emit("message:new", message);
+    io.to(realtime.channelRooms(channel)).emit("message:new", { ...message, serverId: channel.serverId });
 
     // Over the disk budget: the oldest clips go, and their messages show that they expired.
     for (const m of store.expireClips(clips.evict(file))) {

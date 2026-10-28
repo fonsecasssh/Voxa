@@ -18,6 +18,9 @@ interface Props {
   onEditChannel: (channel: Channel) => void;
   onLeave: () => void;
   footer: ReactNode;
+  /** Text channels with messages not seen yet, and how many of them mention you. */
+  unread: Set<string>;
+  mentionCounts: Record<string, number>;
 }
 
 export function ChannelSidebar(props: Props) {
@@ -55,9 +58,17 @@ export function ChannelSidebar(props: Props) {
               .map((c) => (
                 <div key={c.id}>
                   <div className={`channel-row ${c.id === activeChannelId ? "active" : ""}`}>
-                    <button className={`channel ${c.id === activeChannelId ? "active" : ""}`} onClick={() => open(c)}>
+                    <button
+                      className={`channel ${c.id === activeChannelId ? "active" : ""} ${props.unread.has(c.id) && c.id !== activeChannelId ? "unread" : ""}`}
+                      onClick={() => open(c)}
+                    >
                       <span className="channel-icon">{g.icon}</span>
                       <span className="ellipsis">{c.name}</span>
+                      {!!props.mentionCounts[c.id] && c.id !== activeChannelId && (
+                        <span className="badge" aria-label={`${props.mentionCounts[c.id]} menções`}>
+                          {props.mentionCounts[c.id]}
+                        </span>
+                      )}
                     </button>
                     {manageChannels && (
                       <button className="icon-btn channel-edit" title="Editar canal" onClick={() => onEditChannel(c)}>

@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { MAX_FILES_PER_MESSAGE, type Channel, type FileAttachment, type Message, type User, type ServerDetails } from "../api.ts";
 import { Lightbox, PendingTray, usePendingFiles } from "./Attachments.tsx";
 import { Avatar } from "./Avatar.tsx";
@@ -25,11 +25,22 @@ interface Props {
   selfId: string;
   /** A display name for anyone who reacted. */
   resolveName: (userId: string) => string;
+  /** People who can be @mentioned here (server members, or the DM's two). */
+  mentionables: Mentionable[];
+  canMentionEveryone: boolean;
   /** Whether the viewer may delete this message (their own, or as a moderator). */
   canDelete: (m: Message) => boolean;
   onDelete: (m: Message) => Promise<void>;
   onEdit: (m: Message, content: string) => Promise<void>;
   onReact: (m: Message, emoji: string, add: boolean) => Promise<void>;
+}
+
+export interface Mentionable {
+  id: string;
+  username: string;
+  /** Display name here (nickname in a server). */
+  label: string;
+  avatar: string | null;
 }
 
 /** Where the reaction picker opens: under (or above) the button that opened it. */
@@ -83,6 +94,39 @@ export function ChatView(props: Props) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [reactionPicker, setReactionPicker] = useState<{ message: Message; anchor: DOMRect } | null>(null);
   const [highlight, setHighlight] = useState<string | null>(null);
+
+  // --- @mention autocomplete ---
+  const [caret, setCaret] = useState(0);
+  const [mentionSel, setMentionSel] = useState(0);
+  const [mentionDismissed, setMentionDismissed] = useState<string | null>(null);
+  const byUsername = useMemo(() => new Map(props.mentionables.map((x) => [x.username.toLowerCase(), x])), [props.mentionables]);
+  const resolveUsername = (name: string) => {
+    const x = byUsername.get(name.toLowerCase()) ?? byUsername.get(name.toLowerCase().replace(/\.+$/, ""));
+    return x ? { id: x.id, label: x.label } : null;
+  };
+  const mentionQuery = useMemo(() => {
+    const m = /(^|\s)@([a-zA-Z0-9_.]{0,32})$/.exec(draft.slice(0, caret));
+    return m ? m[2].toLowerCase() : null;
+  }, [draft, caret]);
+  const suggestions = useMemo(() => {
+    if (mentionQuery === null || mentionDismissed === `${caret}:${mentionQuery}`) return [];
+    const people = props.mentionables
+      .filter((x) => x.id !== selfId && (x.username.toLowerCase().startsWith(mentionQuery) || x.label.toLowerCase().includes(mentionQuery)))
+      .slice(0, 8);
+    const everyone = props.canMentionEveryone && "everyone".startsWith(mentionQuery) ? [{ id: "everyone", username: "everyone", label: "Notificar todo mundo aqui", avatar: null }] : [];
+    return [...everyone, ...people];
+  }, [mentionQuery, mentionDismissed, caret, props.mentionables, props.canMentionEveryone, selfId]);
+  const pickMention = (username: string) => {
+    const before = draft.slice(0, caret).replace(/@[a-zA-Z0-9_.]{0,32}$/, `@${username} `);
+    const next = before + draft.slice(caret);
+    setDraft(next);
+    setMentionSel(0);
+    requestAnimationFrame(() => {
+      textarea.current?.focus();
+      textarea.current?.setSelectionRange(before.length, before.length);
+      setCaret(before.length);
+    });
+  };
 
   /** Runs an action, showing its error (rare: e.g. the message was deleted meanwhile). */
   const attempt = async (fn: () => Promise<void>) => {
@@ -170,6 +214,24 @@ export function ChatView(props: Props) {
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (suggestions.length > 0) {
+      const sel = Math.min(mentionSel, suggestions.length - 1);
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        setMentionSel((sel + (e.key === "ArrowDown" ? 1 : suggestions.length - 1)) % suggestions.length);
+        return;
+      }
+      if ((e.key === "Enter" && !e.shiftKey) || e.key === "Tab") {
+        e.preventDefault();
+        pickMention(suggestions[sel].username);
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setMentionDismissed(`${caret}:${mentionQuery}`);
+        return;
+      }
+    }
     if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
       send();
@@ -292,6 +354,7 @@ export function ChatView(props: Props) {
                   highlighted={highlight === m.id || replyingTo?.id === m.id}
                   canDelete={canDelete(m)}
                   resolveName={props.resolveName}
+                  resolveUsername={resolveUsername}
                   onOpenImage={setLightbox}
                   onReply={() => startReply(m)}
                   onStartEdit={() => setEditingId(m.id)}
@@ -331,6 +394,27 @@ export function ChatView(props: Props) {
         )}
         <PendingTray items={pending.items} onRemove={pending.remove} />
         <div className="composer-box">
+          {suggestions.length > 0 && (
+            <div className="mention-popup" role="listbox" aria-label="Mencionar">
+              <div className="mention-popup-title">Membros</div>
+              {suggestions.map((x, i) => (
+                <button
+                  key={x.id}
+                  type="button"
+                  role="option"
+                  aria-selected={i === Math.min(mentionSel, suggestions.length - 1)}
+                  className={`mention-option ${i === Math.min(mentionSel, suggestions.length - 1) ? "active" : ""}`}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onMouseEnter={() => setMentionSel(i)}
+                  onClick={() => pickMention(x.username)}
+                >
+                  {x.id === "everyone" ? <span className="mention-everyone">@</span> : <Avatar name={x.label} id={x.id} size={24} src={x.avatar} />}
+                  <strong className="ellipsis">{x.id === "everyone" ? "@everyone" : x.label}</strong>
+                  <span className="muted small ellipsis">{x.id === "everyone" ? x.label : `@${x.username}`}</span>
+                </button>
+              ))}
+            </div>
+          )}
           <button type="button" className="attach-btn" title="Enviar arquivo" aria-label="Enviar arquivo" onClick={() => fileInput.current?.click()}>
             <Icon name="plus" size={18} />
           </button>
@@ -351,7 +435,11 @@ export function ChatView(props: Props) {
             value={draft}
             placeholder={placeholder}
             maxLength={4000}
-            onChange={(e) => onChange(e.target.value)}
+            onChange={(e) => {
+              onChange(e.target.value);
+              setCaret(e.target.selectionStart);
+            }}
+            onSelect={(e) => setCaret(e.currentTarget.selectionStart)}
             onKeyDown={onKeyDown}
             onPaste={(e) => {
               // A screenshot (or any copied file) pasted with Ctrl+V becomes an attachment.
