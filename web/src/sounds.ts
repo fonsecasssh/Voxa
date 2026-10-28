@@ -1,6 +1,11 @@
 // Voxa's own interface sounds, synthesized on the fly (no audio files): short, soft,
 // glassy tones that rise for "in/on" and fall for "out/off". They play on the output
 // device chosen in the voice settings and follow the volume in "Aparência e sons".
+//
+// The call sounds (joining, leaving, someone arriving) are richer: arpeggiated bell
+// chords (FM synthesis), a warm pad underneath, a filter that opens on the way in and
+// closes on the way out, a breath of air sweeping across the stereo field, and a short
+// room reverb. The small UI sounds stay simple so they never get in the way.
 
 import { appSettings } from "./appSettings.ts";
 import { audioSettings } from "./voice/audioSettings.ts";
@@ -18,56 +23,138 @@ export type SoundName =
   | "streamStart"
   | "replay";
 
-/** freq (Hz), start (s), duration (s), optional glide target, waveform, relative gain. */
-type Note = { f: number; t: number; d: number; to?: number; wave?: OscillatorType; g?: number };
+interface Note {
+  /** Frequency (Hz), start and duration (s). */
+  f: number;
+  t: number;
+  d: number;
+  /** Glide to this frequency over the note. */
+  to?: number;
+  wave?: OscillatorType;
+  /** Relative gain. */
+  g?: number;
+  attack?: number;
+  /** Bell timbre: a modulator at f × ratio whose depth (f × index) fades over the note. */
+  fm?: { ratio: number; index: number };
+  /** Stereo position, -1 (left) to 1 (right). */
+  pan?: number;
+  /** Adds a second voice this many cents apart, for a gentle chorus. */
+  detune?: number;
+}
 
+interface Sound {
+  notes: Note[];
+  /** Lowpass on the whole sound, sweeping from → to over d seconds. */
+  filter?: { from: number; to: number; d: number };
+  /** Filtered noise sweeping from → to (Hz) and across the stereo field. */
+  air?: { from: number; to: number; d: number; g: number; pan: [number, number] };
+  /** Reverb send level. */
+  reverb?: number;
+}
+
+const A3 = 220;
+const E3 = 164.8;
+const E4 = 329.6;
+const A4 = 440;
+const Cs5 = 554.4;
 const E5 = 659.3;
-const G5 = 784;
+const Gs5 = 830.6;
 const B5 = 987.8;
-const C6 = 1046.5;
 const E6 = 1318.5;
 
-const SOUNDS: Record<SoundName, Note[]> = {
-  join: [
-    { f: E5, t: 0, d: 0.22 },
-    { f: B5, t: 0.09, d: 0.32 },
-  ],
-  leave: [
-    { f: B5, t: 0, d: 0.22 },
-    { f: E5, t: 0.09, d: 0.32 },
-  ],
-  userJoin: [
-    { f: G5, t: 0, d: 0.14, g: 0.7 },
-    { f: C6, t: 0.07, d: 0.2, g: 0.7 },
-  ],
-  userLeave: [
-    { f: C6, t: 0, d: 0.14, g: 0.7 },
-    { f: G5, t: 0.07, d: 0.2, g: 0.7 },
-  ],
-  mute: [{ f: 520, to: 360, t: 0, d: 0.13, wave: "triangle" }],
-  unmute: [{ f: 360, to: 560, t: 0, d: 0.13, wave: "triangle" }],
-  deafen: [
-    { f: 523, t: 0, d: 0.1, wave: "triangle" },
-    { f: 392, t: 0.08, d: 0.16, wave: "triangle" },
-  ],
-  undeafen: [
-    { f: 392, t: 0, d: 0.1, wave: "triangle" },
-    { f: 523, t: 0.08, d: 0.16, wave: "triangle" },
-  ],
-  message: [
-    { f: 1320, to: 990, t: 0, d: 0.1, g: 0.8 },
-    { f: 1760, t: 0.05, d: 0.16, g: 0.45 },
-  ],
-  streamStart: [
-    { f: E5, t: 0, d: 0.16, g: 0.8 },
-    { f: 830.6, t: 0.06, d: 0.16, g: 0.8 },
-    { f: B5, t: 0.12, d: 0.18, g: 0.8 },
-    { f: E6, t: 0.18, d: 0.3, g: 0.8 },
-  ],
-  replay: [
-    { f: 660, t: 0, d: 0.3 },
-    { f: 990, t: 0.09, d: 0.3 },
-  ],
+const bell = (f: number, t: number, d: number, pan: number, g = 0.8, index = 1.1): Note => ({
+  f,
+  t,
+  d,
+  pan,
+  g,
+  fm: { ratio: 3, index },
+});
+
+const SOUNDS: Record<SoundName, Sound> = {
+  // You joined: an A major 9 chord blooming upward, left to right, as the filter opens.
+  join: {
+    notes: [
+      { f: A3, t: 0, d: 1.0, wave: "triangle", g: 0.3, attack: 0.09, detune: 9 },
+      bell(A4, 0, 0.75, -0.55),
+      bell(Cs5, 0.065, 0.75, -0.2),
+      bell(E5, 0.13, 0.8, 0.2),
+      bell(B5, 0.2, 0.95, 0.55, 0.7),
+      { f: E6, t: 0.26, d: 0.6, g: 0.16, pan: 0.6 },
+    ],
+    filter: { from: 900, to: 7000, d: 0.4 },
+    air: { from: 600, to: 3800, d: 0.5, g: 0.2, pan: [-0.7, 0.7] },
+    reverb: 0.4,
+  },
+  // You left: the same chord folding back down and to the left, the filter closing.
+  leave: {
+    notes: [
+      { f: A3, to: E3, t: 0, d: 0.95, wave: "triangle", g: 0.26, attack: 0.05, detune: 9 },
+      bell(B5, 0, 0.6, 0.55, 0.6),
+      bell(E5, 0.07, 0.65, 0.2),
+      bell(Cs5, 0.14, 0.7, -0.2),
+      bell(A4, 0.21, 0.9, -0.55),
+    ],
+    filter: { from: 6000, to: 650, d: 0.7 },
+    air: { from: 3200, to: 450, d: 0.5, g: 0.15, pan: [0.7, -0.7] },
+    reverb: 0.4,
+  },
+  // Someone joined: a lighter, glassy fifth with a sparkle on top.
+  userJoin: {
+    notes: [
+      bell(E5, 0, 0.55, -0.35, 0.8, 0.8),
+      bell(B5, 0.08, 0.65, 0.35, 0.72, 0.8),
+      { f: E6, t: 0.15, d: 0.45, g: 0.18, pan: 0.5 },
+      { f: E4, t: 0, d: 0.6, wave: "triangle", g: 0.14, attack: 0.04 },
+    ],
+    filter: { from: 1800, to: 7500, d: 0.25 },
+    air: { from: 1500, to: 4500, d: 0.28, g: 0.07, pan: [-0.4, 0.4] },
+    reverb: 0.32,
+  },
+  // Someone left: the same fifth, falling, a little darker.
+  userLeave: {
+    notes: [
+      bell(B5, 0, 0.45, 0.35, 0.7, 0.7),
+      bell(E5, 0.08, 0.6, -0.35, 0.76, 0.7),
+      { f: E4, t: 0.04, d: 0.55, wave: "triangle", g: 0.12, attack: 0.03 },
+    ],
+    filter: { from: 6000, to: 1400, d: 0.45 },
+    reverb: 0.3,
+  },
+  mute: { notes: [{ f: 520, to: 360, t: 0, d: 0.13, wave: "triangle" }] },
+  unmute: { notes: [{ f: 360, to: 560, t: 0, d: 0.13, wave: "triangle" }] },
+  deafen: {
+    notes: [
+      { f: 523, t: 0, d: 0.1, wave: "triangle" },
+      { f: 392, t: 0.08, d: 0.16, wave: "triangle" },
+    ],
+  },
+  undeafen: {
+    notes: [
+      { f: 392, t: 0, d: 0.1, wave: "triangle" },
+      { f: 523, t: 0.08, d: 0.16, wave: "triangle" },
+    ],
+  },
+  message: {
+    notes: [
+      { f: 1320, to: 990, t: 0, d: 0.1, g: 0.8 },
+      { f: 1760, t: 0.05, d: 0.16, g: 0.45 },
+    ],
+  },
+  streamStart: {
+    notes: [
+      { f: E5, t: 0, d: 0.16, g: 0.8 },
+      { f: Gs5, t: 0.06, d: 0.16, g: 0.8 },
+      { f: B5, t: 0.12, d: 0.18, g: 0.8 },
+      { f: E6, t: 0.18, d: 0.3, g: 0.8 },
+    ],
+  },
+  replay: {
+    notes: [
+      { f: 660, t: 0, d: 0.3 },
+      { f: 990, t: 0.09, d: 0.3 },
+    ],
+  },
 };
 
 export const SOUND_LABELS: Record<SoundName, string> = {
@@ -83,6 +170,143 @@ export const SOUND_LABELS: Record<SoundName, string> = {
   streamStart: "Transmissão iniciada",
   replay: "Replay salvo",
 };
+
+const REVERB_SECONDS = 1.6;
+const reverbs = new WeakMap<BaseAudioContext, AudioBuffer>();
+const noises = new WeakMap<BaseAudioContext, AudioBuffer>();
+
+/** A small, dark room: decaying stereo noise, smoothed so the tail isn't hissy. */
+function reverbImpulse(c: BaseAudioContext): AudioBuffer {
+  let buf = reverbs.get(c);
+  if (buf) return buf;
+  const len = Math.round(c.sampleRate * REVERB_SECONDS);
+  const pre = Math.round(c.sampleRate * 0.012);
+  buf = c.createBuffer(2, len, c.sampleRate);
+  for (let ch = 0; ch < 2; ch++) {
+    const data = buf.getChannelData(ch);
+    let y = 0;
+    for (let i = pre; i < len; i++) {
+      const x = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3.2);
+      y += 0.28 * (x - y);
+      data[i] = y * 1.9;
+    }
+  }
+  reverbs.set(c, buf);
+  return buf;
+}
+
+function noiseBuffer(c: BaseAudioContext): AudioBuffer {
+  let buf = noises.get(c);
+  if (buf) return buf;
+  buf = c.createBuffer(1, c.sampleRate, c.sampleRate);
+  const data = buf.getChannelData(0);
+  for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+  noises.set(c, buf);
+  return buf;
+}
+
+function panner(c: BaseAudioContext, pan: number | undefined, into: AudioNode): AudioNode {
+  if (!pan) return into;
+  const p = c.createStereoPanner();
+  p.pan.value = pan;
+  p.connect(into);
+  return p;
+}
+
+/**
+ * Schedules a sound on any audio context (live, or offline to render a preview)
+ * starting at `when`, and returns its output node and the time it has fully died away.
+ */
+export function renderSound(c: BaseAudioContext, out: AudioNode, name: SoundName, volume: number, when: number) {
+  const s = SOUNDS[name];
+  // Everything ends in `bus`, so disconnecting it releases the whole sound (reverb included).
+  const bus = c.createGain();
+  bus.connect(out);
+  const master = c.createGain();
+  master.gain.value = 0.22 * volume;
+  master.connect(bus);
+
+  let input: AudioNode = master;
+  if (s.filter) {
+    const lp = c.createBiquadFilter();
+    lp.type = "lowpass";
+    lp.Q.value = 0.6;
+    lp.frequency.setValueAtTime(s.filter.from, when);
+    lp.frequency.exponentialRampToValueAtTime(s.filter.to, when + s.filter.d);
+    lp.connect(master);
+    input = lp;
+  }
+  if (s.reverb) {
+    const send = c.createGain();
+    send.gain.value = s.reverb;
+    const conv = c.createConvolver();
+    conv.buffer = reverbImpulse(c);
+    master.connect(send).connect(conv).connect(bus);
+  }
+
+  let end = when;
+  for (const n of s.notes) {
+    const start = when + n.t;
+    const stop = start + n.d;
+    end = Math.max(end, stop);
+    const env = c.createGain();
+    const peak = n.g ?? 1;
+    env.gain.setValueAtTime(0.0001, start);
+    env.gain.exponentialRampToValueAtTime(peak, start + (n.attack ?? 0.008));
+    env.gain.exponentialRampToValueAtTime(0.0001, stop);
+    env.connect(panner(c, n.pan, input));
+
+    // Plain notes get a soft octave above (the "glassy" shimmer); bells get FM instead.
+    const voices: [number, number, number][] = n.fm ? [[1, 1, 0]] : [[1, 1, 0], [2, 0.18, 0]];
+    if (n.detune) voices.push([1, 0.7, n.detune]);
+    for (const [mult, level, cents] of voices) {
+      const osc = c.createOscillator();
+      osc.type = n.wave ?? "sine";
+      osc.detune.value = cents;
+      osc.frequency.setValueAtTime(n.f * mult, start);
+      if (n.to) osc.frequency.exponentialRampToValueAtTime(n.to * mult, stop);
+      if (n.fm) {
+        const mod = c.createOscillator();
+        const depth = c.createGain();
+        mod.frequency.value = n.f * n.fm.ratio;
+        depth.gain.setValueAtTime(n.f * n.fm.index, start);
+        depth.gain.exponentialRampToValueAtTime(n.f * n.fm.index * 0.04 + 0.01, start + n.d * 0.6);
+        mod.connect(depth).connect(osc.frequency);
+        mod.start(start);
+        mod.stop(stop + 0.02);
+      }
+      const lvl = c.createGain();
+      lvl.gain.value = level;
+      osc.connect(lvl).connect(env);
+      osc.start(start);
+      osc.stop(stop + 0.02);
+    }
+  }
+
+  if (s.air) {
+    const { from, to, d, g, pan } = s.air;
+    const src = c.createBufferSource();
+    src.buffer = noiseBuffer(c);
+    const bp = c.createBiquadFilter();
+    bp.type = "bandpass";
+    bp.Q.value = 1.3;
+    bp.frequency.setValueAtTime(from, when);
+    bp.frequency.exponentialRampToValueAtTime(to, when + d);
+    const env = c.createGain();
+    env.gain.setValueAtTime(0.0001, when);
+    env.gain.exponentialRampToValueAtTime(g, when + d * 0.45);
+    env.gain.exponentialRampToValueAtTime(0.0001, when + d);
+    const p = c.createStereoPanner();
+    p.pan.setValueAtTime(pan[0], when);
+    p.pan.linearRampToValueAtTime(pan[1], when + d);
+    src.connect(bp).connect(env).connect(p).connect(master);
+    src.start(when);
+    src.stop(when + d + 0.02);
+    end = Math.max(end, when + d);
+  }
+
+  return { output: bus, end: end + (s.reverb ? REVERB_SECONDS : 0) };
+}
 
 let ctx: AudioContext | null = null;
 let sinkId: string | null = null;
@@ -111,33 +335,6 @@ export function playSound(name: SoundName, { force = false } = {}) {
   window.dispatchEvent(new CustomEvent("voxa:sound", { detail: name }));
   const c = context();
   if (!c) return;
-  const master = c.createGain();
-  master.gain.value = 0.22 * soundVolume;
-  master.connect(c.destination);
-  const now = c.currentTime + 0.01;
-  let end = now;
-  for (const n of SOUNDS[name]) {
-    const start = now + n.t;
-    const stop = start + n.d;
-    end = Math.max(end, stop);
-    // A soft octave above gives the tones their "glassy" shimmer.
-    for (const [mult, level] of [
-      [1, 1],
-      [2, 0.18],
-    ] as const) {
-      const osc = c.createOscillator();
-      const env = c.createGain();
-      osc.type = n.wave ?? "sine";
-      osc.frequency.setValueAtTime(n.f * mult, start);
-      if (n.to) osc.frequency.exponentialRampToValueAtTime(n.to * mult, stop);
-      const peak = (n.g ?? 1) * level;
-      env.gain.setValueAtTime(0.0001, start);
-      env.gain.exponentialRampToValueAtTime(peak, start + 0.012);
-      env.gain.exponentialRampToValueAtTime(0.0001, stop);
-      osc.connect(env).connect(master);
-      osc.start(start);
-      osc.stop(stop + 0.02);
-    }
-  }
-  setTimeout(() => master.disconnect(), (end - c.currentTime + 0.2) * 1000);
+  const { output, end } = renderSound(c, c.destination, name, soundVolume, c.currentTime + 0.01);
+  setTimeout(() => output.disconnect(), (end - c.currentTime + 0.2) * 1000);
 }
