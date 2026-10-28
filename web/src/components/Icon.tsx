@@ -25,7 +25,9 @@ export type IconName =
   | "trash"
   | "smile"
   | "plus"
-  | "file";
+  | "file"
+  | "reply"
+  | "pencil";
 
 /** A gear outline: `teeth` rectangular teeth around a ring. */
 function gearPath(teeth = 8, outer = 10, inner = 7.6): string {
@@ -122,6 +124,8 @@ const ICONS: Record<IconName, ReactNode> = {
   close: <path d="M6 6l12 12M18 6 6 18" />,
   trash: <path d="M4 7h16M10 11v6M14 11v6M5.5 7l1 12a2 2 0 0 0 2 1.8h7a2 2 0 0 0 2-1.8l1-12M9 7V4.5A1.5 1.5 0 0 1 10.5 3h3A1.5 1.5 0 0 1 15 4.5V7" />,
   plus: <path d="M12 5v14M5 12h14" />,
+  reply: <path d="M10 7 5 12l5 5M5 12h9a5 5 0 0 1 5 5v1" />,
+  pencil: <path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16zM13.5 6.5l4 4" />,
   file: (
     <>
       <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />

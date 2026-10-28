@@ -82,6 +82,23 @@ export interface Message {
   attachment: ClipAttachment | null;
   /** Files sent with the message (images, videos, anything else). */
   files: FileAttachment[];
+  /** The message this one answers, or null. `author` is null if it was deleted. */
+  replyTo: ReplyPreview | null;
+  editedAt: number | null;
+  reactions: Reaction[];
+}
+
+export interface ReplyPreview {
+  id: string;
+  author: PublicUser | null;
+  /** The start of its text. */
+  content: string;
+  hasFiles: boolean;
+}
+
+export interface Reaction {
+  emoji: string;
+  userIds: string[];
 }
 
 export type FileKind = "image" | "video" | "file";
@@ -226,9 +243,28 @@ const toMessage = (r: Row): Message => ({
   createdAt: r.created_at as number,
   attachment: toAttachment(r.attachment),
   files: [],
+  replyTo: r.reply_to ? { id: r.reply_to as string, author: null, content: "", hasFiles: false } : null,
+  editedAt: (r.edited_at as number | null) ?? null,
+  reactions: [],
 });
 
 const MESSAGE_SELECT = `SELECT m.*, u.username, u.display_name, u.avatar, u.profile_banner FROM messages m JOIN users u ON u.id = m.author_id`;
+
+/** Rows of the reactions table -> per message, one entry per emoji (in the order first used). */
+function groupReactions(rows: Row[]): Map<string, Reaction[]> {
+  const out = new Map<string, Reaction[]>();
+  for (const r of rows) {
+    const list = out.get(r.message_id as string) ?? [];
+    let entry = list.find((x) => x.emoji === r.emoji);
+    if (!entry) {
+      entry = { emoji: r.emoji as string, userIds: [] };
+      list.push(entry);
+    }
+    entry.userIds.push(r.user_id as string);
+    out.set(r.message_id as string, list);
+  }
+  return out;
+}
 
 /** Two user ids in canonical order, matching the (user_low, user_high) columns. */
 const pair = (a: string, b: string): [string, string] => (a < b ? [a, b] : [b, a]);
@@ -643,12 +679,47 @@ export function createStore(db: DB) {
     },
 
     // --- messages ---------------------------------------------------------
-    insertMessage(channelId: string, author: PublicUser, content: string, clip?: StoredClip, id: string = randomUUID()): Message {
+    insertMessage(
+      channelId: string,
+      author: PublicUser,
+      content: string,
+      clip?: StoredClip,
+      id: string = randomUUID(),
+      replyTo: string | null = null,
+    ): Message {
       const json = clip ? JSON.stringify(clip) : null;
-      const msg: Message = { id, channelId, author, content, createdAt: Date.now(), attachment: toAttachment(json), files: [] };
-      db.prepare("INSERT INTO messages (id, channel_id, author_id, content, created_at, attachment) VALUES (?, ?, ?, ?, ?, ?)")
-        .run(msg.id, channelId, author.id, content, msg.createdAt, json);
-      return msg;
+      const createdAt = Date.now();
+      db.prepare("INSERT INTO messages (id, channel_id, author_id, content, created_at, attachment, reply_to) VALUES (?, ?, ?, ?, ?, ?, ?)")
+        .run(id, channelId, author.id, content, createdAt, json, replyTo);
+      return this.messageById(id)!;
+    },
+
+    /** Changes a message's text and marks it edited. */
+    editMessage(id: string, content: string) {
+      db.prepare("UPDATE messages SET content = ?, edited_at = ? WHERE id = ?").run(content, Date.now(), id);
+    },
+
+    /** Whether a message has something besides text (files or a clip), so its text may be emptied. */
+    hasMedia(id: string): boolean {
+      const r = db.prepare("SELECT attachment, (SELECT COUNT(*) FROM attachments a WHERE a.message_id = m.id) AS n FROM messages m WHERE id = ?").get(id) as Row | undefined;
+      return !!r && (r.attachment !== null || (r.n as number) > 0);
+    },
+
+    // --- reactions ------------------------------------------------------------
+    /** Adds a reaction; false when the message already has the maximum number of different emojis. */
+    addReaction(messageId: string, userId: string, emoji: string, maxKinds: number): boolean {
+      const kinds = db.prepare("SELECT COUNT(DISTINCT emoji) AS n, SUM(emoji = ?) AS has FROM reactions WHERE message_id = ?").get(emoji, messageId) as Row;
+      if (!(kinds.has as number) && (kinds.n as number) >= maxKinds) return false;
+      db.prepare("INSERT OR IGNORE INTO reactions (message_id, user_id, emoji, created_at) VALUES (?, ?, ?, ?)").run(messageId, userId, emoji, Date.now());
+      return true;
+    },
+
+    removeReaction(messageId: string, userId: string, emoji: string) {
+      db.prepare("DELETE FROM reactions WHERE message_id = ? AND user_id = ? AND emoji = ?").run(messageId, userId, emoji);
+    },
+
+    reactionsOf(messageId: string): Reaction[] {
+      return groupReactions(db.prepare("SELECT * FROM reactions WHERE message_id = ? ORDER BY created_at").all(messageId) as Row[]).get(messageId) ?? [];
     },
 
     /** Who wrote a message, where, and its clip file (for deleting it). */
@@ -752,6 +823,35 @@ export function createStore(db: DB) {
       byMessage.set(u.messageId!, list);
     }
     for (const m of msgs) m.files = byMessage.get(m.id) ?? [];
+
+    const reactions = groupReactions(
+      db.prepare(`SELECT * FROM reactions WHERE message_id IN (${marks}) ORDER BY created_at`).all(...msgs.map((m) => m.id)) as Row[],
+    );
+    for (const m of msgs) m.reactions = reactions.get(m.id) ?? [];
+
+    // Replies: a short preview of each original (it may live on an older page, or be gone).
+    const replyIds = [...new Set(msgs.flatMap((m) => (m.replyTo ? [m.replyTo.id] : [])))];
+    if (replyIds.length) {
+      const rows = db
+        .prepare(
+          `SELECT m.*, u.username, u.display_name, u.avatar, u.profile_banner,
+                  (SELECT COUNT(*) FROM attachments a WHERE a.message_id = m.id) AS nfiles
+           FROM messages m JOIN users u ON u.id = m.author_id WHERE m.id IN (${replyIds.map(() => "?").join(",")})`,
+        )
+        .all(...replyIds) as Row[];
+      const originals = new Map(rows.map((r) => [r.id as string, r]));
+      for (const m of msgs) {
+        if (!m.replyTo) continue;
+        const o = originals.get(m.replyTo.id);
+        if (!o) continue;
+        m.replyTo = {
+          id: o.id as string,
+          author: toUser(o, o.author_id as string),
+          content: (o.content as string).slice(0, 200),
+          hasFiles: (o.nfiles as number) > 0 || o.attachment !== null,
+        };
+      }
+    }
     return msgs;
   }
 }

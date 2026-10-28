@@ -1,11 +1,12 @@
 import { io, type Socket } from "socket.io-client";
-import type { Channel, DmSummary, FriendState, MemberData, Message, Presence, Role, Server, User } from "./api.ts";
+import type { Channel, DmSummary, FriendState, MemberData, Message, Presence, Role, Server, User, Reaction } from "./api.ts";
 import type { VoiceMember } from "./voice/types.ts";
 
 export interface ServerToClient {
   "message:new": (m: Message) => void;
   "message:update": (m: Message) => void;
   "message:delete": (e: { channelId: string; id: string }) => void;
+  "message:reactions": (e: { channelId: string; messageId: string; reactions: Reaction[] }) => void;
   "channel:new": (c: Channel) => void;
   "member:join": (p: { serverId: string; user: User; presence: Presence }) => void;
   presence: (p: { userId: string; presence: Presence }) => void;

@@ -3,7 +3,7 @@
 // first. The emoji list (with Portuguese names) loads the first time it is opened, and
 // emojis newer than the system's emoji font can draw (e.g. on Windows 10) are left out.
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 
 interface Emoji {
   unicode: string;
@@ -137,9 +137,13 @@ function rememberRecent(unicode: string) {
 interface Props {
   onPick: (emoji: string) => void;
   onClose: () => void;
+  /** Overrides where it opens (by default above the message box). */
+  style?: CSSProperties;
+  /** Clicks on elements matching this selector don't close it (the buttons that open it). */
+  ignore?: string;
 }
 
-export function EmojiPicker({ onPick, onClose }: Props) {
+export function EmojiPicker({ onPick, onClose, style, ignore = ".emoji-toggle" }: Props) {
   const [all, setAll] = useState<Emoji[] | null>(null);
   const [failed, setFailed] = useState(false);
   const [query, setQuery] = useState("");
@@ -155,7 +159,7 @@ export function EmojiPicker({ onPick, onClose }: Props) {
   useEffect(() => {
     const outside = (e: MouseEvent) => {
       const t = e.target as Element;
-      if (!ref.current?.contains(t) && !t.closest(".emoji-toggle")) onClose();
+      if (!ref.current?.contains(t) && !t.closest(ignore)) onClose();
     };
     const esc = (e: KeyboardEvent) => e.key === "Escape" && onClose();
     document.addEventListener("mousedown", outside);
@@ -164,7 +168,7 @@ export function EmojiPicker({ onPick, onClose }: Props) {
       document.removeEventListener("mousedown", outside);
       window.removeEventListener("keydown", esc);
     };
-  }, [onClose]);
+  }, [onClose, ignore]);
 
   const byUnicode = useMemo(() => new Map(all?.map((e) => [e.unicode, e])), [all]);
   const results = useMemo(() => {
@@ -213,7 +217,7 @@ export function EmojiPicker({ onPick, onClose }: Props) {
   const recentEmojis = recent.map((u) => byUnicode.get(u)).filter((e): e is Emoji => !!e);
 
   return (
-    <div className="emoji-picker" ref={ref} role="dialog" aria-label="Emojis">
+    <div className="emoji-picker" ref={ref} role="dialog" aria-label="Emojis" style={style}>
       <div className="emoji-search">
         <input
           autoFocus

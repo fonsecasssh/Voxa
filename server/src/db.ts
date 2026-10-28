@@ -176,7 +176,24 @@ const MIGRATIONS: string[] = [
   );
   CREATE INDEX attachments_by_message ON attachments(message_id);
   `,
+
+  // 10: replies, edits and reactions.
+  `
+  ALTER TABLE messages ADD COLUMN reply_to TEXT;
+  ALTER TABLE messages ADD COLUMN edited_at INTEGER;
+  CREATE TABLE reactions (
+    message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+    user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    emoji      TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (message_id, user_id, emoji)
+  );
+  CREATE INDEX reactions_by_message ON reactions(message_id, created_at);
+  `,
 ];
+
+/** The schema version a fully migrated database has. */
+export const SCHEMA_VERSION = MIGRATIONS.length;
 
 function migrate(db: DB) {
   const current = (db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version;

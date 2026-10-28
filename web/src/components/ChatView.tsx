@@ -1,12 +1,11 @@
 import { useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
-import { MAX_FILES_PER_MESSAGE, type Channel, type ClipAttachment, type FileAttachment, type Message, type User, type ServerDetails } from "../api.ts";
-import { Lightbox, MessageFiles, PendingTray, usePendingFiles } from "./Attachments.tsx";
+import { MAX_FILES_PER_MESSAGE, type Channel, type FileAttachment, type Message, type User, type ServerDetails } from "../api.ts";
+import { Lightbox, PendingTray, usePendingFiles } from "./Attachments.tsx";
 import { Avatar } from "./Avatar.tsx";
 import { EmojiPicker } from "./EmojiPicker.tsx";
 import { Icon } from "./Icon.tsx";
-import { memberColor, memberName } from "../members.ts";
-import { splitLinks } from "../../../shared/links.ts";
-import { formatDuration, formatSize } from "./ReplayModal.tsx";
+import { MessageItem } from "./MessageItem.tsx";
+import { memberName } from "../members.ts";
 
 const GROUP_WINDOW_MS = 5 * 60_000;
 const TYPING_THROTTLE_MS = 2500;
@@ -21,69 +20,25 @@ interface Props {
   hasMore: boolean;
   typingUsers: User[];
   onLoadOlder: () => Promise<void> | undefined;
-  onSend: (content: string, uploads: string[]) => Promise<void>;
+  onSend: (content: string, uploads: string[], replyTo: string | null) => Promise<void>;
   onTyping: () => void;
+  selfId: string;
+  /** A display name for anyone who reacted. */
+  resolveName: (userId: string) => string;
   /** Whether the viewer may delete this message (their own, or as a moderator). */
   canDelete: (m: Message) => boolean;
   onDelete: (m: Message) => Promise<void>;
+  onEdit: (m: Message, content: string) => Promise<void>;
+  onReact: (m: Message, emoji: string, add: boolean) => Promise<void>;
 }
 
-function formatTime(ts: number): string {
-  const d = new Date(ts);
-  const time = d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
-  const today = new Date();
-  if (d.toDateString() === today.toDateString()) return `Hoje às ${time}`;
-  const yesterday = new Date(today.getTime() - 86_400_000);
-  if (d.toDateString() === yesterday.toDateString()) return `Ontem às ${time}`;
-  return `${d.toLocaleDateString("pt-BR")} ${time}`;
-}
-
-/** Message text with its web links made clickable (opened in a new tab, or the browser in the desktop app), and its clip. */
-function MessageContent({ message, onOpenImage }: { message: Message; onOpenImage: (f: FileAttachment) => void }) {
-  return (
-    <>
-      {message.content && <MessageText content={message.content} />}
-      {message.files.length > 0 && <MessageFiles files={message.files} onOpenImage={onOpenImage} />}
-      {message.attachment && <ClipView clip={message.attachment} />}
-    </>
-  );
-}
-
-/** An instant replay posted in chat: a player sized to the clip, like Discord's video embeds. */
-function ClipView({ clip }: { clip: ClipAttachment }) {
-  const [broken, setBroken] = useState(false);
-  if (!clip.url || broken) {
-    return <div className="clip-embed expired">Este clipe expirou para liberar espaço no servidor.</div>;
-  }
-  return (
-    <div className="clip-embed">
-      <video src={clip.url} controls preload="metadata" playsInline style={{ aspectRatio: `${clip.width} / ${clip.height}` }} onError={() => setBroken(true)} />
-      <div className="clip-embed-meta">
-        <span className="clip-badge">REPLAY</span>
-        <span>{formatDuration(clip.duration)}</span>
-        <span className="muted">· {formatSize(clip.size)}</span>
-        <a href={clip.url} download className="clip-download">
-          Baixar
-        </a>
-      </div>
-    </div>
-  );
-}
-
-function MessageText({ content }: { content: string }) {
-  return (
-    <div className="message-content">
-      {splitLinks(content).map((p, i) =>
-        p.type === "link" ? (
-          <a key={i} href={p.href} target="_blank" rel="noopener noreferrer nofollow ugc">
-            {p.text}
-          </a>
-        ) : (
-          p.text
-        ),
-      )}
-    </div>
-  );
+/** Where the reaction picker opens: under (or above) the button that opened it. */
+function pickerPosition(anchor: DOMRect) {
+  const w = 368;
+  const h = 420;
+  const left = Math.max(8, Math.min(anchor.right - w, window.innerWidth - w - 8));
+  const top = anchor.bottom + 6 + h < window.innerHeight ? anchor.bottom + 6 : Math.max(8, anchor.top - h - 6);
+  return { position: "fixed" as const, left, top, right: "auto", bottom: "auto" };
 }
 
 function typingText(users: User[], server?: ServerDetails): string {
@@ -93,7 +48,8 @@ function typingText(users: User[], server?: ServerDetails): string {
   return "Várias pessoas estão digitando…";
 }
 
-export function ChatView({ channel, server, dmUser, messages, hasMore, typingUsers, onLoadOlder, onSend, onTyping, canDelete, onDelete }: Props) {
+export function ChatView(props: Props) {
+  const { channel, server, dmUser, messages, hasMore, typingUsers, onLoadOlder, onSend, onTyping, canDelete, onDelete, onEdit, onReact, selfId } = props;
   const title = dmUser ? dmUser.displayName : channel.name;
   const placeholder = dmUser ? `Conversar com @${dmUser.username}` : `Conversar em #${channel.name}`;
   const listRef = useRef<HTMLDivElement>(null);
@@ -123,23 +79,40 @@ export function ChatView({ channel, server, dmUser, messages, hasMore, typingUse
     });
   };
 
-  /** Deletes after confirming; Shift+click skips the question, like Discord. */
-  const remove = async (m: Message, skipConfirm: boolean) => {
-    if (!skipConfirm && !confirm("Apagar esta mensagem? Isso não pode ser desfeito.")) return;
+  const [replyingTo, setReplyingTo] = useState<Message | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [reactionPicker, setReactionPicker] = useState<{ message: Message; anchor: DOMRect } | null>(null);
+  const [highlight, setHighlight] = useState<string | null>(null);
+
+  /** Runs an action, showing its error (rare: e.g. the message was deleted meanwhile). */
+  const attempt = async (fn: () => Promise<void>) => {
     try {
-      await onDelete(m);
+      await fn();
     } catch (err) {
       alert((err as Error).message);
     }
   };
-  const actions = (m: Message) =>
-    canDelete(m) && (
-      <div className="message-actions">
-        <button className="msg-action danger" title="Apagar mensagem (Shift: sem confirmar)" aria-label="Apagar mensagem" onClick={(e) => remove(m, e.shiftKey)}>
-          <Icon name="trash" size={16} />
-        </button>
-      </div>
-    );
+
+  /** Deletes after confirming; Shift+click skips the question, like Discord. */
+  const remove = (m: Message, skipConfirm: boolean) => {
+    if (!skipConfirm && !confirm("Apagar esta mensagem? Isso não pode ser desfeito.")) return;
+    attempt(() => onDelete(m));
+  };
+
+  const startReply = (m: Message) => {
+    setReplyingTo(m);
+    setEditingId(null);
+    textarea.current?.focus();
+  };
+
+  /** Scrolls to a message (e.g. the one a reply quotes) and flashes it. */
+  const jumpTo = (id: string) => {
+    const el = document.getElementById(`msg-${id}`);
+    if (!el) return;
+    el.scrollIntoView({ block: "center", behavior: "smooth" });
+    setHighlight(id);
+    setTimeout(() => setHighlight((h) => (h === id ? null : h)), 1600);
+  };
   const [sendError, setSendError] = useState<string | null>(null);
 
   // Keep the view pinned to the newest message, unless the user scrolled up to read history.
@@ -159,6 +132,8 @@ export function ChatView({ channel, server, dmUser, messages, hasMore, typingUse
     stickToBottom.current = true;
     setDraft("");
     setSendError(null);
+    setReplyingTo(null);
+    setEditingId(null);
     pending.discard();
   }, [channel.id]);
 
@@ -177,8 +152,9 @@ export function ChatView({ channel, server, dmUser, messages, hasMore, typingUse
     try {
       // Files upload in the background as soon as they're picked; this waits for any still going.
       const uploads = await pending.ready();
-      await onSend(content, uploads);
+      await onSend(content, uploads, replyingTo?.id ?? null);
       pending.clear();
+      setReplyingTo(null);
     } catch (err) {
       setDraft(content);
       setSendError((err as Error).message);
@@ -197,6 +173,15 @@ export function ChatView({ channel, server, dmUser, messages, hasMore, typingUse
     if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
       send();
+    } else if (e.key === "Escape" && replyingTo) {
+      setReplyingTo(null);
+    } else if (e.key === "ArrowUp" && !draft && messages) {
+      // Like Discord: ↑ in an empty box edits your last message.
+      const last = [...messages].reverse().find((m) => m.author.id === selfId && (m.content || m.files.length === 0));
+      if (last) {
+        e.preventDefault();
+        setEditingId(last.id);
+      }
     }
   };
 
@@ -237,6 +222,17 @@ export function ChatView({ channel, server, dmUser, messages, hasMore, typingUse
         </div>
       )}
       {lightbox && <Lightbox file={lightbox} onClose={() => setLightbox(null)} />}
+      {reactionPicker && (
+        <EmojiPicker
+          style={pickerPosition(reactionPicker.anchor)}
+          ignore=".msg-action, .reaction.add"
+          onPick={(emoji) => {
+            const m = reactionPicker.message;
+            if (!m.reactions.some((r) => r.emoji === emoji && r.userIds.includes(selfId))) attempt(() => onReact(m, emoji, true));
+          }}
+          onClose={() => setReactionPicker(null)}
+        />
+      )}
       <header className="chat-header">
         {dmUser ? (
           <Avatar name={dmUser.displayName} id={dmUser.id} size={24} src={dmUser.avatar} />
@@ -283,27 +279,38 @@ export function ChatView({ channel, server, dmUser, messages, hasMore, typingUse
             )}
             {messages.map((m, i) => {
               const prev = messages[i - 1];
-              const grouped = prev && prev.author.id === m.author.id && m.createdAt - prev.createdAt < GROUP_WINDOW_MS;
-              return grouped ? (
-                <div key={m.id} className="message grouped">
-                  <span className="hover-time">
-                    {new Date(m.createdAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
-                  </span>
-                  <MessageContent message={m} onOpenImage={setLightbox} />
-                  {actions(m)}
-                </div>
-              ) : (
-                <div key={m.id} className="message">
-                  <Avatar name={memberName(server, m.author)} id={m.author.id} src={m.author.avatar} />
-                  <div>
-                    <div className="message-meta">
-                      <strong style={{ color: memberColor(server, m.author.id) }}>{memberName(server, m.author)}</strong>
-                      <span className="muted small">{formatTime(m.createdAt)}</span>
-                    </div>
-                    <MessageContent message={m} onOpenImage={setLightbox} />
-                  </div>
-                  {actions(m)}
-                </div>
+              // Replies always show who's talking, like Discord.
+              const grouped = !!prev && !m.replyTo && prev.author.id === m.author.id && m.createdAt - prev.createdAt < GROUP_WINDOW_MS;
+              return (
+                <MessageItem
+                  key={m.id}
+                  message={m}
+                  grouped={grouped}
+                  server={server}
+                  selfId={selfId}
+                  editing={editingId === m.id}
+                  highlighted={highlight === m.id || replyingTo?.id === m.id}
+                  canDelete={canDelete(m)}
+                  resolveName={props.resolveName}
+                  onOpenImage={setLightbox}
+                  onReply={() => startReply(m)}
+                  onStartEdit={() => setEditingId(m.id)}
+                  onCancelEdit={() => {
+                    setEditingId(null);
+                    textarea.current?.focus();
+                  }}
+                  onEdit={(content) => {
+                    setEditingId(null);
+                    textarea.current?.focus();
+                    // Emptying a text-only message means deleting it, like Discord asks.
+                    if (!content && m.files.length === 0 && !m.attachment) return remove(m, false);
+                    attempt(() => onEdit(m, content));
+                  }}
+                  onDelete={(skip) => remove(m, skip)}
+                  onToggleReaction={(emoji, add) => attempt(() => onReact(m, emoji, add))}
+                  onPickReaction={(anchor) => setReactionPicker({ message: m, anchor })}
+                  onJumpTo={jumpTo}
+                />
               );
             })}
           </>
@@ -312,6 +319,16 @@ export function ChatView({ channel, server, dmUser, messages, hasMore, typingUse
 
       <div className="composer">
         {sendError && <div className="form-error">{sendError}</div>}
+        {replyingTo && (
+          <div className="reply-bar">
+            <span className="ellipsis">
+              Respondendo a <strong>{memberName(server, replyingTo.author)}</strong>
+            </span>
+            <button type="button" className="reply-bar-close" title="Cancelar resposta (Esc)" aria-label="Cancelar resposta" onClick={() => setReplyingTo(null)}>
+              <Icon name="close" size={14} />
+            </button>
+          </div>
+        )}
         <PendingTray items={pending.items} onRemove={pending.remove} />
         <div className="composer-box">
           <button type="button" className="attach-btn" title="Enviar arquivo" aria-label="Enviar arquivo" onClick={() => fileInput.current?.click()}>

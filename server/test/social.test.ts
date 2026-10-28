@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { io as connect, type Socket } from "socket.io-client";
 import { createApp } from "../src/app.ts";
-import { openDb } from "../src/db.ts";
+import { openDb, SCHEMA_VERSION } from "../src/db.ts";
 
 let base = "";
 let close: () => Promise<void>;
@@ -205,7 +205,7 @@ describe("migrations", () => {
     const db = openDb(file);
     expect(db.prepare("SELECT content, attachment FROM messages").all()).toEqual([{ content: "mensagem antiga", attachment: null }]);
     expect(db.prepare("SELECT status FROM users").get()).toEqual({ status: "online" });
-    expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(9);
+    expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(SCHEMA_VERSION);
     // The old server got its @everyone role.
     expect(db.prepare("SELECT name, is_default, permissions FROM roles WHERE server_id = 's1'").all()).toEqual([
       { name: "@everyone", is_default: 1, permissions: 64 },

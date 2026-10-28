@@ -6,7 +6,7 @@ import path from "node:path";
 import { Server as IOServer } from "socket.io";
 import { hashPassword, verifyPassword } from "./auth.ts";
 import type { DB } from "./db.ts";
-import { FILE_URL_PREFIX, createStore, toFileAttachment, type DmSummary, type FileKind, type PublicUser, type Store, type UserStatus } from "./store.ts";
+import { FILE_URL_PREFIX, createStore, toFileAttachment, type Channel, type DmSummary, type FileKind, type PublicUser, type Store, type UserStatus } from "./store.ts";
 import { registerRealtime } from "./realtime.ts";
 import { createIceProvider, type IceProvider } from "./ice.ts";
 import { failureLimiter, rateLimit } from "./rateLimit.ts";
@@ -35,6 +35,12 @@ function bearer(req: Request): string | null {
 /** Largest chat attachment, and how many go with one message. */
 export const MAX_FILE_BYTES = 25 * 1024 * 1024;
 export const MAX_FILES_PER_MESSAGE = 10;
+export const MAX_REACTION_KINDS = 20;
+
+/** One emoji (with its modifiers and joiners): a picture, a flag or a keycap, never plain text. */
+export function isEmoji(s: string): boolean {
+  return s.length > 0 && s.length <= 32 && !/[\s<>]/.test(s) && /^(?:\p{Extended_Pictographic}|\p{Regional_Indicator}|[#*0-9]\uFE0F?\u20E3)/u.test(s) && !/[\p{L}\p{N}]{2}/u.test(s);
+}
 
 /** A file name safe to show and to put in a download header: no folders, no control characters. */
 function fileName(raw: unknown): string {
@@ -363,10 +369,14 @@ export function createApp({ db, webDist, ice = createIceProvider(), trustProxy =
     }
     // A message may be only files; otherwise it needs text.
     const content = str(req.body?.content ?? "", "mensagem", uploads.length ? 0 : 1, 4000);
+    const replyTo = req.body?.replyTo ?? null;
+    if (replyTo !== null && (typeof replyTo !== "string" || store.messageInfo(replyTo)?.channelId !== channel.id)) {
+      throw new HttpError(400, "A mensagem que você está respondendo não existe mais.");
+    }
     const id = randomUUID();
     db.exec("BEGIN");
     try {
-      store.insertMessage(channel.id, req.user!, content, undefined, id);
+      store.insertMessage(channel.id, req.user!, content, undefined, id, replyTo);
       if (!store.attachUploads(id, req.user!.id, uploads as string[])) throw new HttpError(400, "Um dos arquivos não está mais disponível. Envie de novo.");
       db.exec("COMMIT");
     } catch (err) {
@@ -451,6 +461,46 @@ export function createApp({ db, webDist, ice = createIceProvider(), trustProxy =
     if (info.clipFile) clips.remove(info.clipFile);
     for (const f of fileIds) files.remove(f);
     io.to(realtime.channelRooms(channel)).emit("message:delete", { channelId: channel.id, id: req.params.messageId as string });
+    res.status(204).end();
+  });
+
+  // Editing: only the author, and the text may only be emptied when files remain.
+  app.patch("/api/channels/:id/messages/:messageId", requireAuth, (req, res) => {
+    const channel = requireChannelAccess(req, req.params.id as string);
+    const id = req.params.messageId as string;
+    const info = store.messageInfo(id);
+    if (!info || info.channelId !== channel.id) throw new HttpError(404, "Mensagem não encontrada.");
+    if (info.authorId !== req.user!.id) throw new HttpError(403, "Você só pode editar as suas mensagens.");
+    const content = str(req.body?.content ?? "", "mensagem", store.hasMedia(id) ? 0 : 1, 4000);
+    store.editMessage(id, content);
+    const message = store.messageById(id)!;
+    io.to(realtime.channelRooms(channel)).emit("message:update", message);
+    res.json({ message });
+  });
+
+  // Reactions: PUT to add yours, DELETE to take it back. The emoji is the last path segment.
+  const reactionTarget = (req: Request) => {
+    const channel = requireChannelAccess(req, req.params.id as string);
+    const id = req.params.messageId as string;
+    if (store.messageInfo(id)?.channelId !== channel.id) throw new HttpError(404, "Mensagem não encontrada.");
+    const emoji = String(req.params.emoji ?? "");
+    if (!isEmoji(emoji)) throw new HttpError(400, "Reação inválida.");
+    return { channel, id, emoji };
+  };
+  const publishReactions = (channel: Channel, id: string) =>
+    io.to(realtime.channelRooms(channel)).emit("message:reactions", { channelId: channel.id, messageId: id, reactions: store.reactionsOf(id) });
+  app.put("/api/channels/:id/messages/:messageId/reactions/:emoji", requireAuth, (req, res) => {
+    const { channel, id, emoji } = reactionTarget(req);
+    if (!store.addReaction(id, req.user!.id, emoji, MAX_REACTION_KINDS)) {
+      throw new HttpError(400, `Uma mensagem pode ter no máximo ${MAX_REACTION_KINDS} reações diferentes.`);
+    }
+    publishReactions(channel, id);
+    res.status(204).end();
+  });
+  app.delete("/api/channels/:id/messages/:messageId/reactions/:emoji", requireAuth, (req, res) => {
+    const { channel, id, emoji } = reactionTarget(req);
+    store.removeReaction(id, req.user!.id, emoji);
+    publishReactions(channel, id);
     res.status(204).end();
   });
 

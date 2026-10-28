@@ -1,0 +1,232 @@
+// One message in a conversation: the reply it quotes, its author (unless grouped with the
+// previous one), its text, files and clip, its reactions, and the hover toolbar
+// (react, reply, edit, delete). Editing happens in place.
+
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import type { ClipAttachment, FileAttachment, Message, ServerDetails } from "../api.ts";
+import { splitLinks } from "../../../shared/links.ts";
+import { memberColor, memberName } from "../members.ts";
+import { MessageFiles } from "./Attachments.tsx";
+import { Avatar } from "./Avatar.tsx";
+import { Icon } from "./Icon.tsx";
+import { formatDuration, formatSize } from "./ReplayModal.tsx";
+
+export function formatTime(ts: number): string {
+  const d = new Date(ts);
+  const time = d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  const today = new Date();
+  if (d.toDateString() === today.toDateString()) return `Hoje às ${time}`;
+  const yesterday = new Date(today.getTime() - 86_400_000);
+  if (d.toDateString() === yesterday.toDateString()) return `Ontem às ${time}`;
+  return `${d.toLocaleDateString("pt-BR")} ${time}`;
+}
+
+/** An instant replay posted in chat: a player sized to the clip, like Discord's video embeds. */
+function ClipView({ clip }: { clip: ClipAttachment }) {
+  const [broken, setBroken] = useState(false);
+  if (!clip.url || broken) {
+    return <div className="clip-embed expired">Este clipe expirou para liberar espaço no servidor.</div>;
+  }
+  return (
+    <div className="clip-embed">
+      <video src={clip.url} controls preload="metadata" playsInline style={{ aspectRatio: `${clip.width} / ${clip.height}` }} onError={() => setBroken(true)} />
+      <div className="clip-embed-meta">
+        <span className="clip-badge">REPLAY</span>
+        <span>{formatDuration(clip.duration)}</span>
+        <span className="muted">· {formatSize(clip.size)}</span>
+        <a href={clip.url} download className="clip-download">
+          Baixar
+        </a>
+      </div>
+    </div>
+  );
+}
+
+/** Message text with its web links made clickable (opened in a new tab, or the browser in the desktop app). */
+function MessageText({ content, edited }: { content: string; edited: number | null }) {
+  return (
+    <div className="message-content">
+      {splitLinks(content).map((p, i) =>
+        p.type === "link" ? (
+          <a key={i} href={p.href} target="_blank" rel="noopener noreferrer nofollow ugc">
+            {p.text}
+          </a>
+        ) : (
+          p.text
+        ),
+      )}
+      {edited && (
+        <span className="edited" title={`Editada ${formatTime(edited).toLowerCase()}`}>
+          {" "}
+          (editado)
+        </span>
+      )}
+    </div>
+  );
+}
+
+function EditBox({ initial, onSave, onCancel }: { initial: string; onSave: (content: string) => void; onCancel: () => void }) {
+  const [value, setValue] = useState(initial);
+  const ref = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    el?.focus();
+    el?.setSelectionRange(initial.length, initial.length);
+  }, [initial]);
+  const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      onCancel();
+    } else if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+      e.preventDefault();
+      const content = value.trim();
+      if (content === initial.trim()) onCancel();
+      else onSave(content);
+    }
+  };
+  return (
+    <div className="edit-box">
+      <textarea ref={ref} value={value} maxLength={4000} rows={1} onChange={(e) => setValue(e.target.value)} onKeyDown={onKeyDown} aria-label="Editar mensagem" />
+      <span className="muted small">
+        Esc para <button className="link" onClick={onCancel}>cancelar</button> · Enter para{" "}
+        <button className="link" onClick={() => onSave(value.trim())}>
+          salvar
+        </button>
+      </span>
+    </div>
+  );
+}
+
+export interface MessageItemProps {
+  message: Message;
+  /** Shown under the previous message without repeating the author. */
+  grouped: boolean;
+  server?: ServerDetails;
+  selfId: string;
+  editing: boolean;
+  highlighted: boolean;
+  canDelete: boolean;
+  resolveName: (userId: string) => string;
+  onOpenImage: (f: FileAttachment) => void;
+  onReply: () => void;
+  onStartEdit: () => void;
+  onEdit: (content: string) => void;
+  onCancelEdit: () => void;
+  onDelete: (skipConfirm: boolean) => void;
+  onToggleReaction: (emoji: string, add: boolean) => void;
+  onPickReaction: (anchor: DOMRect) => void;
+  onJumpTo: (messageId: string) => void;
+}
+
+export function MessageItem(p: MessageItemProps) {
+  const m = p.message;
+  const mine = m.author.id === p.selfId;
+  const name = memberName(p.server, m.author);
+  const time = new Date(m.createdAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+
+  const body = p.editing ? (
+    <EditBox initial={m.content} onSave={p.onEdit} onCancel={p.onCancelEdit} />
+  ) : (
+    <>
+      {m.content && <MessageText content={m.content} edited={m.editedAt} />}
+      {m.files.length > 0 && <MessageFiles files={m.files} onOpenImage={p.onOpenImage} />}
+      {m.attachment && <ClipView clip={m.attachment} />}
+    </>
+  );
+
+  const reactions = m.reactions.length > 0 && (
+    <div className="reactions">
+      {m.reactions.map((r) => {
+        const reacted = r.userIds.includes(p.selfId);
+        const names = r.userIds.map(p.resolveName);
+        return (
+          <button
+            key={r.emoji}
+            type="button"
+            className={`reaction ${reacted ? "mine" : ""}`}
+            aria-pressed={reacted}
+            title={`${names.slice(0, 5).join(", ")}${names.length > 5 ? ` e mais ${names.length - 5}` : ""} reagiu com ${r.emoji}`}
+            onClick={() => p.onToggleReaction(r.emoji, !reacted)}
+          >
+            <span className="reaction-emoji">{r.emoji}</span>
+            <span>{r.userIds.length}</span>
+          </button>
+        );
+      })}
+      <button type="button" className="reaction add" title="Adicionar reação" aria-label="Adicionar reação" onClick={(e) => p.onPickReaction(e.currentTarget.getBoundingClientRect())}>
+        <Icon name="smile" size={16} />
+      </button>
+    </div>
+  );
+
+  const toolbar = !p.editing && (
+    <div className="message-actions">
+      <button className="msg-action" title="Adicionar reação" aria-label="Adicionar reação" onClick={(e) => p.onPickReaction(e.currentTarget.getBoundingClientRect())}>
+        <Icon name="smile" size={16} />
+      </button>
+      <button className="msg-action" title="Responder" aria-label="Responder" onClick={p.onReply}>
+        <Icon name="reply" size={16} />
+      </button>
+      {mine && (
+        <button className="msg-action" title="Editar" aria-label="Editar mensagem" onClick={p.onStartEdit}>
+          <Icon name="pencil" size={16} />
+        </button>
+      )}
+      {p.canDelete && (
+        <button className="msg-action danger" title="Apagar mensagem (Shift: sem confirmar)" aria-label="Apagar mensagem" onClick={(e) => p.onDelete(e.shiftKey)}>
+          <Icon name="trash" size={16} />
+        </button>
+      )}
+    </div>
+  );
+
+  const reply = m.replyTo && (
+    <button
+      type="button"
+      className="reply-preview"
+      disabled={!m.replyTo.author}
+      onClick={() => p.onJumpTo(m.replyTo!.id)}
+      title={m.replyTo.author ? "Ir para a mensagem original" : undefined}
+    >
+      <span className="reply-spine" aria-hidden="true" />
+      {m.replyTo.author ? (
+        <>
+          <Avatar name={memberName(p.server, m.replyTo.author)} id={m.replyTo.author.id} size={16} src={m.replyTo.author.avatar} />
+          <strong style={{ color: memberColor(p.server, m.replyTo.author.id) }}>{memberName(p.server, m.replyTo.author)}</strong>
+          <span className="ellipsis">{m.replyTo.content || (m.replyTo.hasFiles ? "Clique para ver o anexo" : "")}</span>
+          {m.replyTo.hasFiles && <Icon name="file" size={14} />}
+        </>
+      ) : (
+        <span className="muted">A mensagem original foi apagada.</span>
+      )}
+    </button>
+  );
+
+  return (
+    <div id={`msg-${m.id}`} className={`message ${p.grouped ? "grouped" : ""} ${p.highlighted ? "highlight" : ""} ${p.editing ? "editing" : ""}`}>
+      {reply}
+      {p.grouped ? (
+        <>
+          <span className="hover-time">{time}</span>
+          <div className="message-body">
+            {body}
+            {reactions}
+          </div>
+        </>
+      ) : (
+        <>
+          <Avatar name={name} id={m.author.id} src={m.author.avatar} />
+          <div className="message-body">
+            <div className="message-meta">
+              <strong style={{ color: memberColor(p.server, m.author.id) }}>{name}</strong>
+              <span className="muted small">{formatTime(m.createdAt)}</span>
+            </div>
+            {body}
+            {reactions}
+          </div>
+        </>
+      )}
+      {toolbar}
+    </div>
+  );
+}

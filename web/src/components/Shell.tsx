@@ -17,7 +17,7 @@ import {
 } from "../api.ts";
 import { navigate } from "../router.ts";
 import { desktop, notify, requestNotificationPermission } from "../desktop.ts";
-import { Permission, can, myPermissions } from "../members.ts";
+import { Permission, can, memberName, myPermissions } from "../members.ts";
 import { connectSocket, type AppSocket } from "../socket.ts";
 import { VoiceClient } from "../voice/VoiceClient.ts";
 import { VoiceContext, useVoiceSnapshot } from "../voice/useVoice.ts";
@@ -232,11 +232,23 @@ export function Shell({ user, setUser, initialStatus, initialActivity, servers, 
       }
     });
 
+    socket.on("message:reactions", ({ channelId: cid, messageId, reactions }) => {
+      setMessages((all) => {
+        const ch = all[cid];
+        if (!ch) return all;
+        return { ...all, [cid]: { ...ch, items: ch.items.map((x) => (x.id === messageId ? { ...x, reactions } : x)) } };
+      });
+    });
+
     socket.on("message:delete", ({ channelId: cid, id }) => {
       setMessages((all) => {
         const ch = all[cid];
         if (!ch) return all;
-        return { ...all, [cid]: { ...ch, items: ch.items.filter((x) => x.id !== id) } };
+        // Replies quoting it now say the original was deleted.
+        const items = ch.items
+          .filter((x) => x.id !== id)
+          .map((x) => (x.replyTo?.id === id ? { ...x, replyTo: { id, author: null, content: "", hasFiles: false } } : x));
+        return { ...all, [cid]: { ...ch, items } };
       });
     });
 
@@ -245,7 +257,11 @@ export function Shell({ user, setUser, initialStatus, initialActivity, servers, 
       setMessages((all) => {
         const ch = all[m.channelId];
         if (!ch) return all;
-        return { ...all, [m.channelId]: { ...ch, items: ch.items.map((x) => (x.id === m.id ? m : x)) } };
+        // Replies quoting an edited message show its new text.
+        const items = ch.items.map((x) =>
+          x.id === m.id ? m : x.replyTo?.id === m.id && x.replyTo.author ? { ...x, replyTo: { ...x.replyTo, content: m.content.slice(0, 200) } } : x,
+        );
+        return { ...all, [m.channelId]: { ...ch, items } };
       });
     });
 
@@ -533,10 +549,19 @@ export function Shell({ user, setUser, initialStatus, initialActivity, servers, 
         const oldest = messages[channel.id]?.items[0];
         if (oldest) return loadMessages(channel.id, oldest.createdAt);
       }}
-      onSend={(content, uploads) => {
+      onSend={(content, uploads, replyTo) => {
         requestNotificationPermission();
-        return api.sendMessage(channel.id, content, uploads).then(() => {});
+        return api.sendMessage(channel.id, content, uploads, replyTo).then(() => {});
       }}
+      selfId={user.id}
+      resolveName={(id) => {
+        const member = current?.members.find((u) => u.id === id);
+        if (member) return memberName(current, member);
+        if (dm?.user.id === id) return dm.user.displayName;
+        return id === user.id ? user.displayName : "Alguém";
+      }}
+      onEdit={(m, content) => api.editMessage(channel.id, m.id, content).then(() => {})}
+      onReact={(m, emoji, add) => api.react(channel.id, m.id, emoji, add)}
       onTyping={() => socketRef.current?.emit("typing", { channelId: channel.id })}
       canDelete={(m) => m.author.id === user.id || (!!current && !dm && can(myPermissions(current, user.id), Permission.MANAGE_MESSAGES))}
       onDelete={(m) => api.deleteMessage(channel.id, m.id)}

@@ -469,10 +469,15 @@ label .muted {
 }
 .message {
   display: flex;
-  gap: 14px;
+  flex-wrap: wrap;
+  column-gap: 14px;
   padding: 6px 16px 2px;
   margin-top: 10px;
   position: relative;
+}
+.message-body {
+  flex: 1;
+  min-width: 0;
 }
 .message:hover {
   background: color-mix(in srgb, var(--bg-hover) 55%, transparent);
@@ -482,11 +487,15 @@ label .muted {
   padding: 2px 16px;
   position: relative;
 }
-.message.grouped .message-content {
+.message.grouped .message-body {
   padding-left: 54px;
 }
-.message:hover {
-  background: rgba(0, 0, 0, 0.12);
+.message.highlight {
+  background: color-mix(in srgb, var(--grad-1) 14%, transparent);
+  box-shadow: inset 2px 0 0 var(--grad-1);
+}
+.message.editing {
+  background: color-mix(in srgb, var(--bg-hover) 55%, transparent);
 }
 .hover-time {
   position: absolute;
@@ -3203,4 +3212,115 @@ video.media-item {
 .lightbox-bar a {
   color: var(--link-2);
   white-space: nowrap;
+}
+
+/* --- replies, edits, reactions -------------------------------------------------------- */
+.reply-preview {
+  flex-basis: 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin: 0 0 4px;
+  padding: 0 0 0 54px;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  font-size: 13px;
+  text-align: left;
+  position: relative;
+}
+.reply-preview:not(:disabled):hover {
+  color: var(--text);
+}
+.reply-preview strong {
+  flex-shrink: 0;
+}
+.reply-spine {
+  position: absolute;
+  left: 34px;
+  top: 9px;
+  width: 16px;
+  height: 10px;
+  border-left: 2px solid var(--bg-strong);
+  border-top: 2px solid var(--bg-strong);
+  border-top-left-radius: 6px;
+}
+.edited {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.edit-box {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 2px;
+}
+.edit-box textarea {
+  resize: none;
+  field-sizing: content;
+  max-height: 260px;
+}
+.reactions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+.reaction {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 8px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: var(--bg-input);
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+.reaction:hover {
+  border-color: var(--bg-strong);
+}
+.reaction.mine {
+  background: color-mix(in srgb, var(--grad-1) 18%, var(--bg-input));
+  border-color: color-mix(in srgb, var(--grad-1) 70%, transparent);
+  color: var(--link);
+}
+.reaction-emoji {
+  font-size: 16px;
+  font-family: "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif;
+}
+.reaction.add {
+  visibility: hidden;
+  color: var(--text-muted);
+}
+.message:hover .reaction.add {
+  visibility: visible;
+}
+.reply-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  margin-bottom: -6px;
+  border-radius: 10px 10px 0 0;
+  background: var(--bg-float);
+  font-size: 13px;
+  color: var(--text-muted);
+}
+.reply-bar strong {
+  color: var(--text);
+}
+.reply-bar-close {
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 50%;
+  background: var(--bg-active);
+  color: var(--text);
+  display: grid;
+  place-items: center;
 }

@@ -46,6 +46,15 @@ export interface Message {
   createdAt: number;
   attachment: ClipAttachment | null;
   files: FileAttachment[];
+  /** The message this one answers; `author` is null when the original was deleted. */
+  replyTo: { id: string; author: User | null; content: string; hasFiles: boolean } | null;
+  editedAt: number | null;
+  reactions: Reaction[];
+}
+
+export interface Reaction {
+  emoji: string;
+  userIds: string[];
 }
 
 /** A file sent in chat. `url` is null once the server deleted it to free space. */
@@ -243,8 +252,12 @@ export const api = {
 
   messages: (channelId: string, before?: number) =>
     request<{ messages: Message[] }>("GET", `/api/channels/${channelId}/messages${before ? `?before=${before}` : ""}`),
-  sendMessage: (channelId: string, content: string, uploads: string[] = []) =>
-    request<{ message: Message }>("POST", `/api/channels/${channelId}/messages`, { content, uploads }),
+  sendMessage: (channelId: string, content: string, uploads: string[] = [], replyTo: string | null = null) =>
+    request<{ message: Message }>("POST", `/api/channels/${channelId}/messages`, { content, uploads, replyTo }),
+  editMessage: (channelId: string, messageId: string, content: string) =>
+    request<{ message: Message }>("PATCH", `/api/channels/${channelId}/messages/${messageId}`, { content }),
+  react: (channelId: string, messageId: string, emoji: string, add: boolean) =>
+    request<void>(add ? "PUT" : "DELETE", `/api/channels/${channelId}/messages/${messageId}/reactions/${encodeURIComponent(emoji)}`),
   uploadFile,
   deleteUpload: (id: string) => request<void>("DELETE", `/api/uploads/${id}`),
   deleteMessage: (channelId: string, messageId: string) => request<void>("DELETE", `/api/channels/${channelId}/messages/${messageId}`),
