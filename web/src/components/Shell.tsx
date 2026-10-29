@@ -1,7 +1,7 @@
 // The logged-in app: server rail, sidebars, chat / voice / friends views and member list.
 // Owns the socket and keeps the caches below fresh from its events.
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   api,
   dmTitle,
@@ -45,6 +45,9 @@ import { CategoryModal, CreateChannelModal, EditChannelModal, InviteModal } from
 import { ServerSettings } from "./ServerSettings.tsx";
 import { VoiceSettingsModal } from "./VoiceSettingsModal.tsx";
 import type { Category, Channel } from "../api.ts";
+import { notifyFor, type NotifySettings } from "../notifications.ts";
+import { NotifyModal, type NotifyTarget } from "./NotifyModal.tsx";
+import { BlockedContext } from "../blocking.ts";
 
 const TYPING_MS = 4000;
 const HOME = "@me";
@@ -52,12 +55,15 @@ const HOME = "@me";
 interface ChannelMessages {
   items: Message[];
   hasMore: boolean;
+  /** Where you had stopped reading (for the "Novas mensagens" line). */
+  lastReadAt?: number;
 }
 
 type ModalKind =
   | { kind: "createServer" | "invite" | "nickname" | "profile" | "settings" | "voiceSettings" | "replay" | "appSettings" }
   | { kind: "createChannel"; categoryId: string | null }
   | { kind: "editChannel"; channel: Channel }
+  | { kind: "notify"; target: NotifyTarget }
   /** Create a category, or edit `category`. */
   | { kind: "category"; category?: Category }
   /** Start a group DM, or add people to one (`dm` is where the button was). */
@@ -69,6 +75,9 @@ interface Props {
   setUser: (user: User) => void;
   initialStatus: UserStatus;
   initialActivity: Activity | null;
+  initialUnread: Record<string, { mentions: number; serverId: string | null }>;
+  initialNotify: NotifySettings;
+  initialBlocked: string[];
   servers: Server[];
   setServers: (update: (s: Server[]) => Server[]) => void;
   serverId?: string;
@@ -105,7 +114,20 @@ function mergePresence(all: Record<string, Presence>, ids: string[], known: Reco
   return next;
 }
 
-export function Shell({ user, setUser, initialStatus, initialActivity, servers, setServers, serverId, channelId, onLogout }: Props) {
+export function Shell({
+  user,
+  setUser,
+  initialStatus,
+  initialActivity,
+  initialUnread,
+  initialNotify,
+  initialBlocked,
+  servers,
+  setServers,
+  serverId,
+  channelId,
+  onLogout,
+}: Props) {
   const socketRef = useRef<AppSocket | null>(null);
   const [voice, setVoice] = useState<VoiceClient | null>(null);
   const voiceState = useVoiceSnapshot(voice);
@@ -139,9 +161,20 @@ export function Shell({ user, setUser, initialStatus, initialActivity, servers, 
   const [presence, setPresenceMap] = useState<Record<string, Presence>>({});
   const [friends, setFriends] = useState<Friend[] | null>(null);
   const [dms, setDms] = useState<DmSummary[] | null>(null);
-  const [unread, setUnread] = useState<Set<string>>(new Set());
+  const [notifySettings, setNotifySettings] = useState<NotifySettings>(initialNotify);
+  const [blocked, setBlocked] = useState<Set<string>>(() => new Set(initialBlocked));
+  // Unread from the server (it remembers where you stopped reading), minus muted conversations.
+  const [unread, setUnread] = useState<Set<string>>(
+    () => new Set(Object.entries(initialUnread).filter(([id, u]) => !notifyFor(initialNotify, id, u.serverId).muted).map(([id]) => id)),
+  );
   /** Unseen mentions of you, per channel (with its server, for the badge on the server icon). */
-  const [mentionCounts, setMentionCounts] = useState<Record<string, { n: number; serverId: string | null }>>({});
+  const [mentionCounts, setMentionCounts] = useState<Record<string, { n: number; serverId: string | null }>>(() =>
+    Object.fromEntries(
+      Object.entries(initialUnread)
+        .filter(([id, u]) => u.mentions > 0 && u.serverId && !notifyFor(initialNotify, id, u.serverId).muted)
+        .map(([id, u]) => [id, { n: u.mentions, serverId: u.serverId }]),
+    ),
+  );
   const [myStatus, setMyStatus] = useState<UserStatus>(initialStatus);
   const [myActivity, setMyActivity] = useState<Activity | null>(initialActivity);
   const [modal, setModal] = useState<ModalKind>(null);
@@ -200,14 +233,14 @@ export function Shell({ user, setUser, initialStatus, initialActivity, servers, 
     const key = `messages:${id}:${before ?? "latest"}`;
     if (inFlight.current.has(key)) return;
     inFlight.current.add(key);
-    const page = await api
-      .messages(id, before)
-      .then((r) => r.messages)
-      .finally(() => inFlight.current.delete(key));
+    const { messages: page, lastReadAt } = await api.messages(id, before).finally(() => inFlight.current.delete(key));
     setMessages((all) => {
       const prev = before ? (all[id]?.items ?? []) : [];
       const seen = new Set(prev.map((m) => m.id));
-      return { ...all, [id]: { items: [...page.filter((m) => !seen.has(m.id)), ...prev], hasMore: page.length >= 50 } };
+      return {
+        ...all,
+        [id]: { items: [...page.filter((m) => !seen.has(m.id)), ...prev], hasMore: page.length >= 50, lastReadAt: lastReadAt ?? all[id]?.lastReadAt },
+      };
     });
   }, []);
 
@@ -219,6 +252,10 @@ export function Shell({ user, setUser, initialStatus, initialActivity, servers, 
   dmsRef.current = dms;
   const myStatusRef = useRef(myStatus);
   myStatusRef.current = myStatus;
+  const notifyRef = useRef(notifySettings);
+  notifyRef.current = notifySettings;
+  const blockedRef = useRef(blocked);
+  blockedRef.current = blocked;
 
   useEffect(() => {
     const socket = connectSocket(getToken()!);
@@ -257,28 +294,48 @@ export function Shell({ user, setUser, initialStatus, initialActivity, servers, 
         return [{ ...dm, lastMessageAt: m.createdAt }, ...list.filter((d) => d !== dm)];
       });
       const viewing = activeRef.current.channelId === m.channelId && document.visibilityState === "visible";
-      if (m.author.id !== user.id && !viewing) {
+      // Someone you blocked, or a muted conversation: no unread mark, no sound.
+      const { muted, level } = notifyFor(notifyRef.current, m.channelId, m.serverId ?? null);
+      if (m.author.id !== user.id && !viewing && !muted && !blockedRef.current.has(m.author.id)) {
         setUnread((u) => (u.has(m.channelId) ? u : new Set(u).add(m.channelId)));
-        // Direct messages notify (servers would be too noisy without mentions), unless in "do not disturb".
-        const isDm = dmsRef.current?.some((d) => d.channel.id === m.channelId);
+        const isDm = !m.serverId;
         const mentioned = m.mentions.includes(user.id) || m.mentionsEveryone;
         if (mentioned && !isDm) {
           setMentionCounts((c) => ({ ...c, [m.channelId]: { n: (c[m.channelId]?.n ?? 0) + 1, serverId: m.serverId ?? null } }));
-          if (myStatusRef.current !== "dnd") {
-            playSound("message");
-            if (document.visibilityState !== "visible" || !document.hasFocus()) {
-              notify(`${m.author.displayName} mencionou você`, m.content.slice(0, 200) || "📎", m.channelId, () => navigate(`/channels/${m.serverId}/${m.channelId}`));
-              desktop?.flash();
-            }
-          }
         }
-        if (isDm && myStatusRef.current !== "dnd") playSound("message");
-        if (isDm && myStatusRef.current !== "dnd" && (document.visibilityState !== "visible" || !document.hasFocus())) {
-          notify(m.author.displayName, m.content.slice(0, 200) || (m.attachment ? "Enviou um replay 🎬" : m.files.length ? `Enviou ${m.files.length === 1 ? "um arquivo" : `${m.files.length} arquivos`} 📎` : ""), m.channelId, () => navigate(`/channels/${HOME}/${m.channelId}`));
-          desktop?.flash();
+        // DMs notify every message by default, servers only mentions (each can be changed), unless in "do not disturb".
+        if ((level === "all" || mentioned) && myStatusRef.current !== "dnd") {
+          playSound("message");
+          if (document.visibilityState !== "visible" || !document.hasFocus()) {
+            const body =
+              m.content.slice(0, 200) ||
+              (m.attachment ? "Enviou um replay 🎬" : m.files.length ? `Enviou ${m.files.length === 1 ? "um arquivo" : `${m.files.length} arquivos`} 📎` : "");
+            const title = mentioned && !isDm ? `${m.author.displayName} mencionou você` : m.author.displayName;
+            notify(title, body, m.channelId, () => navigate(`/channels/${m.serverId ?? HOME}/${m.channelId}`));
+            desktop?.flash();
+          }
         }
       }
     });
+
+    // Read on another device: clear it here too.
+    socket.on("channel:read", ({ channelId: cid, at }) => {
+      setUnread((u) => {
+        if (!u.has(cid)) return u;
+        const next = new Set(u);
+        next.delete(cid);
+        return next;
+      });
+      setMentionCounts(({ [cid]: _, ...rest }) => rest);
+      setMessages((all) => (all[cid] && (all[cid].lastReadAt ?? 0) < at ? { ...all, [cid]: { ...all[cid], lastReadAt: at } } : all));
+    });
+    socket.on("notify:update", (settings) => {
+      setNotifySettings(settings);
+      // Muting something hides its unread marks right away.
+      const quiet = (cid: string, sid: string | null) => notifyFor(settings, cid, sid).muted;
+      setMentionCounts((c) => Object.fromEntries(Object.entries(c).filter(([cid, v]) => !quiet(cid, v.serverId))));
+    });
+    socket.on("blocks:update", ({ blocked: ids }) => setBlocked(new Set(ids)));
 
     socket.on("message:reactions", ({ channelId: cid, messageId, reactions }) => {
       setMessages((all) => {
@@ -534,9 +591,31 @@ export function Shell({ user, setUser, initialStatus, initialActivity, servers, 
     return () => document.removeEventListener("visibilitychange", clear);
   }, [channelId, unread]);
 
+  // Tell the server how far you've read (it remembers across devices and reloads).
+  const latestAt = channelId ? messages[channelId]?.items.at(-1)?.createdAt : undefined;
+  const markedRef = useRef<Record<string, number>>({});
+  useEffect(() => {
+    if (!channelId || !latestAt) return;
+    const mark = () => {
+      if (document.visibilityState !== "visible" || (markedRef.current[channelId] ?? 0) >= latestAt) return;
+      markedRef.current[channelId] = latestAt;
+      api
+        .markRead(channelId, latestAt)
+        .then(({ lastReadAt }) =>
+          setMessages((all) => (all[channelId] ? { ...all, [channelId]: { ...all[channelId], lastReadAt } } : all)),
+        )
+        .catch(() => delete markedRef.current[channelId]);
+    };
+    // A moment later, so the "Novas mensagens" line is drawn from where you were.
+    const t = setTimeout(mark, 300);
+    document.addEventListener("visibilitychange", mark);
+    return () => {
+      clearTimeout(t);
+      document.removeEventListener("visibilitychange", mark);
+    };
+  }, [channelId, latestAt]);
+
   // --- desktop app integration ---------------------------------------------------
-  const unreadDms = [...unread].filter((id) => dms?.some((d) => d.channel.id === id)).length;
-  useEffect(() => desktop?.setBadge(unreadDms), [unreadDms]);
 
   // The desktop app detects running games. It only manages the activity it set itself,
   // so an activity the user typed by hand is never overwritten or cleared by detection.
@@ -619,6 +698,15 @@ export function Shell({ user, setUser, initialStatus, initialActivity, servers, 
   };
   setPresenceRef.current = setPresence;
 
+  // Unread marks, minus conversations muted since (muting doesn't forget them, it hides them).
+  const shownUnread = useMemo(() => {
+    const serverOf = new Map<string, string>();
+    for (const d of Object.values(details)) for (const c of d.channels) serverOf.set(c.id, d.server.id);
+    return new Set([...unread].filter((id) => !notifyFor(notifySettings, id, serverOf.get(id) ?? null).muted));
+  }, [unread, notifySettings, details]);
+  const unreadDms = [...shownUnread].filter((id) => dms?.some((d) => d.channel.id === id)).length;
+  useEffect(() => desktop?.setBadge(unreadDms), [unreadDms]);
+
   // --- render -------------------------------------------------------------------
   const typingUsers = channel ? Object.values(typing[channel.id] ?? {}).map((t) => t.user) : [];
   const voiceServer = voiceState.serverId ? details[voiceState.serverId] : undefined;
@@ -651,6 +739,9 @@ export function Shell({ user, setUser, initialStatus, initialActivity, servers, 
       channel={channel}
       dm={dm}
       server={current}
+      lastReadAt={messages[channel.id]?.lastReadAt}
+      blocked={blocked}
+      onUnblock={(id) => api.unblock(id).catch((e) => alert((e as Error).message))}
       onRename={dm?.group ? (name) => api.renameGroupDm(dm.channel.id, name).then(() => {}) : undefined}
       headerActions={
         dm && (
@@ -734,11 +825,13 @@ export function Shell({ user, setUser, initialStatus, initialActivity, servers, 
         <HomeSidebar
           dms={dms}
           presence={presence}
-          unread={unread}
+          unread={shownUnread}
           activeChannelId={channelId}
           pendingCount={friends?.filter((f) => f.state === "incoming").length ?? 0}
           calls={dmCalls}
           onCreateGroup={() => setModal({ kind: "groupDm" })}
+          notify={notifySettings}
+          onNotify={(target) => setModal({ kind: "notify", target })}
           footer={footer}
         />
         {channelId ? (
@@ -762,12 +855,14 @@ export function Shell({ user, setUser, initialStatus, initialActivity, servers, 
           selfId={user.id}
           onCreateChannel={(categoryId) => setModal({ kind: "createChannel", categoryId })}
           onCreateCategory={() => setModal({ kind: "category" })}
+          notify={notifySettings}
+          onNotify={(target) => setModal({ kind: "notify", target })}
           onEditCategory={(category) => setModal({ kind: "category", category })}
           onInvite={() => setModal({ kind: "invite" })}
           onOpenSettings={() => setModal({ kind: "settings" })}
           onEditNickname={() => setModal({ kind: "nickname" })}
           onEditChannel={(c) => setModal({ kind: "editChannel", channel: c })}
-          unread={unread}
+          unread={shownUnread}
           mentionCounts={Object.fromEntries(Object.entries(mentionCounts).map(([id, x]) => [id, x.n]))}
           onLeave={async () => {
             if (!confirm(`Sair de "${current.server.name}"? Você só volta com um novo convite.`)) return;
@@ -802,6 +897,7 @@ export function Shell({ user, setUser, initialStatus, initialActivity, servers, 
   return (
     <VoiceContext.Provider value={voice}>
       <MobileNavContext.Provider value={openNav}>
+      <BlockedContext.Provider value={blocked}>
       {ringing &&
         (() => {
           const d = dms?.find((x) => x.channel.id === ringing.channelId);
@@ -901,6 +997,7 @@ export function Shell({ user, setUser, initialStatus, initialActivity, servers, 
         )}
         {modal?.kind === "profile" && <ProfileModal user={user} onClose={() => setModal(null)} />}
         {modal?.kind === "voiceSettings" && <VoiceSettingsModal onClose={() => setModal(null)} />}
+        {modal?.kind === "notify" && <NotifyModal target={modal.target} settings={notifySettings} onClose={() => setModal(null)} />}
         {modal?.kind === "groupDm" && (
           <GroupDmModal
             friends={friends}
@@ -924,6 +1021,7 @@ export function Shell({ user, setUser, initialStatus, initialActivity, servers, 
           <ServerSettings details={current} selfId={user.id} presence={presence} onClose={() => setModal(null)} />
         )}
       </div>
+      </BlockedContext.Provider>
       </MobileNavContext.Provider>
     </VoiceContext.Provider>
   );

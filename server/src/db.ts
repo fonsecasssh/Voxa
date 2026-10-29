@@ -274,6 +274,54 @@ const MIGRATIONS: string[] = [
   );
   CREATE INDEX email_tokens_by_user ON email_tokens(user_id);
   `,
+
+  // 15: where each person stopped reading each channel, notification settings (per server,
+  // channel or DM), blocked users, devices that get push notifications, and small server
+  // settings (the push keys). Everyone starts with everything read, so nothing old shows
+  // up as new after this update.
+  `
+  CREATE TABLE read_states (
+    user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    channel_id   TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+    last_read_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, channel_id)
+  );
+  INSERT INTO read_states (user_id, channel_id, last_read_at)
+    SELECT m.user_id, c.id, CAST(strftime('%s', 'now') AS INTEGER) * 1000 FROM members m JOIN channels c ON c.server_id = m.server_id;
+  INSERT OR IGNORE INTO read_states (user_id, channel_id, last_read_at)
+    SELECT user_id, channel_id, CAST(strftime('%s', 'now') AS INTEGER) * 1000 FROM dm_members;
+
+  -- target_id is a server, a channel or a DM. level: all | mentions | none (NULL: the default).
+  CREATE TABLE notify_settings (
+    user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    target_id   TEXT NOT NULL,
+    level       TEXT CHECK (level IN ('all', 'mentions', 'none')),
+    muted_until INTEGER,
+    PRIMARY KEY (user_id, target_id)
+  );
+
+  CREATE TABLE blocks (
+    user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    blocked_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, blocked_id)
+  );
+  CREATE INDEX blocks_by_blocked ON blocks(blocked_id);
+
+  CREATE TABLE push_subscriptions (
+    endpoint   TEXT PRIMARY KEY,
+    user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    p256dh     TEXT NOT NULL,
+    auth       TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+  );
+  CREATE INDEX push_by_user ON push_subscriptions(user_id);
+
+  CREATE TABLE settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  );
+  `,
 ];
 
 /** The schema version a fully migrated database has. */

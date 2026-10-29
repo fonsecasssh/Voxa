@@ -30,8 +30,13 @@ export interface Presence {
 
 const OFFLINE: Presence = { status: "offline", activity: null };
 
-export function registerRealtime(io: IOServer, store: Store, sfu: Sfu | null = null) {
-  const voice = createVoice(io, store, sfu);
+export function registerRealtime(
+  io: IOServer,
+  store: Store,
+  sfu: Sfu | null = null,
+  onRing?: (channelId: string, from: PublicUser, userIds: string[]) => void,
+) {
+  const voice = createVoice(io, store, sfu, onRing);
   // Number of open sockets per user; a user is connected while this is > 0.
   const connections = new Map<string, number>();
 
@@ -113,6 +118,8 @@ export function registerRealtime(io: IOServer, store: Store, sfu: Sfu | null = n
     },
     presenceOf,
     broadcastPresence,
+    /** Has Voxa open somewhere right now (even when appearing invisible). */
+    isOnline: (userId: string) => connections.has(userId),
     setActivity(userId: string, name: string | null) {
       const current = store.getActivity(userId);
       if (name === null) store.setActivity(userId, null);

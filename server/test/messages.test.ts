@@ -150,7 +150,7 @@ describe("mentions", () => {
 describe("GIF search", () => {
   it("is off without a provider, and proxies (and caches) the provider when on", async () => {
     const owner = await user();
-    expect((await api("GET", "/api/me", undefined, owner.token)).body.features).toEqual({ gifs: false, email: false });
+    expect((await api("GET", "/api/me", undefined, owner.token)).body.features).toMatchObject({ gifs: false, email: false });
     expect((await api("GET", "/api/gifs?q=gato", undefined, owner.token)).status).toBe(404);
 
     const calls: string[] = [];
@@ -169,7 +169,7 @@ describe("GIF search", () => {
     const url = `http://127.0.0.1:${(http.address() as AddressInfo).port}`;
     const reg = await (await fetch(url + "/api/auth/register", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ username: "gifeiro", password: "senha-segura" }) })).json();
     const get = (p: string) => fetch(url + p, { headers: { authorization: `Bearer ${reg.token}` } }).then(async (r) => ({ status: r.status, body: await r.json() }));
-    expect((await get("/api/me")).body.features).toEqual({ gifs: true, email: false });
+    expect((await get("/api/me")).body.features).toMatchObject({ gifs: true, email: false });
     const r = await get("/api/gifs?q=gato&offset=24");
     expect(r.body.gifs[0]).toMatchObject({ title: "gato", url: "https://media.giphy.com/media/a/giphy.gif" });
     await get("/api/gifs?q=GATO&offset=24");

@@ -3,7 +3,7 @@
 // itself is always fetched fresh when online, so a deploy shows up on the next open.
 // The API, the realtime socket and uploaded media are never cached.
 
-const CACHE = "voxa-v1";
+const CACHE = "voxa-v2";
 const SHELL = ["/", "/manifest.webmanifest", "/favicon.svg", "/icon-192.png"];
 
 self.addEventListener("install", (event) => {
@@ -54,4 +54,41 @@ self.addEventListener("fetch", (event) => {
       ),
     );
   }
+});
+
+// --- push notifications --------------------------------------------------------------
+self.addEventListener("push", (event) => {
+  let data = {};
+  try {
+    data = event.data ? event.data.json() : {};
+  } catch {
+    return;
+  }
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((windows) => {
+      // Already looking at Voxa: the page shows it itself.
+      if (windows.some((w) => w.visibilityState === "visible")) return;
+      return self.registration.showNotification(data.title || "Voxa", {
+        body: data.body || "",
+        tag: data.tag,
+        renotify: !!data.call,
+        requireInteraction: !!data.call,
+        icon: "/icon-192.png",
+        badge: "/icon-192.png",
+        data: { url: data.url || "/channels" },
+      });
+    }),
+  );
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const url = new URL(event.notification.data?.url || "/channels", self.location.origin).href;
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((windows) => {
+      const open = windows.find((w) => w.url.startsWith(self.location.origin));
+      if (open) return open.navigate(url).then((w) => (w ?? open).focus());
+      return self.clients.openWindow(url);
+    }),
+  );
 });

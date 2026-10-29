@@ -6,8 +6,9 @@ import { InvitePage } from "./components/InvitePage.tsx";
 import { ResetPasswordPage, VerifyEmailPage } from "./components/AccountPages.tsx";
 import { Shell } from "./components/Shell.tsx";
 import { setFeatures } from "./features.ts";
+import { disablePush } from "./push.ts";
 
-type Session = { user: User; servers: Server[]; status: UserStatus; activity: Activity | null };
+type Session = Awaited<ReturnType<typeof api.me>>;
 
 export function App() {
   const route = parseRoute(usePath());
@@ -42,6 +43,8 @@ export function App() {
   );
 
   const logout = async () => {
+    // This device stops getting the account's notifications.
+    await disablePush().catch(() => {});
     await api.logout().catch(() => {});
     setToken(null);
     setSession(null);
@@ -70,6 +73,9 @@ export function App() {
       setUser={setUser}
       initialStatus={session.status}
       initialActivity={session.activity}
+      initialUnread={session.unread}
+      initialNotify={session.notify}
+      initialBlocked={session.blocked}
       servers={session.servers}
       setServers={setServers}
       serverId={route.serverId}

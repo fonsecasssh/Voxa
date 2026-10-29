@@ -5,6 +5,8 @@ import type { VoiceMember } from "../voice/types.ts";
 import { presenceText } from "./Avatar.tsx";
 import { DmAvatar } from "./DmParts.tsx";
 import { Icon } from "./Icon.tsx";
+import { isMuted, type NotifySettings } from "../notifications.ts";
+import type { NotifyTarget } from "./NotifyModal.tsx";
 
 interface Props {
   dms: DmSummary[] | null;
@@ -15,10 +17,12 @@ interface Props {
   /** Calls going on in DMs, to mark those conversations. */
   calls: Record<string, VoiceMember[]>;
   onCreateGroup: () => void;
+  notify: NotifySettings;
+  onNotify: (target: NotifyTarget) => void;
   footer: ReactNode;
 }
 
-export function HomeSidebar({ dms, presence, unread, activeChannelId, pendingCount, calls, onCreateGroup, footer }: Props) {
+export function HomeSidebar({ dms, presence, unread, activeChannelId, pendingCount, calls, onCreateGroup, notify, onNotify, footer }: Props) {
   return (
     <aside className="sidebar">
       <header className="sidebar-header">
@@ -50,8 +54,12 @@ export function HomeSidebar({ dms, presence, unread, activeChannelId, pendingCou
             return (
               <button
                 key={d.channel.id}
-                className={`channel dm ${d.channel.id === activeChannelId ? "active" : ""} ${isUnread ? "unread" : ""}`}
+                className={`channel dm ${d.channel.id === activeChannelId ? "active" : ""} ${isUnread ? "unread" : ""} ${isMuted(notify, d.channel.id) ? "muted-channel" : ""}`}
                 onClick={() => navigate(`/channels/@me/${d.channel.id}`)}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  onNotify({ id: d.channel.id, kind: "dm", label: d.group ? dmTitle(d) : `@${dmTitle(d)}` });
+                }}
               >
                 <DmAvatar dm={d} size={32} presence={presence} />
                 <span className="dm-names">

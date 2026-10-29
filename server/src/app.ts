@@ -17,6 +17,8 @@ import { findMentions } from "../../shared/markdown.ts";
 import type { Gif, GifProvider } from "./gifs.ts";
 import { actionMail, type Mailer } from "./mail.ts";
 import type { Sfu } from "./livekit.ts";
+import type { PushSender } from "./push.ts";
+import { createNotifier, type Notifier } from "./notify.ts";
 import { CLIP_MIME, CLIP_URL_PREFIX, IMAGE_KINDS, IMAGE_MIME, createClipStore, createMediaStore, detectImageType, imageUrlPrefix } from "./media.ts";
 import { tmpdir } from "node:os";
 
@@ -74,6 +76,8 @@ export interface AppOptions {
   filesMaxBytes?: number;
   /** GIF search for the chat (GIPHY); null turns the GIF tab off. */
   gifs?: GifProvider | null;
+  /** Push notifications to devices where Voxa is closed; null turns them off. */
+  push?: PushSender | null | ((store: Store) => PushSender | null);
   /** Media server for calls (LiveKit); null = peer-to-peer mesh. */
   sfu?: Sfu | null;
   /** Sends e-mail (confirming addresses, password resets); null turns those off. */
@@ -82,7 +86,7 @@ export interface AppOptions {
   appUrl?: string | null;
 }
 
-export function createApp({ db, webDist, ice = createIceProvider(), trustProxy = 0, signupsPerHour, mediaDir, clipsMaxBytes, maxClipBytes, filesMaxBytes, gifs = null, mailer = null, appUrl = null, sfu = null }: AppOptions) {
+export function createApp({ db, webDist, ice = createIceProvider(), trustProxy = 0, signupsPerHour, mediaDir, clipsMaxBytes, maxClipBytes, filesMaxBytes, gifs = null, mailer = null, appUrl = null, sfu = null, push: pushOption = null }: AppOptions) {
   /** E-mail works only with both a way to send it and an address to link back to. */
   const mail = mailer && appUrl ? { mailer, url: appUrl.replace(/\/+$/, "") } : null;
   const mediaRoot = mediaDir ?? path.join(tmpdir(), `voxa-media-${process.pid}`);
@@ -94,7 +98,11 @@ export function createApp({ db, webDist, ice = createIceProvider(), trustProxy =
   const http = createHttpServer(app);
   // The site, its API and the socket share one origin (the desktop app loads that same site), so no CORS.
   const io = new IOServer(http);
-  const realtime = registerRealtime(io, store, sfu);
+  const push = typeof pushOption === "function" ? pushOption(store) : pushOption;
+  // Created right below: the ring hook only runs once people are connected.
+  let notifier: Notifier;
+  const realtime = registerRealtime(io, store, sfu, (channelId, from, userIds) => notifier.ring(channelId, from, userIds));
+  notifier = createNotifier(store, realtime.isOnline, push);
 
   app.set("trust proxy", trustProxy);
   app.disable("x-powered-by");
@@ -328,6 +336,68 @@ export function createApp({ db, webDist, ice = createIceProvider(), trustProxy =
     res.json({ email: found.email });
   });
 
+  // --- notification settings -----------------------------------------------------
+  // For a server, a channel or a DM: level (all / mentions / none, null = default) and mute.
+  app.put("/api/notify/:targetId", requireAuth, (req, res) => {
+    const me = req.user!.id;
+    const target = req.params.targetId as string;
+    const channel = store.channelById(target);
+    const ok = channel ? store.canViewChannel(channel, me) : !!store.serverById(target) && store.isMember(target, me);
+    if (!ok) throw new HttpError(404, "Não encontrado.");
+    const level = req.body?.level ?? null;
+    if (level !== null && !["all", "mentions", "none"].includes(level)) throw new HttpError(400, "Nível de notificação inválido.");
+    const mutedUntil = req.body?.mutedUntil ?? null;
+    if (mutedUntil !== null && (typeof mutedUntil !== "number" || mutedUntil < 0)) throw new HttpError(400, "Duração inválida.");
+    store.setNotify(me, target, level, mutedUntil);
+    const notify = store.notifySettings(me);
+    io.to(`user:${me}`).emit("notify:update", notify);
+    res.json({ notify });
+  });
+
+  // --- blocking ----------------------------------------------------------------------
+  app.get("/api/blocks", requireAuth, (req, res) => {
+    res.json({ users: store.blockedUsers(req.user!.id) });
+  });
+
+  // Blocking ends a friendship (or request) and stops DMs, requests and calls between you.
+  app.put("/api/blocks/:userId", requireAuth, (req, res) => {
+    const me = req.user!;
+    const other = store.userById(req.params.userId as string);
+    if (!other || other.id === me.id) throw new HttpError(404, "Usuário não encontrado.");
+    store.block(me.id, other.id);
+    if (store.removeFriendship(me.id, other.id)) emitFriendUpdate(me, other);
+    io.to(`user:${me.id}`).emit("blocks:update", { blocked: store.blockedIds(me.id) });
+    res.status(204).end();
+  });
+
+  app.delete("/api/blocks/:userId", requireAuth, (req, res) => {
+    const me = req.user!.id;
+    store.unblock(me, req.params.userId as string);
+    io.to(`user:${me}`).emit("blocks:update", { blocked: store.blockedIds(me) });
+    res.status(204).end();
+  });
+
+  // --- push notifications --------------------------------------------------------------
+  app.get("/api/push/key", requireAuth, (_req, res) => {
+    if (!push) throw new HttpError(404, "Notificações push não estão ativadas neste servidor.");
+    res.json({ publicKey: push.publicKey });
+  });
+
+  app.post("/api/push/subscribe", requireAuth, (req, res) => {
+    if (!push) throw new HttpError(404, "Notificações push não estão ativadas neste servidor.");
+    const endpoint = str(req.body?.endpoint, "endereço", 10, 1000);
+    if (!/^https:\/\//.test(endpoint)) throw new HttpError(400, "Endereço de notificação inválido.");
+    const p256dh = str(req.body?.keys?.p256dh, "chave", 10, 200);
+    const auth = str(req.body?.keys?.auth, "chave", 10, 100);
+    store.addPushSubscription(req.user!.id, { endpoint, p256dh, auth });
+    res.status(204).end();
+  });
+
+  app.delete("/api/push/subscribe", requireAuth, (req, res) => {
+    store.removePushSubscription(str(req.body?.endpoint, "endereço", 1, 1000), req.user!.id);
+    res.status(204).end();
+  });
+
   app.post("/api/auth/logout", requireAuth, (req, res) => {
     store.deleteSession(req.token!);
     res.status(204).end();
@@ -342,7 +412,13 @@ export function createApp({ db, webDist, ice = createIceProvider(), trustProxy =
       status: store.getStatus(me),
       activity: store.getActivity(me),
       // What this server has turned on, so the app can show or hide it.
-      features: { gifs: !!gifs, email: !!mail },
+      features: { gifs: !!gifs, email: !!mail, push: !!push },
+      unread: store.unreadFor(me, [
+        ...store.serversForUser(me).flatMap((s) => store.visibleChannels(s.id, me)),
+        ...store.dmsForUser(me).map((d) => d.channel),
+      ]),
+      notify: store.notifySettings(me),
+      blocked: store.blockedIds(me),
     });
   });
 
@@ -396,6 +472,7 @@ export function createApp({ db, webDist, ice = createIceProvider(), trustProxy =
     const target = store.userByUsername(str(req.body?.username, "usuário", 1, 32).replace(/^@/, ""));
     if (!target) throw new HttpError(404, "Não encontramos ninguém com esse usuário.");
     if (target.id === me.id) throw new HttpError(400, "Você não pode adicionar a si mesmo.");
+    if (store.blockedBetween(me.id, target.id)) throw new HttpError(403, "Não foi possível enviar o pedido de amizade.");
     const f = store.friendship(me.id, target.id);
     if (f?.status === "accepted") throw new HttpError(409, "Vocês já são amigos.");
     if (f?.requesterId === me.id) throw new HttpError(409, "Você já enviou um pedido para essa pessoa.");
@@ -464,6 +541,7 @@ export function createApp({ db, webDist, ice = createIceProvider(), trustProxy =
     const { channel, people } = requireGroup(req);
     const other = typeof req.body?.userId === "string" ? store.userById(req.body.userId) : null;
     if (!other || store.friendship(me.id, other.id)?.status !== "accepted") throw new HttpError(403, "Só dá para adicionar amigos ao grupo.");
+    if (people.some((id) => store.blockedBetween(id, other.id))) throw new HttpError(403, "Não foi possível adicionar essa pessoa ao grupo.");
     if (people.includes(other.id)) return void res.json({ dm: dmFor({ channel }, me.id) });
     if (people.length >= MAX_GROUP_DM) throw new HttpError(400, `Um grupo pode ter até ${MAX_GROUP_DM} pessoas.`);
     store.addDmMember(channel.id, other.id);
@@ -494,6 +572,7 @@ export function createApp({ db, webDist, ice = createIceProvider(), trustProxy =
     const me = req.user!;
     const other = typeof req.body?.userId === "string" ? store.userById(req.body.userId) : null;
     if (!other || other.id === me.id) throw new HttpError(404, "Usuário não encontrado.");
+    if (store.blockedBetween(me.id, other.id)) throw new HttpError(403, "Não é possível conversar com essa pessoa.");
     // Like Discord: you can message friends and people you share a server with.
     if (store.friendship(me.id, other.id)?.status !== "accepted" && !store.sharesServer(me.id, other.id)) {
       throw new HttpError(403, "Vocês precisam ser amigos ou estar no mesmo servidor.");
@@ -572,7 +651,18 @@ export function createApp({ db, webDist, ice = createIceProvider(), trustProxy =
     const channel = requireChannelAccess(req, req.params.id as string);
     const before = Number(req.query.before) || Number.MAX_SAFE_INTEGER;
     const limit = Math.min(Math.max(Number(req.query.limit) || 50, 1), 100);
-    res.json({ messages: store.messages(channel.id, before, limit) });
+    // With the latest page: where you stopped reading, for the "Novas mensagens" line.
+    const lastReadAt = req.query.before ? undefined : store.lastReadAt(req.user!.id, channel.id);
+    res.json({ messages: store.messages(channel.id, before, limit), lastReadAt });
+  });
+
+  // Read up to `at` (the newest message you saw); your other devices clear it too.
+  app.post("/api/channels/:id/read", requireAuth, (req, res) => {
+    const channel = requireChannelAccess(req, req.params.id as string);
+    const at = Math.min(Number(req.body?.at) || Date.now(), Date.now());
+    const lastReadAt = store.markRead(req.user!.id, channel.id, at);
+    io.to(`user:${req.user!.id}`).emit("channel:read", { channelId: channel.id, at: lastReadAt });
+    res.json({ lastReadAt });
   });
 
   app.post("/api/channels/:id/messages", requireAuth, (req, res) => {
@@ -584,6 +674,11 @@ export function createApp({ db, webDist, ice = createIceProvider(), trustProxy =
     }
     // A message may be only files; otherwise it needs text.
     const content = str(req.body?.content ?? "", "mensagem", uploads.length ? 0 : 1, 4000);
+    // A 1:1 DM with someone who blocked you (or whom you blocked) doesn't take messages.
+    if (!channel.serverId && !store.groupDm(channel.id)) {
+      const other = store.dmParticipants(channel.id)?.find((id) => id !== req.user!.id);
+      if (other && store.blockedBetween(req.user!.id, other)) throw new HttpError(403, "Sua mensagem não pôde ser entregue.");
+    }
     const replyTo = req.body?.replyTo ?? null;
     if (replyTo !== null && (typeof replyTo !== "string" || store.messageInfo(replyTo)?.channelId !== channel.id)) {
       throw new HttpError(400, "A mensagem que você está respondendo não existe mais.");
@@ -601,6 +696,8 @@ export function createApp({ db, webDist, ice = createIceProvider(), trustProxy =
     recordMentions(channel, id, content, replyTo, req);
     const message = store.messageById(id)!;
     io.to(realtime.channelRooms(channel)).emit("message:new", { ...message, serverId: channel.serverId });
+    store.markRead(req.user!.id, channel.id, message.createdAt);
+    notifier.message(channel, message);
     res.status(201).json({ message });
   });
 
@@ -773,6 +870,7 @@ export function createApp({ db, webDist, ice = createIceProvider(), trustProxy =
     const file = clips.commit(upload.tmp, id, upload.type);
     const message = store.insertMessage(channel.id, req.user!, content, { kind: "clip", file, type: upload.type, size: upload.size, duration, width, height }, id);
     io.to(realtime.channelRooms(channel)).emit("message:new", { ...message, serverId: channel.serverId });
+    notifier.message(channel, message);
 
     // Over the disk budget: the oldest clips go, and their messages show that they expired.
     for (const m of store.expireClips(clips.evict(file))) {

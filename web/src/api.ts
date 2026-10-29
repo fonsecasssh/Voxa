@@ -1,6 +1,7 @@
 // REST client + the types shared with the server.
 
 import type { VoiceMember } from "./voice/types.ts";
+import type { NotifyLevel, NotifySettings } from "./notifications.ts";
 
 export interface User {
   id: string;
@@ -262,8 +263,22 @@ export const api = {
       servers: Server[];
       status: UserStatus;
       activity: Activity | null;
-      features?: { gifs: boolean; email: boolean };
+      features?: { gifs: boolean; email: boolean; push: boolean };
+      /** Channels with unseen messages (and how many mention you). */
+      unread: Record<string, { mentions: number; serverId: string | null }>;
+      notify: NotifySettings;
+      /** People you blocked. */
+      blocked: string[];
     }>("GET", "/api/me"),
+  markRead: (channelId: string, at: number) => request<{ lastReadAt: number }>("POST", `/api/channels/${channelId}/read`, { at }),
+  setNotify: (targetId: string, level: NotifyLevel | null, mutedUntil: number | null) =>
+    request<{ notify: NotifySettings }>("PUT", `/api/notify/${targetId}`, { level, mutedUntil }),
+  blocks: () => request<{ users: User[] }>("GET", "/api/blocks"),
+  block: (userId: string) => request<void>("PUT", `/api/blocks/${userId}`),
+  unblock: (userId: string) => request<void>("DELETE", `/api/blocks/${userId}`),
+  pushKey: () => request<{ publicKey: string }>("GET", "/api/push/key"),
+  pushSubscribe: (sub: PushSubscriptionJSON) => request<void>("POST", "/api/push/subscribe", sub),
+  pushUnsubscribe: (endpoint: string) => request<void>("DELETE", "/api/push/subscribe", { endpoint }),
   authOptions: () => request<{ passwordReset: boolean }>("GET", "/api/auth/options"),
   forgotPassword: (login: string) => request<{ ok: true }>("POST", "/api/auth/forgot", { login }),
   resetPassword: (token: string, password: string) => request<AuthResult>("POST", "/api/auth/reset", { token, password }),
@@ -346,7 +361,7 @@ export const api = {
   rtcConfig: () => request<{ iceServers: RTCIceServer[] }>("GET", "/api/rtc-config"),
 
   messages: (channelId: string, before?: number) =>
-    request<{ messages: Message[] }>("GET", `/api/channels/${channelId}/messages${before ? `?before=${before}` : ""}`),
+    request<{ messages: Message[]; lastReadAt?: number }>("GET", `/api/channels/${channelId}/messages${before ? `?before=${before}` : ""}`),
   sendMessage: (channelId: string, content: string, uploads: string[] = [], replyTo: string | null = null) =>
     request<{ message: Message }>("POST", `/api/channels/${channelId}/messages`, { content, uploads, replyTo }),
   editMessage: (channelId: string, messageId: string, content: string) =>

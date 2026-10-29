@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from "re
 import { api, type Presence, type Role, type ServerDetails, type User } from "../api.ts";
 import { Permission, can, memberColor, memberName, memberRoles, myPermissions, myTop, outranks } from "../members.ts";
 import { Avatar, presenceText } from "./Avatar.tsx";
+import { useBlocked } from "../blocking.ts";
 
 interface Props {
   details: ServerDetails;
@@ -118,6 +119,7 @@ export function MemberCard({
     : can(perms, Permission.MANAGE_NICKNAMES) && outranks(details, selfId, user.id);
   const canKick = !isSelf && can(perms, Permission.KICK_MEMBERS) && outranks(details, selfId, user.id);
   const canBan = !isSelf && can(perms, Permission.BAN_MEMBERS) && outranks(details, selfId, user.id);
+  const isBlocked = useBlocked().has(user.id);
 
   // Keep the card inside the window.
   useLayoutEffect(() => {
@@ -250,6 +252,19 @@ export function MemberCard({
               }}
             >
               Banir
+            </button>
+          )}
+          {!isSelf && (
+            <button
+              className="btn subtle"
+              onClick={async () => {
+                if (isBlocked) await act(() => api.unblock(user.id));
+                else if (confirm(`Bloquear ${name}? Vocês deixam de ser amigos, não podem trocar DMs e as mensagens dele ficam escondidas.`)) {
+                  await act(() => api.block(user.id));
+                }
+              }}
+            >
+              {isBlocked ? "Desbloquear" : "Bloquear"}
             </button>
           )}
         </div>

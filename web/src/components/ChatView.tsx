@@ -33,6 +33,11 @@ interface Props {
   selfId: string;
   /** A display name for anyone who reacted. */
   resolveName: (userId: string) => string;
+  /** Where you had stopped reading: messages after it get a "Novas mensagens" line. */
+  lastReadAt?: number;
+  /** People you blocked: their messages are folded away. */
+  blocked: Set<string>;
+  onUnblock: (userId: string) => void;
   /** People who can be @mentioned here (server members, or the DM's two). */
   mentionables: Mentionable[];
   canMentionEveryone: boolean;
@@ -101,7 +106,7 @@ function EditableTitle({ value, placeholder, onSave }: { value: string; placehol
 }
 
 export function ChatView(props: Props) {
-  const { channel, server, dm, headerActions, top, onRename, messages, hasMore, typingUsers, onLoadOlder, onSend, onTyping, canDelete, onDelete, onEdit, onReact, selfId } = props;
+  const { channel, server, dm, headerActions, top, onRename, lastReadAt, blocked, onUnblock, messages, hasMore, typingUsers, onLoadOlder, onSend, onTyping, canDelete, onDelete, onEdit, onReact, selfId } = props;
   const title = dm ? dmTitle(dm) : channel.name;
   const target = dm ? (dm.group ? title : `@${dm.user?.username ?? title}`) : `#${channel.name}`;
   const placeholder = dm && !dm.group ? `Conversar com ${target}` : `Conversar em ${target}`;
@@ -214,8 +219,28 @@ export function ChatView(props: Props) {
     }
   }, [messages]);
 
+  // The "Novas mensagens" line: where you were when you opened the channel (it stays put while you read).
+  const [dividerAt, setDividerAt] = useState<number | null>(null);
+  const dividerFor = useRef<string | null>(null);
+  const [dividerAbove, setDividerAbove] = useState(false);
+  const [revealed, setRevealed] = useState<Set<string>>(new Set());
+  useLayoutEffect(() => {
+    if (dividerFor.current === channel.id || !messages || lastReadAt === undefined) return;
+    dividerFor.current = channel.id;
+    setDividerAt(messages.some((m) => m.createdAt > lastReadAt && m.author.id !== selfId) ? lastReadAt : null);
+  }, [channel.id, messages, lastReadAt, selfId]);
+  const checkDivider = () => {
+    const el = listRef.current;
+    const line = el?.querySelector<HTMLElement>(".new-divider");
+    setDividerAbove(!!el && !!line && line.getBoundingClientRect().top < el.getBoundingClientRect().top + 8);
+  };
+  useLayoutEffect(checkDivider, [messages, dividerAt]);
+
   useLayoutEffect(() => {
     stickToBottom.current = true;
+    dividerFor.current = null;
+    setDividerAt(null);
+    setRevealed(new Set());
     setDraft("");
     setSendError(null);
     setReplyingTo(null);
@@ -239,6 +264,7 @@ export function ChatView(props: Props) {
     setDraft("");
     setSendError(null);
     setReplyingTo(null);
+    setDividerAt(null);
     stickToBottom.current = true;
     // Files upload in the background as soon as they're picked; this waits for any still going.
     const uploads = withFiles ? pending.ready() : Promise.resolve([]);
@@ -358,8 +384,25 @@ export function ChatView(props: Props) {
         onScroll={(e) => {
           const el = e.currentTarget;
           stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+          if (dividerAt !== null) checkDivider();
         }}
       >
+        {dividerAt !== null && dividerAbove && messages && (
+          <div className="new-bar" role="status">
+            <span>
+              {(() => {
+                const n = messages.filter((m) => m.createdAt > dividerAt && m.author.id !== selfId).length;
+                return `${n >= 50 ? "50+" : n} ${n === 1 ? "nova mensagem" : "novas mensagens"} desde ${new Date(dividerAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`;
+              })()}
+            </span>
+            <button type="button" onClick={() => listRef.current?.querySelector(".new-divider")?.scrollIntoView({ block: "center", behavior: "smooth" })}>
+              Pular
+            </button>
+            <button type="button" onClick={() => setDividerAt(null)}>
+              Marcar como lida
+            </button>
+          </div>
+        )}
         {!messages ? (
           <p className="muted center pad">Carregando mensagens…</p>
         ) : (
@@ -397,9 +440,33 @@ export function ChatView(props: Props) {
             )}
             {messages.map((m, i) => {
               const prev = messages[i - 1];
+              const isNew = dividerAt !== null && m.createdAt > dividerAt && m.author.id !== selfId;
+              const firstNew = isNew && !messages.slice(0, i).some((x) => x.createdAt > dividerAt! && x.author.id !== selfId);
+              const divider = firstNew && (
+                <div className="new-divider" key={`new-${m.id}`}>
+                  <span>Novas mensagens</span>
+                </div>
+              );
+              // Messages from someone you blocked fold into one line per run.
+              const hidden = (x?: Message) => !!x && blocked.has(x.author.id) && !revealed.has(x.id);
+              if (hidden(m)) {
+                if (hidden(prev) && !firstNew) return null;
+                const run: string[] = [];
+                for (let j = i; j < messages.length && hidden(messages[j]); j++) run.push(messages[j].id);
+                return [
+                  divider,
+                  <div key={m.id} className="blocked-message">
+                    {run.length === 1 ? "1 mensagem bloqueada" : `${run.length} mensagens bloqueadas`} ·{" "}
+                    <button className="link" onClick={() => setRevealed((r) => new Set([...r, ...run]))}>
+                      Mostrar
+                    </button>
+                  </div>,
+                ];
+              }
               // Replies always show who's talking, like Discord.
-              const grouped = !!prev && !m.replyTo && prev.author.id === m.author.id && m.createdAt - prev.createdAt < GROUP_WINDOW_MS;
-              return (
+              const grouped = !firstNew && !!prev && !m.replyTo && prev.author.id === m.author.id && m.createdAt - prev.createdAt < GROUP_WINDOW_MS;
+              return [
+                divider,
                 <MessageItem
                   key={m.id}
                   message={m}
@@ -429,13 +496,21 @@ export function ChatView(props: Props) {
                   onToggleReaction={(emoji, add) => attempt(() => onReact(m, emoji, add))}
                   onPickReaction={(anchor) => setReactionPicker({ message: m, anchor })}
                   onJumpTo={jumpTo}
-                />
-              );
+                />,
+              ];
             })}
           </>
         )}
       </div>
 
+      {dm && !dm.group && dm.user && blocked.has(dm.user.id) ? (
+        <div className="composer blocked-composer">
+          Você bloqueou <strong>@{dm.user.username}</strong>. Vocês não podem trocar mensagens.{" "}
+          <button className="link" onClick={() => onUnblock(dm.user!.id)}>
+            Desbloquear
+          </button>
+        </div>
+      ) : (
       <div className="composer">
         {sendError && <div className="form-error">{sendError}</div>}
         {replyingTo && (
@@ -530,6 +605,7 @@ export function ChatView(props: Props) {
         </div>
         <div className="typing">{typingUsers.length > 0 && typingText(typingUsers, server)}</div>
       </div>
+      )}
     </main>
   );
 }

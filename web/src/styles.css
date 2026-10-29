@@ -4111,3 +4111,93 @@ kbd {
   margin-top: -6px;
   font-size: 13px;
 }
+
+/* --- "Novas mensagens", blocked messages ----------------------------------------- */
+.new-divider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 16px;
+  color: #f2585b;
+  font-size: 12px;
+  font-weight: 700;
+}
+.new-divider::before {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: #f2585b;
+}
+.new-divider span {
+  order: 2;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: #f2585b;
+  color: #fff;
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: 0.03em;
+}
+.new-bar {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: -16px 0 8px;
+  padding: 6px 16px;
+  background: color-mix(in srgb, var(--grad-1) 85%, #000);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+}
+.new-bar span {
+  flex: 1;
+}
+.new-bar button {
+  background: none;
+  border: 0;
+  color: #fff;
+  font: inherit;
+  cursor: pointer;
+  opacity: 0.85;
+}
+.new-bar button:hover {
+  opacity: 1;
+  text-decoration: underline;
+}
+.blocked-message {
+  margin: 4px 16px 4px 72px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+.blocked-composer {
+  padding: 16px;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+/* --- Notification settings ---------------------------------------------------------- */
+.notify-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.radio-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.radio-list .radio {
+  align-items: flex-start;
+}
+.muted-channel .channel,
+.channel.muted-channel {
+  opacity: 0.55;
+}

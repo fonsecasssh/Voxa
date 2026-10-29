@@ -7,6 +7,7 @@ import { createGiphyProvider } from "./gifs.ts";
 import { scheduleBackups } from "./backup.ts";
 import { createSmtpMailer } from "./mail.ts";
 import { createLiveKit } from "./livekit.ts";
+import { createWebPush } from "./push.ts";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT) || 3001;
@@ -15,6 +16,13 @@ const DB_FILE = process.env.DB_FILE || path.resolve(here, "../data/voxa.db");
 const MEDIA_DIR = process.env.MEDIA_DIR || path.join(path.dirname(DB_FILE), "media");
 
 const db = openDb(DB_FILE);
+
+/** Who runs this server, for the browsers' push services: the site, else the e-mail sender. */
+function pushContact() {
+  const site = process.env.PUBLIC_URL || process.env.RENDER_EXTERNAL_URL;
+  if (site?.startsWith("https://")) return site;
+  return process.env.SMTP_USER ? `mailto:${process.env.SMTP_USER}` : "https://github.com/fonsecasssh/Voxa";
+}
 const ice = createIceProvider();
 const { http, io } = createApp({
   db,
@@ -34,6 +42,11 @@ const { http, io } = createApp({
   mailer: createSmtpMailer(process.env),
   // Calls through a LiveKit media server (LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET); otherwise peer to peer.
   sfu: createLiveKit(process.env),
+  // Push notifications are on unless PUSH_DISABLED=1 (keys are made on first start).
+  push:
+    process.env.PUSH_DISABLED === "1"
+      ? null
+      : (store) => createWebPush(store, process.env, pushContact()),
   appUrl: process.env.PUBLIC_URL || process.env.RENDER_EXTERNAL_URL || null,
 });
 

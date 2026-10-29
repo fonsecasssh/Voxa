@@ -4,9 +4,11 @@ export interface Features {
   gifs: boolean;
   /** E-mail (confirming an address, password recovery) is set up on the server. */
   email: boolean;
+  /** Push notifications to devices where Voxa is closed. */
+  push: boolean;
 }
 
-let current: Features = { gifs: false, email: false };
+let current: Features = { gifs: false, email: false, push: false };
 
 export const getFeatures = () => current;
 

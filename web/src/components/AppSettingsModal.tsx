@@ -7,8 +7,50 @@ import { Icon } from "./Icon.tsx";
 import { Modal } from "./Modals.tsx";
 import { install, isIos, isStandalone, useCanInstall } from "../pwa.ts";
 import { desktop } from "../desktop.ts";
+import { disablePush, enablePush, pushState, pushSupported, type PushState } from "../push.ts";
+import { getFeatures } from "../features.ts";
+import { useEffect, useState } from "react";
 
 const PREVIEW_SOUNDS: SoundName[] = ["join", "leave", "userJoin", "mute", "unmute", "message", "streamStart", "replay"];
+
+/** Push notifications on this device (DMs, mentions and calls with Voxa closed). */
+function PushSection() {
+  const [state, setState] = useState<PushState | "busy" | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    pushState().then(setState, () => setState("unsupported"));
+  }, []);
+  if (!getFeatures().push || !pushSupported() || state === null) return null;
+  const toggle = async () => {
+    setError(null);
+    const was = state;
+    setState("busy");
+    try {
+      if (was === "on") {
+        await disablePush();
+        setState("off");
+      } else setState(await enablePush());
+    } catch (err) {
+      setError((err as Error).message || "Não foi possível ativar as notificações.");
+      setState(was);
+    }
+  };
+  return (
+    <>
+      <div className="field-label">Notificações</div>
+      <label className="toggle-row compact">
+        <span>
+          Notificar neste dispositivo com o Voxa fechado
+          <span className="muted small block">Mensagens diretas, menções e chamadas, seguindo o que você silenciou.</span>
+        </span>
+        <input type="checkbox" checked={state === "on"} disabled={state === "busy" || state === "denied"} onChange={toggle} />
+      </label>
+      {state === "denied" && <p className="muted small">As notificações estão bloqueadas para este site. Libere nas configurações do navegador.</p>}
+      {isIos() && !isStandalone() && <p className="muted small">No iPhone, instale o Voxa na Tela de Início para receber notificações.</p>}
+      {error && <div className="form-error">{error}</div>}
+    </>
+  );
+}
 
 /** "Instalar o Voxa" on phones and browsers that allow it (the desktop app is already installed). */
 function InstallSection() {
@@ -107,6 +149,7 @@ export function AppSettingsModal({ onClose }: { onClose: () => void }) {
         ))}
       </div>
 
+      <PushSection />
       <InstallSection />
 
       <p className="muted small">Essas preferências valem para este dispositivo.</p>

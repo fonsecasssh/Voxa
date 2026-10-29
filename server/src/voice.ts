@@ -34,7 +34,7 @@ interface Session {
 
 const isStreamId = (v: unknown) => v === null || (typeof v === "string" && v.length <= 100);
 
-export function createVoice(io: IOServer, store: Store, sfu: Sfu | null = null) {
+export function createVoice(io: IOServer, store: Store, sfu: Sfu | null = null, onRing?: (channelId: string, from: PublicUser, userIds: string[]) => void) {
   const bySocket = new Map<string, Session>();
   const byUser = new Map<string, string>(); // userId -> socketId
   const channels = new Map<string, Map<string, VoiceMember>>(); // channelId -> socketId -> member
@@ -106,8 +106,10 @@ export function createVoice(io: IOServer, store: Store, sfu: Sfu | null = null) 
       broadcast(serverId, channel.id);
       // Starting a call in a DM rings everyone else there (not the caller's other devices).
       if (dmPeople && peers.length === 0) {
-        const others = dmPeople.filter((id) => id !== user.id).map((id) => `user:${id}`);
-        if (others.length) io.to(others).emit("call:ring", { channelId: channel.id, from: user });
+        // Not those who blocked the caller.
+        const others = dmPeople.filter((id) => id !== user.id && !store.hasBlocked(id, user.id));
+        if (others.length) io.to(others.map((id) => `user:${id}`)).emit("call:ring", { channelId: channel.id, from: user });
+        if (others.length) onRing?.(channel.id, user, others);
       }
     });
 

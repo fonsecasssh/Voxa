@@ -41,6 +41,14 @@ export interface Channel {
   roleIds: string[];
 }
 
+export type NotifyLevel = "all" | "mentions" | "none";
+
+export interface PushSubscriptionRow {
+  endpoint: string;
+  p256dh: string;
+  auth: string;
+}
+
 export interface Category {
   id: string;
   serverId: string;
@@ -388,6 +396,138 @@ export function createStore(db: DB) {
     passwordHash(userId: string): string | null {
       const r = db.prepare("SELECT password_hash FROM users WHERE id = ?").get(userId) as Row | undefined;
       return (r?.password_hash as string | undefined) ?? null;
+    },
+
+    // --- reading, notifications, blocks, push --------------------------------
+    /** Marks a channel read up to `at` (never moves backwards). */
+    markRead(userId: string, channelId: string, at: number): number {
+      db.prepare(
+        `INSERT INTO read_states (user_id, channel_id, last_read_at) VALUES (?, ?, ?)
+         ON CONFLICT (user_id, channel_id) DO UPDATE SET last_read_at = MAX(last_read_at, excluded.last_read_at)`,
+      ).run(userId, channelId, at);
+      return this.lastReadAt(userId, channelId);
+    },
+
+    /** When this person last read the channel (0 if never). */
+    lastReadAt(userId: string, channelId: string): number {
+      const r = db.prepare("SELECT last_read_at FROM read_states WHERE user_id = ? AND channel_id = ?").get(userId, channelId) as Row | undefined;
+      return (r?.last_read_at as number | undefined) ?? 0;
+    },
+
+    /**
+     * Channels with messages from others newer than where this person stopped reading,
+     * with how many of those mention them. A channel never opened counts from when they joined.
+     */
+    unreadFor(userId: string, channels: Channel[]): Record<string, { mentions: number; serverId: string | null }> {
+      const out: Record<string, { mentions: number; serverId: string | null }> = {};
+      const since = db.prepare(
+        `SELECT COALESCE(
+           (SELECT last_read_at FROM read_states WHERE user_id = ? AND channel_id = ?),
+           (SELECT joined_at FROM members WHERE user_id = ? AND server_id = ?),
+           (SELECT joined_at FROM dm_members WHERE user_id = ? AND channel_id = ?),
+           0) AS t`,
+      );
+      const newer = db.prepare(
+        `SELECT COUNT(*) AS n,
+                SUM(CASE WHEN mention_everyone = 1 OR instr(COALESCE(mentions, ''), ?) > 0 THEN 1 ELSE 0 END) AS m
+         FROM messages WHERE channel_id = ? AND created_at > ? AND author_id != ?
+           AND author_id NOT IN (SELECT blocked_id FROM blocks WHERE user_id = ?)`,
+      );
+      for (const c of channels) {
+        if (c.type === "voice") continue;
+        const t = (since.get(userId, c.id, userId, c.serverId, userId, c.id) as Row).t as number;
+        const r = newer.get(`"${userId}"`, c.id, t, userId, userId) as Row;
+        if ((r.n as number) > 0) out[c.id] = { mentions: (r.m as number | null) ?? 0, serverId: c.serverId };
+      }
+      return out;
+    },
+
+    /** Notification settings by target (server, channel or DM). */
+    notifySettings(userId: string): Record<string, { level: NotifyLevel | null; mutedUntil: number | null }> {
+      const out: Record<string, { level: NotifyLevel | null; mutedUntil: number | null }> = {};
+      for (const r of db.prepare("SELECT target_id, level, muted_until FROM notify_settings WHERE user_id = ?").all(userId) as Row[]) {
+        out[r.target_id as string] = { level: (r.level as NotifyLevel | null) ?? null, mutedUntil: (r.muted_until as number | null) ?? null };
+      }
+      return out;
+    },
+
+    setNotify(userId: string, targetId: string, level: NotifyLevel | null, mutedUntil: number | null): void {
+      if (level === null && mutedUntil === null) {
+        db.prepare("DELETE FROM notify_settings WHERE user_id = ? AND target_id = ?").run(userId, targetId);
+        return;
+      }
+      db.prepare(
+        `INSERT INTO notify_settings (user_id, target_id, level, muted_until) VALUES (?, ?, ?, ?)
+         ON CONFLICT (user_id, target_id) DO UPDATE SET level = excluded.level, muted_until = excluded.muted_until`,
+      ).run(userId, targetId, level, mutedUntil);
+    },
+
+    /**
+     * What a new message in this channel means for this person: muted (nothing), or
+     * notify for every message or only for mentions. The channel's setting wins over the
+     * server's; DMs notify every message by default, servers only mentions.
+     */
+    notifyFor(userId: string, channel: Channel, now = Date.now()): { muted: boolean; level: NotifyLevel } {
+      const settings = this.notifySettings(userId);
+      const ch = settings[channel.id];
+      const sv = channel.serverId ? settings[channel.serverId] : undefined;
+      const active = (s?: { mutedUntil: number | null }) => !!s?.mutedUntil && s.mutedUntil > now;
+      const level = ch?.level ?? sv?.level ?? (channel.serverId ? "mentions" : "all");
+      return { muted: active(ch) || active(sv) || level === "none", level };
+    },
+
+    block(userId: string, blockedId: string): void {
+      db.prepare("INSERT OR IGNORE INTO blocks (user_id, blocked_id, created_at) VALUES (?, ?, ?)").run(userId, blockedId, Date.now());
+    },
+
+    unblock(userId: string, blockedId: string): boolean {
+      return db.prepare("DELETE FROM blocks WHERE user_id = ? AND blocked_id = ?").run(userId, blockedId).changes > 0;
+    },
+
+    blockedIds(userId: string): string[] {
+      return (db.prepare("SELECT blocked_id FROM blocks WHERE user_id = ? ORDER BY created_at").all(userId) as Row[]).map((r) => r.blocked_id as string);
+    },
+
+    blockedUsers(userId: string): PublicUser[] {
+      return (db.prepare("SELECT u.* FROM blocks b JOIN users u ON u.id = b.blocked_id WHERE b.user_id = ? ORDER BY b.created_at").all(userId) as Row[]).map((r) => toUser(r));
+    },
+
+    /** Whether either of the two blocked the other. */
+    blockedBetween(a: string, b: string): boolean {
+      return db.prepare("SELECT 1 FROM blocks WHERE (user_id = ? AND blocked_id = ?) OR (user_id = ? AND blocked_id = ?)").get(a, b, b, a) !== undefined;
+    },
+
+    hasBlocked(userId: string, otherId: string): boolean {
+      return db.prepare("SELECT 1 FROM blocks WHERE user_id = ? AND blocked_id = ?").get(userId, otherId) !== undefined;
+    },
+
+    addPushSubscription(userId: string, sub: PushSubscriptionRow): void {
+      db.prepare(
+        `INSERT INTO push_subscriptions (endpoint, user_id, p256dh, auth, created_at) VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT (endpoint) DO UPDATE SET user_id = excluded.user_id, p256dh = excluded.p256dh, auth = excluded.auth`,
+      ).run(sub.endpoint, userId, sub.p256dh, sub.auth, Date.now());
+    },
+
+    removePushSubscription(endpoint: string, userId?: string): void {
+      if (userId) db.prepare("DELETE FROM push_subscriptions WHERE endpoint = ? AND user_id = ?").run(endpoint, userId);
+      else db.prepare("DELETE FROM push_subscriptions WHERE endpoint = ?").run(endpoint);
+    },
+
+    pushSubscriptions(userId: string): PushSubscriptionRow[] {
+      return (db.prepare("SELECT endpoint, p256dh, auth FROM push_subscriptions WHERE user_id = ?").all(userId) as Row[]).map((r) => ({
+        endpoint: r.endpoint as string,
+        p256dh: r.p256dh as string,
+        auth: r.auth as string,
+      }));
+    },
+
+    getSetting(key: string): string | null {
+      const r = db.prepare("SELECT value FROM settings WHERE key = ?").get(key) as Row | undefined;
+      return (r?.value as string | undefined) ?? null;
+    },
+
+    setSetting(key: string, value: string): void {
+      db.prepare("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value").run(key, value);
     },
 
     // --- e-mail -------------------------------------------------------------

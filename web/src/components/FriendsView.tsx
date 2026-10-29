@@ -1,9 +1,10 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { api, type Friend, type Presence, type User } from "../api.ts";
 import { Avatar, presenceText } from "./Avatar.tsx";
 import { MobileNavButton } from "./MobileNav.tsx";
+import { useBlocked } from "../blocking.ts";
 
-type Tab = "online" | "all" | "pending" | "add";
+type Tab = "online" | "all" | "pending" | "blocked" | "add";
 
 interface Props {
   friends: Friend[] | null;
@@ -33,6 +34,7 @@ export function FriendsView({ friends, presence, onOpenDm }: Props) {
     { id: "online", label: "Online" },
     { id: "all", label: "Todos" },
     { id: "pending", label: "Pendentes", count: pending.filter((f) => f.state === "incoming").length },
+    { id: "blocked", label: "Bloqueados" },
   ];
 
   return (
@@ -56,6 +58,8 @@ export function FriendsView({ friends, presence, onOpenDm }: Props) {
       <div className="friends-body">
         {tab === "add" ? (
           <AddFriend />
+        ) : tab === "blocked" ? (
+          <BlockedList />
         ) : (
           <>
             <div className="group-label">
@@ -105,6 +109,16 @@ export function FriendsView({ friends, presence, onOpenDm }: Props) {
                         ✓
                       </button>
                     )}
+                    {f.state === "accepted" && (
+                      <button
+                        className="round-icon"
+                        title="Bloquear"
+                        aria-label={`Bloquear ${f.user.displayName}`}
+                        onClick={() => confirm(`Bloquear ${f.user.displayName}? Vocês deixam de ser amigos e não podem trocar DMs.`) && act(() => api.block(f.user.id))}
+                      >
+                        ⛔
+                      </button>
+                    )}
                     <button
                       className="round-icon danger"
                       title={f.state === "accepted" ? "Desfazer amizade" : f.state === "incoming" ? "Recusar" : "Cancelar pedido"}
@@ -123,6 +137,42 @@ export function FriendsView({ friends, presence, onOpenDm }: Props) {
         )}
       </div>
     </main>
+  );
+}
+
+/** People you blocked, with "Desbloquear". */
+function BlockedList() {
+  const ids = useBlocked();
+  const [users, setUsers] = useState<User[] | null>(null);
+  useEffect(() => {
+    api.blocks().then((r) => setUsers(r.users), () => setUsers([]));
+  }, [ids]);
+  return (
+    <>
+      <div className="group-label">Bloqueados — {users?.length ?? 0}</div>
+      {users === null ? (
+        <p className="muted">Carregando…</p>
+      ) : users.length === 0 ? (
+        <p className="muted empty-state">Você não bloqueou ninguém.</p>
+      ) : (
+        users.map((u) => (
+          <div key={u.id} className="friend-row">
+            <Avatar name={u.displayName} id={u.id} size={36} src={u.avatar} />
+            <div className="friend-names">
+              <strong className="ellipsis">
+                {u.displayName} <span className="muted small">@{u.username}</span>
+              </strong>
+              <span className="muted small">Bloqueado</span>
+            </div>
+            <div className="friend-actions">
+              <button className="btn subtle small" onClick={() => api.unblock(u.id)}>
+                Desbloquear
+              </button>
+            </div>
+          </div>
+        ))
+      )}
+    </>
   );
 }
 

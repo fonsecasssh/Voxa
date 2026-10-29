@@ -7,6 +7,8 @@ import type { VoiceMember } from "../voice/types.ts";
 import { Avatar } from "./Avatar.tsx";
 import { Icon } from "./Icon.tsx";
 import { useUserVolumeMenu, useUserVolumes } from "./UserVolumeMenu.tsx";
+import { isMuted, notifyFor, type NotifySettings } from "../notifications.ts";
+import type { NotifyTarget } from "./NotifyModal.tsx";
 
 interface Props {
   details: ServerDetails;
@@ -15,6 +17,9 @@ interface Props {
   /** In a category, or above all of them (null). */
   onCreateChannel: (categoryId: string | null) => void;
   onCreateCategory: () => void;
+  /** Notification settings: for the server (menu) or a channel (right-click). */
+  notify: NotifySettings;
+  onNotify: (target: NotifyTarget) => void;
   onEditCategory: (category: Category) => void;
   onInvite: () => void;
   onOpenSettings: () => void;
@@ -132,7 +137,18 @@ export function ChannelSidebar(props: Props) {
     return (
       <div key={c.id} className={`channel-item ${drag?.id === c.id ? "dragging" : ""}`} {...dropZone({ kind: "channel", id: c.id }, "channel")}>
         {isDrop({ kind: "channel", id: c.id }) && <div className="drop-line" />}
-        <div className={`channel-row ${c.id === activeChannelId ? "active" : ""}`} {...draggable({ kind: "channel", id: c.id })}>
+        <div
+          className={`channel-row ${c.id === activeChannelId ? "active" : ""} ${notifyFor(props.notify, c.id, details.server.id).muted ? "muted-channel" : ""}`}
+          {...draggable({ kind: "channel", id: c.id })}
+          onContextMenu={
+            c.type === "text"
+              ? (e) => {
+                  e.preventDefault();
+                  props.onNotify({ id: c.id, kind: "channel", label: `#${c.name}` });
+                }
+              : undefined
+          }
+        >
           <button
             className={`channel ${c.id === activeChannelId ? "active" : ""} ${props.unread.has(c.id) && c.id !== activeChannelId ? "unread" : ""}`}
             onClick={() => open(c)}
@@ -142,6 +158,11 @@ export function ChannelSidebar(props: Props) {
             {c.private && (
               <span className="channel-lock" title="Canal privado">
                 <Icon name="lock" size={12} />
+              </span>
+            )}
+            {isMuted(props.notify, c.id) && (
+              <span className="channel-lock" title="Silenciado">
+                <Icon name="bellOff" size={12} />
               </span>
             )}
             {!!props.mentionCounts[c.id] && c.id !== activeChannelId && (
@@ -231,6 +252,7 @@ function ServerMenu({
   onCreateCategory,
   onEditNickname,
   onLeave,
+  ...props
 }: Props & { perms: number }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -273,6 +295,9 @@ function ServerMenu({
       {open && (
         <div className="dropdown" role="menu">
           {item("Convidar pessoas", onInvite, "accent")}
+          {item(isMuted(props.notify, details.server.id) ? "Notificações (silenciado)" : "Notificações", () =>
+            props.onNotify({ id: details.server.id, kind: "server", label: details.server.name }),
+          )}
           {canOpenSettings(details, selfId) && item("Configurações do servidor", onOpenSettings)}
           {can(perms, Permission.MANAGE_CHANNELS) && item("Criar canal", () => onCreateChannel(null))}
           {can(perms, Permission.MANAGE_CHANNELS) && item("Criar categoria", onCreateCategory)}

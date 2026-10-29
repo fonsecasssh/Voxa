@@ -1,6 +1,7 @@
 import { io, type Socket } from "socket.io-client";
 import type { Category, Channel, DmSummary, FriendState, MemberData, Message, Presence, Role, Server, User, Reaction } from "./api.ts";
 import type { VoiceMember } from "./voice/types.ts";
+import type { NotifySettings } from "./notifications.ts";
 
 export interface ServerToClient {
   "message:new": (m: Message) => void;
@@ -14,6 +15,10 @@ export interface ServerToClient {
   presence: (p: { userId: string; presence: Presence }) => void;
   "friend:update": (p: { user: User; state: FriendState | null; presence: Presence | null }) => void;
   "dm:new": (dm: DmSummary) => void;
+  /** You read a channel on another device. */
+  "channel:read": (p: { channelId: string; at: number }) => void;
+  "notify:update": (settings: NotifySettings) => void;
+  "blocks:update": (p: { blocked: string[] }) => void;
   "dm:update": (dm: DmSummary) => void;
   /** We left or were removed from a group DM (or it was deleted). */
   "dm:remove": (p: { channelId: string }) => void;
