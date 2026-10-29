@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { ListSkeleton } from "./Skeleton.tsx";
 import { dmTitle, type DmSummary, type Presence } from "../api.ts";
 import { navigate } from "../router.ts";
 import type { VoiceMember } from "../voice/types.ts";
@@ -43,7 +44,7 @@ export function HomeSidebar({ dms, presence, unread, activeChannelId, pendingCou
           </button>
         </div>
         {dms === null ? (
-          <p className="muted small pad-x">Carregando…</p>
+          <ListSkeleton count={7} />
         ) : dms.length === 0 ? (
           <p className="muted small pad-x">Nenhuma conversa ainda. Abra uma pela lista de amigos ou de membros.</p>
         ) : (

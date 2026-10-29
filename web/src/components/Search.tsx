@@ -1,6 +1,7 @@
 // Message search: the box in the header, and the results beside the chat (like Discord).
 // Filters: de:usuario, em:canal, tem:arquivo|imagem|video|link|replay.
 
+import { EmptyState } from "./EmptyState.tsx";
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { api, type Message, type ServerDetails } from "../api.ts";
 import { memberName } from "../members.ts";
@@ -110,7 +111,11 @@ export function SearchPanel({
         Filtros: <code>de:usuario</code> <code>em:canal</code> <code>tem:imagem</code> <code>tem:link</code>
       </p>
       {error && <div className="form-error">{error}</div>}
-      {results?.messages.length === 0 && <p className="muted empty-state">Nada encontrado.</p>}
+      {results?.messages.length === 0 && (
+        <EmptyState icon="search" title="Nada encontrado" compact>
+          Tente outras palavras ou tire algum filtro.
+        </EmptyState>
+      )}
       <div className="search-results">
         {results?.messages.map((m) => {
           const where = channelName(m.channelId);

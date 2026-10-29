@@ -1,6 +1,7 @@
 // The logged-in app: server rail, sidebars, chat / voice / friends views and member list.
 // Owns the socket and keeps the caches below fresh from its events.
 
+import { MessageSkeleton, ServerSkeleton } from "./Skeleton.tsx";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   api,
@@ -831,6 +832,7 @@ export function Shell({
       onJumpToMessage={(id) => jumpToMessage(channel.id, id)}
       canPin={!current || dm !== undefined || can(myPermissions(current, user.id), Permission.MANAGE_MESSAGES)}
       onPin={(m, pinned) => api.pin(channel.id, m.id, pinned).then(() => {})}
+      onInvite={current ? () => setModal({ kind: "invite" }) : undefined}
       headerActions={
         <>
           <PinsButton
@@ -957,9 +959,18 @@ export function Shell({
         />
         {channelId ? (
           (chat ?? (
-            <main className="main placeholder">
-              <p className="muted">{dms === null ? "Carregando…" : "Conversa não encontrada."}</p>
-            </main>
+            dms === null ? (
+              <main className="main">
+                <div className="chat-header" />
+                <div className="skeleton-main">
+                  <MessageSkeleton />
+                </div>
+              </main>
+            ) : (
+              <main className="main placeholder">
+                <p className="muted">Conversa não encontrada.</p>
+              </main>
+            )
           ))
         ) : (
           <FriendsView friends={friends} presence={presence} onOpenDm={openDm} />
@@ -1007,10 +1018,16 @@ export function Shell({
   } else {
     body = (
       <>
-        <aside className="sidebar">{footer}</aside>
-        <main className="main placeholder">
-          <p className="muted">{loadError ?? "Carregando…"}</p>
-        </main>
+        {loadError ? (
+          <>
+            <aside className="sidebar">{footer}</aside>
+            <main className="main placeholder">
+              <p className="muted">{loadError}</p>
+            </main>
+          </>
+        ) : (
+          <ServerSkeleton footer={footer} />
+        )}
       </>
     );
   }
@@ -1055,7 +1072,7 @@ export function Shell({
         </div>
       )}
       <div
-        className={`shell ${current || search || (dm?.group && showGroupMembers) ? "" : "no-members"} ${navOpen ? "nav-open" : ""} ${search ? "searching" : ""}`}
+        className={`shell ${current || search || (dm?.group && showGroupMembers) || (!isHome && !loadError) ? "" : "no-members"} ${navOpen ? "nav-open" : ""} ${search ? "searching" : ""}`}
         // Phones: picking a channel or conversation shows it.
         onClick={(e) => (e.target as Element).closest?.(".sidebar .channel, .sidebar .channel.dm") && setNavOpen(false)}
       >

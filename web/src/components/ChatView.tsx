@@ -1,4 +1,6 @@
 import { useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { EmptyArt } from "./EmptyState.tsx";
+import { MessageSkeleton } from "./Skeleton.tsx";
 import { MAX_FILES_PER_MESSAGE, api, dmTitle, type DmSummary, type Channel, type FileAttachment, type Message, type User, type ServerDetails } from "../api.ts";
 import { Lightbox, PendingTray, usePendingFiles } from "./Attachments.tsx";
 import { Avatar } from "./Avatar.tsx";
@@ -56,6 +58,8 @@ interface Props {
   /** People you blocked: their messages are folded away. */
   blocked: Set<string>;
   onUnblock: (userId: string) => void;
+  /** Inviting people to the server (shown on an empty channel). */
+  onInvite?: () => void;
   /** People who can be @mentioned here (server members, or the DM's two). */
   mentionables: Mentionable[];
   canMentionEveryone: boolean;
@@ -469,7 +473,7 @@ export function ChatView(props: Props) {
           </div>
         )}
         {!messages ? (
-          <p className="muted center pad">Carregando mensagens…</p>
+          <MessageSkeleton />
         ) : (
           <>
             {hasMore ? (
@@ -496,9 +500,31 @@ export function ChatView(props: Props) {
                   </>
                 ) : (
                   <>
-                    <div className="channel-intro-icon">{isThread ? <Icon name="thread" size={32} /> : "#"}</div>
+                    {messages.length === 0 && !isThread ? (
+                      <EmptyArt icon="smile" />
+                    ) : (
+                      <div className="channel-intro-icon">{isThread ? <Icon name="thread" size={32} /> : "#"}</div>
+                    )}
                     <h2>{isThread ? channel.name : `Boas-vindas a #${channel.name}!`}</h2>
-                    <p className="muted">{isThread ? `Começo do tópico em #${props.parentName ?? ""}.` : "Este é o começo do canal."}</p>
+                    <p className="muted">
+                      {isThread
+                        ? `Começo do tópico em #${props.parentName ?? ""}.`
+                        : messages.length === 0
+                          ? "Este é o começo do canal. Que tal mandar a primeira mensagem?"
+                          : "Este é o começo do canal."}
+                    </p>
+                    {messages.length === 0 && !isThread && (
+                      <div className="empty-actions">
+                        {props.onInvite && (
+                          <button type="button" className="btn primary" onClick={props.onInvite}>
+                            <Icon name="userPlus" size={16} /> Convidar amigos
+                          </button>
+                        )}
+                        <button type="button" className="btn subtle" onClick={() => textarea.current?.focus()}>
+                          Escrever a primeira mensagem
+                        </button>
+                      </div>
+                    )}
                   </>
                 )}
               </div>

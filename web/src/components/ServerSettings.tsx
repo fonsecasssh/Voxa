@@ -1,5 +1,7 @@
 // Full-screen server settings, like Discord's: overview (name), roles and members.
 
+import { EmptyState } from "./EmptyState.tsx";
+import { ListSkeleton } from "./Skeleton.tsx";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { PERMISSION_INFO, Permission as P } from "../../../shared/permissions.ts";
 import { api, type Ban, type Invite, type Presence, type Role, type ServerDetails, type ServerImageKind, type Sound, type User } from "../api.ts";
@@ -605,9 +607,11 @@ function Invites({ details }: { details: ServerDetails }) {
       <p className="muted">Links que ainda funcionam. Revogue um link para ele parar de funcionar na hora.</p>
       {error && <div className="form-error">{error}</div>}
       {invites === null ? (
-        <p className="muted">Carregando…</p>
+        <ListSkeleton count={4} twoLines />
       ) : invites.length === 0 ? (
-        <p className="muted">Nenhum convite ativo. Crie um em "Convidar pessoas".</p>
+        <EmptyState icon="userPlus" title="Nenhum convite ativo" compact>
+          Crie um em "Convidar pessoas", no menu do servidor.
+        </EmptyState>
       ) : (
         <div className="settings-list">
           {invites.map((i) => (
@@ -668,7 +672,7 @@ function Bans({ details }: { details: ServerDetails }) {
       <p className="muted">Pessoas banidas não conseguem voltar ao servidor com nenhum convite até o banimento ser revogado.</p>
       {error && <div className="form-error">{error}</div>}
       {bans === null ? (
-        <p className="muted">Carregando…</p>
+        <ListSkeleton count={4} twoLines />
       ) : bans.length === 0 ? (
         <p className="muted">Ninguém banido.</p>
       ) : (
@@ -741,7 +745,11 @@ function Emojis({ details }: { details: ServerDetails }) {
       </button>
       {error && <div className="form-error">{error}</div>}
       <div className="settings-list">
-        {all.length === 0 && <p className="muted">Nenhum emoji ainda.</p>}
+        {all.length === 0 && (
+          <EmptyState icon="smile" title="Nenhum emoji ainda" compact>
+            Envie uma imagem para criar o primeiro emoji do servidor.
+          </EmptyState>
+        )}
         {all.map((e) => (
           <div key={e.id} className="settings-list-row emoji-row">
             <img src={e.url} alt="" className="custom-emoji big" />
@@ -876,7 +884,11 @@ function Sounds({ details }: { details: ServerDetails }) {
       )}
       {error && <div className="form-error">{error}</div>}
       <div className="settings-list">
-        {sounds?.length === 0 && <p className="muted">Nenhum som ainda. Os sons padrão do Voxa estão sempre disponíveis.</p>}
+        {sounds?.length === 0 && (
+          <EmptyState icon="soundboard" title="Nenhum som ainda" compact>
+            Os sons padrão do Voxa estão sempre disponíveis; os do servidor aparecem aqui.
+          </EmptyState>
+        )}
         {sounds?.map((s) =>
           editing?.id === s.id ? (
             <form

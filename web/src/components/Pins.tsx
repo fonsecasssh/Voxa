@@ -1,5 +1,7 @@
 // The pinned messages of a channel, from the pin button in the header.
 
+import { EmptyState } from "./EmptyState.tsx";
+import { ListSkeleton } from "./Skeleton.tsx";
 import { useEffect, useRef, useState } from "react";
 import { api, type Message, type ServerDetails } from "../api.ts";
 import { memberName } from "../members.ts";
@@ -62,9 +64,11 @@ export function PinsButton({
           </header>
           {error && <div className="form-error">{error}</div>}
           {pins === null ? (
-            <p className="muted small pad">Carregando…</p>
+            <ListSkeleton count={3} twoLines />
           ) : pins.length === 0 ? (
-            <p className="muted small pad">Nenhuma mensagem fixada aqui ainda.{canPin ? " Passe o mouse numa mensagem e clique no alfinete." : ""}</p>
+            <EmptyState icon="pin" title="Nada fixado ainda" compact>
+              {canPin ? "Passe o mouse numa mensagem e clique no alfinete para guardá-la aqui." : "As mensagens importantes fixadas neste canal aparecem aqui."}
+            </EmptyState>
           ) : (
             <div className="pins-list">
               {pins.map((m) => (

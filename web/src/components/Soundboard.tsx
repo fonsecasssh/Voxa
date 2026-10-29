@@ -84,7 +84,11 @@ export function SoundboardPanel({
           <>
             <div className="group-label">{serverName ?? "Servidor"}</div>
             {sounds === null ? (
-              <p className="muted small">Carregando…</p>
+              <div className="sound-grid">
+                {[0, 1].map((i) => (
+                  <span key={i} className="sk" style={{ height: 38, borderRadius: 8 }} />
+                ))}
+              </div>
             ) : sounds.length === 0 ? (
               <p className="muted small">Nenhum som próprio ainda. Quem pode gerenciar emojis e sons adiciona em Configurações do servidor → Sons.</p>
             ) : (

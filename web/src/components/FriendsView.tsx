@@ -1,4 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
+import { EmptyState } from "./EmptyState.tsx";
+import { ListSkeleton } from "./Skeleton.tsx";
 import { api, type Friend, type Presence, type User } from "../api.ts";
 import { Avatar, presenceText } from "./Avatar.tsx";
 import { PresenceLine } from "./CustomStatus.tsx";
@@ -68,15 +70,37 @@ export function FriendsView({ friends, presence, onOpenDm }: Props) {
             </div>
             {error && <div className="form-error">{error}</div>}
             {friends === null ? (
-              <p className="muted">Carregando…</p>
+              <ListSkeleton count={6} avatar={36} twoLines />
             ) : shown.length === 0 ? (
-              <p className="muted empty-state">
-                {tab === "pending"
-                  ? "Nenhum pedido de amizade pendente."
-                  : tab === "online"
-                    ? "Nenhum amigo online agora."
-                    : "Você ainda não tem amigos aqui. Que tal adicionar alguém?"}
-              </p>
+              tab === "pending" ? (
+                <EmptyState icon="userPlus" title="Nenhum pedido pendente">
+                  Pedidos de amizade que você receber ou enviar aparecem aqui.
+                </EmptyState>
+              ) : accepted.length === 0 ? (
+                <EmptyState
+                  icon="users"
+                  title="Você ainda não tem amigos aqui"
+                  actions={
+                    <button className="btn primary" onClick={() => setTab("add")}>
+                      Adicionar amigo
+                    </button>
+                  }
+                >
+                  Adicione alguém pelo nome de usuário para conversar e ligar direto.
+                </EmptyState>
+              ) : (
+                <EmptyState
+                  icon="users"
+                  title="Ninguém online agora"
+                  actions={
+                    <button className="btn subtle" onClick={() => setTab("all")}>
+                      Ver todos os amigos
+                    </button>
+                  }
+                >
+                  Quando seus amigos entrarem, eles aparecem aqui.
+                </EmptyState>
+              )
             ) : (
               shown.map((f) => (
                 <div key={f.user.id} className="friend-row">
@@ -156,9 +180,11 @@ function BlockedList() {
     <>
       <div className="group-label">Bloqueados — {users?.length ?? 0}</div>
       {users === null ? (
-        <p className="muted">Carregando…</p>
+        <ListSkeleton count={3} avatar={36} twoLines />
       ) : users.length === 0 ? (
-        <p className="muted empty-state">Você não bloqueou ninguém.</p>
+        <EmptyState icon="lock" title="Ninguém bloqueado">
+          Quem você bloquear aparece aqui, para desbloquear quando quiser.
+        </EmptyState>
       ) : (
         users.map((u) => (
           <div key={u.id} className="friend-row">
