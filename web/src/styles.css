@@ -4834,6 +4834,12 @@ button.poll-option:hover,
   z-index: 20;
   text-align: left;
 }
+.soundboard.from-panel {
+  left: 0;
+  bottom: calc(100% + 8px);
+  transform: none;
+  width: 340px;
+}
 .soundboard-title {
   font-weight: 700;
 }

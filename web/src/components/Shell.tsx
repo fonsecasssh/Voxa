@@ -792,9 +792,14 @@ export function Shell({
       onAppSettings={() => setModal({ kind: "appSettings" })}
       voiceLocation={
         voiceServer && voiceChannel
-          ? { label: `${voiceChannel.name} / ${voiceServer.server.name}`, path: `/channels/${voiceServer.server.id}/${voiceChannel.id}` }
+          ? {
+              label: `${voiceChannel.name} / ${voiceServer.server.name}`,
+              path: `/channels/${voiceServer.server.id}/${voiceChannel.id}`,
+              serverId: voiceServer.server.id,
+              serverName: voiceServer.server.name,
+            }
           : voiceDm
-            ? { label: `Chamada / ${dmTitle(voiceDm)}`, path: `/channels/${HOME}/${voiceDm.channel.id}` }
+            ? { label: `Chamada / ${dmTitle(voiceDm)}`, path: `/channels/${HOME}/${voiceDm.channel.id}`, serverId: null }
             : null
       }
       onLogout={onLogout}

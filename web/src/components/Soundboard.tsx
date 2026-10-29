@@ -6,7 +6,21 @@ import { api, type Sound } from "../api.ts";
 import { DEFAULT_SOUNDS, SOUNDBOARD_COOLDOWN_MS, playBoardSound } from "../soundboard.ts";
 import { useVoice } from "../voice/useVoice.ts";
 
-export function SoundboardPanel({ serverId, serverName, onClose }: { serverId: string | null; serverName?: string; onClose: () => void }) {
+export function SoundboardPanel({
+  serverId,
+  serverName,
+  onClose,
+  className = "",
+  toggle = ".soundboard-toggle",
+}: {
+  serverId: string | null;
+  serverName?: string;
+  onClose: () => void;
+  /** Where it opens (by default above the call controls). */
+  className?: string;
+  /** The button that opens it (clicks on it don't count as clicking outside). */
+  toggle?: string;
+}) {
   const [voice, vs] = useVoice();
   const [sounds, setSounds] = useState<Sound[] | null>(serverId ? null : []);
   const [error, setError] = useState<string | null>(null);
@@ -21,7 +35,7 @@ export function SoundboardPanel({ serverId, serverName, onClose }: { serverId: s
   useEffect(() => {
     const outside = (e: MouseEvent) => {
       const t = e.target as Element;
-      if (!ref.current?.contains(t) && !t.closest(".soundboard-toggle")) onClose();
+      if (!ref.current?.contains(t) && !t.closest(toggle)) onClose();
     };
     const esc = (e: KeyboardEvent) => e.key === "Escape" && onClose();
     document.addEventListener("mousedown", outside);
@@ -30,7 +44,7 @@ export function SoundboardPanel({ serverId, serverName, onClose }: { serverId: s
       document.removeEventListener("mousedown", outside);
       window.removeEventListener("keydown", esc);
     };
-  }, [onClose]);
+  }, [onClose, toggle]);
 
   const play = async (id: string) => {
     setError(null);
@@ -61,7 +75,7 @@ export function SoundboardPanel({ serverId, serverName, onClose }: { serverId: s
   );
 
   return (
-    <div className="soundboard" ref={ref} role="dialog" aria-label="Soundboard">
+    <div className={`soundboard ${className}`} ref={ref} role="dialog" aria-label="Soundboard">
       <div className="soundboard-title">Soundboard</div>
       {vs.deafened && <p className="muted small">Ative o áudio para usar o soundboard.</p>}
       {error && <div className="form-error">{error}</div>}

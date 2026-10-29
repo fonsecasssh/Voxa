@@ -12,6 +12,7 @@ import { useAudioSettings } from "../voice/useAudioSettings.ts";
 import { audioSettings, bindingLabel, type NoiseSuppression } from "../voice/audioSettings.ts";
 import { replay, useReplay } from "../replay/replay.ts";
 import { useReplaySettings } from "../replay/useReplaySettings.ts";
+import { SoundboardPanel } from "./Soundboard.tsx";
 import { CustomStatusModal, StatusEmoji, activeCustom } from "./CustomStatus.tsx";
 
 interface Props {
@@ -19,8 +20,8 @@ interface Props {
   status: UserStatus;
   activity: Activity | null;
   customStatus: CustomStatus | null;
-  /** Where the active voice connection is, e.g. "Geral / Squad", and its URL. */
-  voiceLocation: { label: string; path: string } | null;
+  /** Where the active voice connection is, e.g. "Geral / Squad", its URL, and its server (null in a DM call). */
+  voiceLocation: { label: string; path: string; serverId: string | null; serverName?: string } | null;
   setPresence: SetPresence;
   onEditProfile: () => void;
   onVoiceSettings: () => void;
@@ -39,6 +40,7 @@ export function SidebarFooter({ user, status, activity, customStatus, voiceLocat
   const settings = useAudioSettings();
   const [menuOpen, setMenuOpen] = useState(false);
   const [editingCustom, setEditingCustom] = useState(false);
+  const [board, setBoard] = useState(false);
   const custom = activeCustom(customStatus);
   const inVoice = vs.status !== "idle";
   const connected = vs.status === "connected";
@@ -151,15 +153,26 @@ export function SidebarFooter({ user, status, activity, customStatus, voiceLocat
               <Icon name="mic" />
             </button>
             <button
-              className="action-btn"
-              title="Ir para o canal de voz"
-              disabled={!voiceLocation}
-              onClick={() => voiceLocation && navigate(voiceLocation.path)}
+              className={`action-btn panel-soundboard-toggle ${board ? "live" : ""}`}
+              title="Soundboard"
+              aria-expanded={board}
+              disabled={!connected}
+              onClick={() => setBoard((b) => !b)}
             >
-              <Icon name="arrowRight" />
+              <Icon name="soundboard" />
             </button>
           </div>
         </section>
+      )}
+
+      {board && inVoice && (
+        <SoundboardPanel
+          serverId={voiceLocation?.serverId ?? null}
+          serverName={voiceLocation?.serverName}
+          className="from-panel"
+          toggle=".panel-soundboard-toggle"
+          onClose={() => setBoard(false)}
+        />
       )}
 
       {editingCustom && (
