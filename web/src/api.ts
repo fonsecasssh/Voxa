@@ -27,7 +27,7 @@ export interface Server {
 
 export type ServerImageKind = "banner" | "icon";
 
-export type ChannelType = "text" | "voice" | "dm";
+export type ChannelType = "text" | "voice" | "dm" | "thread";
 
 export interface Channel {
   id: string;
@@ -37,6 +37,10 @@ export interface Channel {
   type: ChannelType;
   position: number;
   categoryId: string | null;
+  /** Threads: their channel, the message they started from, and who started them. */
+  parentId?: string | null;
+  starterMessageId?: string | null;
+  creatorId?: string | null;
   /** Only the owner, administrators and the roles in roleIds see a private channel. */
   private: boolean;
   roleIds: string[];
@@ -104,6 +108,8 @@ export interface Message {
   pinnedAt: number | null;
   /** Previews of the links in it (they arrive a moment after the message). */
   embeds: LinkEmbed[];
+  /** The thread started from this message. */
+  thread: { id: string; name: string; count: number; lastAt: number | null } | null;
   /** Only on live "message:new" events: the server of the channel (null in DMs). */
   serverId?: string | null;
 }
@@ -297,6 +303,8 @@ export const api = {
   addEmoji: (serverId: string, name: string, image: Blob) => request<{ emoji: CustomEmoji }>("POST", `/api/servers/${serverId}/emojis?name=${encodeURIComponent(name)}`, image),
   renameEmoji: (id: string, name: string) => request<{ emoji: CustomEmoji }>("PATCH", `/api/emojis/${id}`, { name }),
   deleteEmoji: (id: string) => request<void>("DELETE", `/api/emojis/${id}`),
+  createThread: (channelId: string, name: string, messageId: string | null) =>
+    request<{ channel: Channel }>("POST", `/api/channels/${channelId}/threads`, { name, messageId }),
   pins: (channelId: string) => request<{ messages: Message[] }>("GET", `/api/channels/${channelId}/pins`),
   pin: (channelId: string, messageId: string, pinned: boolean) =>
     request<{ message: Message }>(pinned ? "PUT" : "DELETE", `/api/channels/${channelId}/pins/${messageId}`),

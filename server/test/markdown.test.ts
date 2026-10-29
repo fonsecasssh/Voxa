@@ -16,6 +16,8 @@ function show(nodes: MdNode[]): string {
           return `<a ${n.href}>${n.text}</a>`;
         case "mention":
           return `<@${n.name}>`;
+        case "emoji":
+          return `<emoji ${n.name}>`;
         default:
           return `<${n.t}>${show(n.c)}</${n.t}>`;
       }

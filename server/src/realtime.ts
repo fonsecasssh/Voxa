@@ -61,7 +61,9 @@ export function registerRealtime(
 
   /** Rooms that receive a channel's messages and typing indicators (a private channel: only who sees it). */
   const channelRooms = (channel: Channel): string[] => {
-    if (channel.serverId && !channel.private) return [`server:${channel.serverId}`];
+    // A thread goes where its channel goes.
+    const where = channel.type === "thread" && channel.parentId ? (store.channelById(channel.parentId) ?? channel) : channel;
+    if (where.serverId && !where.private) return [`server:${where.serverId}`];
     return store.channelViewers(channel).map((id) => `user:${id}`);
   };
 

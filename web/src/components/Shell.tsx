@@ -41,7 +41,7 @@ import { Icon } from "./Icon.tsx";
 import { MobileNavContext } from "./MobileNav.tsx";
 import type { VoiceMember } from "../voice/types.ts";
 import { CreateServerModal, NicknameModal, ProfileModal } from "./Modals.tsx";
-import { CategoryModal, CreateChannelModal, EditChannelModal, InviteModal } from "./ChannelModals.tsx";
+import { CategoryModal, CreateChannelModal, EditChannelModal, InviteModal, ThreadModal } from "./ChannelModals.tsx";
 import { ServerSettings } from "./ServerSettings.tsx";
 import { VoiceSettingsModal } from "./VoiceSettingsModal.tsx";
 import type { Category, Channel } from "../api.ts";
@@ -70,6 +70,7 @@ type ModalKind =
   | { kind: "createChannel"; categoryId: string | null }
   | { kind: "editChannel"; channel: Channel }
   | { kind: "notify"; target: NotifyTarget }
+  | { kind: "thread"; channel: Channel; message: Message }
   /** Create a category, or edit `category`. */
   | { kind: "category"; category?: Category }
   /** Start a group DM, or add people to one (`dm` is where the button was). */
@@ -780,7 +781,17 @@ export function Shell({
       lastReadAt={messages[channel.id]?.lastReadAt}
       blocked={blocked}
       onUnblock={(id) => api.unblock(id).catch((e) => alert((e as Error).message))}
-      onRename={dm?.group ? (name) => api.renameGroupDm(dm.channel.id, name).then(() => {}) : undefined}
+      onRename={
+        dm?.group
+          ? (name) => api.renameGroupDm(dm.channel.id, name).then(() => {})
+          : channel.type === "thread" && current && (channel.creatorId === user.id || can(myPermissions(current, user.id), Permission.MANAGE_MESSAGES))
+            ? (name) => api.updateChannel(channel.id, { name: name || channel.name }).then(() => {})
+            : undefined
+      }
+      parentName={channel.type === "thread" ? current?.channels.find((c) => c.id === channel.parentId)?.name : undefined}
+      onOpenParent={() => current && channel.parentId && navigate(`/channels/${current.server.id}/${channel.parentId}`)}
+      onStartThread={current && channel.type === "text" ? (m) => setModal({ kind: "thread", channel, message: m }) : undefined}
+      onOpenThread={(id) => current && navigate(`/channels/${current.server.id}/${id}`)}
       focus={focus && focus.channelId === channel.id ? focus : undefined}
       hasNewer={messages[channel.id]?.hasNewer}
       onJumpToPresent={() => loadMessages(channel.id).catch(() => {})}
@@ -1075,6 +1086,19 @@ export function Shell({
         )}
         {modal?.kind === "profile" && <ProfileModal user={user} onClose={() => setModal(null)} />}
         {modal?.kind === "voiceSettings" && <VoiceSettingsModal onClose={() => setModal(null)} />}
+        {modal?.kind === "thread" && current && (
+          <ThreadModal
+            channel={modal.channel}
+            message={modal.message}
+            onClose={() => setModal(null)}
+            onCreated={(c) => {
+              setModal(null);
+              const sid = current.server.id;
+              setDetails((all) => (all[sid] && !all[sid].channels.some((x) => x.id === c.id) ? { ...all, [sid]: { ...all[sid], channels: [...all[sid].channels, c] } } : all));
+              navigate(`/channels/${sid}/${c.id}`);
+            }}
+          />
+        )}
         {modal?.kind === "notify" && <NotifyModal target={modal.target} settings={notifySettings} onClose={() => setModal(null)} />}
         {modal?.kind === "groupDm" && (
           <GroupDmModal

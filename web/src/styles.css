@@ -4518,3 +4518,57 @@ kbd {
 .message-content.jumbo .edited {
   font-size: 12px;
 }
+
+/* --- Threads ---------------------------------------------------------------------- */
+.thread-row {
+  margin-left: 22px;
+  width: calc(100% - 22px);
+  font-size: 14px;
+  min-height: 30px;
+}
+.thread-branch {
+  width: 10px;
+  height: 12px;
+  margin-top: -10px;
+  border-left: 2px solid var(--border);
+  border-bottom: 2px solid var(--border);
+  border-bottom-left-radius: 6px;
+  flex-shrink: 0;
+}
+.thread-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-sidebar);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  max-width: 100%;
+}
+.thread-chip:hover {
+  border-color: var(--grad-1);
+}
+.thread-chip strong {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.thread-parent {
+  border: 0;
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  cursor: pointer;
+  padding: 0 4px 0 0;
+}
+.thread-parent:hover {
+  color: var(--text);
+}
+.thread-parent::after {
+  content: " ›";
+}

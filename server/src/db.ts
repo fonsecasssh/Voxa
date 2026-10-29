@@ -369,6 +369,33 @@ const MIGRATIONS: string[] = [
   );
   CREATE UNIQUE INDEX emojis_by_name ON emojis(server_id, name COLLATE NOCASE);
   `,
+
+  // 20: threads ("tópicos"): channels of type 'thread' under a text channel, usually started
+  // from one of its messages. Adding a channel type means rebuilding the table (SQLite).
+  `
+  CREATE TABLE channels_new (
+    id                 TEXT PRIMARY KEY,
+    server_id          TEXT REFERENCES servers(id) ON DELETE CASCADE,
+    name               TEXT NOT NULL,
+    type               TEXT NOT NULL CHECK (type IN ('text', 'voice', 'dm', 'thread')),
+    position           INTEGER NOT NULL,
+    created_at         INTEGER NOT NULL,
+    category_id        TEXT REFERENCES categories(id) ON DELETE SET NULL,
+    private            INTEGER NOT NULL DEFAULT 0,
+    parent_id          TEXT REFERENCES channels(id) ON DELETE CASCADE,
+    starter_message_id TEXT,
+    creator_id         TEXT,
+    CHECK ((type = 'dm') = (server_id IS NULL)),
+    CHECK ((type = 'thread') = (parent_id IS NOT NULL))
+  );
+  INSERT INTO channels_new (id, server_id, name, type, position, created_at, category_id, private)
+    SELECT id, server_id, name, type, position, created_at, category_id, private FROM channels;
+  DROP TABLE channels;
+  ALTER TABLE channels_new RENAME TO channels;
+  CREATE INDEX channels_by_server ON channels(server_id, position);
+  CREATE INDEX channels_by_parent ON channels(parent_id) WHERE parent_id IS NOT NULL;
+  CREATE INDEX channels_by_starter ON channels(starter_message_id) WHERE starter_message_id IS NOT NULL;
+  `,
 ];
 
 /** The schema version a fully migrated database has. */

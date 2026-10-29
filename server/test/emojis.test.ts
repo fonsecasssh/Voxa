@@ -19,7 +19,7 @@ async function api(method: string, path: string, body?: unknown, token?: string,
     method,
     redirect: "manual",
     headers: { ...(raw ? { "content-type": "application/octet-stream" } : { "content-type": "application/json" }), ...(token ? { authorization: `Bearer ${token}` } : {}) },
-    body: raw ?? (body === undefined ? undefined : JSON.stringify(body)),
+    body: raw ? new Uint8Array(raw) : body === undefined ? undefined : JSON.stringify(body),
   });
   const text = await res.text();
   return { status: res.status, location: res.headers.get("location"), body: text && text.startsWith("{") ? JSON.parse(text) : null };

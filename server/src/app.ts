@@ -674,6 +674,26 @@ export function createApp({ db, webDist, ice = createIceProvider(), trustProxy =
     res.json({ messages: store.messages(channel.id, before, limit), lastReadAt });
   });
 
+  // --- threads ---------------------------------------------------------------
+  // Anyone who can read a server's text channel can start a thread there, from a message or not.
+  app.post("/api/channels/:id/threads", requireAuth, (req, res) => {
+    const parent = requireChannelAccess(req, req.params.id as string);
+    if (parent.type !== "text" || !parent.serverId) throw new HttpError(400, "Tópicos só podem ser criados em canais de texto de servidores.");
+    const messageId = req.body?.messageId ?? null;
+    let starter = null;
+    if (messageId !== null) {
+      starter = typeof messageId === "string" ? store.messageById(messageId) : null;
+      if (!starter || starter.channelId !== parent.id) throw new HttpError(404, "Mensagem não encontrada.");
+      if (store.threadOf(starter.id)) throw new HttpError(409, "Essa mensagem já tem um tópico.");
+    }
+    const fallback = starter?.content.replace(/\s+/g, " ").trim().slice(0, 40) || "Novo tópico";
+    const name = req.body?.name === undefined || req.body?.name === "" ? fallback : str(req.body.name, "nome", 1, 100);
+    const thread = store.createThread(parent, name, starter?.id ?? null, req.user!.id);
+    realtime.emitChannels(parent.serverId);
+    if (starter) io.to(realtime.channelRooms(parent)).emit("message:update", store.messageById(starter.id)!);
+    res.status(201).json({ channel: thread });
+  });
+
   // --- pins ------------------------------------------------------------------
   const MAX_PINS = 50;
   app.get("/api/channels/:id/pins", requireAuth, (req, res) => {
@@ -721,7 +741,7 @@ export function createApp({ db, webDist, ice = createIceProvider(), trustProxy =
     let channels: Channel[];
     if (server) {
       if (!store.isMember(server.id, me)) throw new HttpError(404, "Servidor não encontrado.");
-      channels = store.visibleChannels(server.id, me).filter((c) => c.type === "text");
+      channels = store.visibleChannels(server.id, me).filter((c) => c.type === "text" || c.type === "thread");
     } else {
       const channel = store.channelById(scope);
       if (!channel || channel.serverId || !store.canViewChannel(channel, me)) throw new HttpError(404, "Conversa não encontrada.");
@@ -793,6 +813,11 @@ export function createApp({ db, webDist, ice = createIceProvider(), trustProxy =
     io.to(realtime.channelRooms(channel)).emit("message:new", { ...message, serverId: channel.serverId });
     store.markRead(req.user!.id, channel.id, message.createdAt);
     notifier.message(channel, message);
+    // The message a thread started from shows its new count.
+    if (channel.type === "thread" && channel.starterMessageId) {
+      const starter = store.messageById(channel.starterMessageId);
+      if (starter) io.to(realtime.channelRooms(channel)).emit("message:update", starter);
+    }
     refreshPreviews(channel, message.id, message.content);
     res.status(201).json({ message });
   });

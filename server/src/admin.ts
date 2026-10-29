@@ -343,14 +343,16 @@ export function registerAdminRoutes({ app, io, store, realtime, media, requireAu
     const channel = store.channelById(req.params.id as string);
     if (!channel?.serverId || !store.canViewChannel(channel, req.user!.id)) throw new HttpError(404, "Canal não encontrado.");
     const { perms } = standing(req, channel.serverId);
-    need(perms, Permission.MANAGE_CHANNELS, "Você não tem permissão para gerenciar canais.");
+    // Whoever started a thread manages it; so do moderators.
+    const own = channel.type === "thread" && channel.creatorId === req.user!.id;
+    if (!own) need(perms, channel.type === "thread" ? Permission.MANAGE_MESSAGES : Permission.MANAGE_CHANNELS, "Você não tem permissão para gerenciar canais.");
     return { ...channel, serverId: channel.serverId };
   };
 
   app.patch("/api/channels/:id", requireAuth, (req, res) => {
     const channel = channelForManage(req);
     if (req.body?.name !== undefined) store.renameChannel(channel.id, channelName(channel.type, req.body.name));
-    if (typeof req.body?.private === "boolean") {
+    if (typeof req.body?.private === "boolean" && channel.type !== "thread") {
       const roleIds = req.body.private ? channelRoleIds(channel.serverId, req.body.roleIds) : [];
       store.setChannelPrivacy(channel.id, req.body.private, roleIds);
     }
@@ -369,6 +371,7 @@ export function registerAdminRoutes({ app, io, store, realtime, media, requireAu
   // Drag and drop: into a category (or none), before another channel (or at the end).
   app.post("/api/channels/:id/move", requireAuth, (req, res) => {
     const channel = channelForManage(req);
+    if (channel.type === "thread") throw new HttpError(400, "Tópicos ficam sob o canal deles.");
     const categoryId = categoryIn(channel.serverId, req.body?.categoryId);
     const before = typeof req.body?.beforeId === "string" ? store.channelById(req.body.beforeId) : null;
     if (before && before.serverId !== channel.serverId) throw new HttpError(400, "Canal não encontrado.");

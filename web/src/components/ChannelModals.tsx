@@ -2,7 +2,7 @@
 // private one), categories, and invite links that expire or run out of uses.
 
 import { useEffect, useState } from "react";
-import { api, type Category, type Channel, type ChannelType, type Invite, type ServerDetails } from "../api.ts";
+import { api, type Category, type Channel, type ChannelType, type Invite, type Message, type ServerDetails } from "../api.ts";
 import { Icon } from "./Icon.tsx";
 import { Modal, useSubmit } from "./Modals.tsx";
 
@@ -332,6 +332,34 @@ export function InviteModal({ details, onClose }: { details: ServerDetails; onCl
           </div>
         </div>
       )}
+    </Modal>
+  );
+}
+
+/** "Criar tópico": a name (the message's start by default), then the thread opens. */
+export function ThreadModal({ channel, message, onClose, onCreated }: { channel: Channel; message: Message; onClose: () => void; onCreated: (c: Channel) => void }) {
+  const [name, setName] = useState(message.content.replace(/\s+/g, " ").trim().slice(0, 40) || "Novo tópico");
+  const { busy, error, submit } = useSubmit(() => api.createThread(channel.id, name.trim(), message.id).then((r) => r.channel), onCreated);
+  return (
+    <Modal title="Criar tópico" onClose={onClose}>
+      <form onSubmit={submit}>
+        <p className="muted small">
+          Uma conversa à parte sobre esta mensagem de <strong>{message.author.displayName}</strong>, dentro de #{channel.name}.
+        </p>
+        <label>
+          Nome do tópico
+          <input value={name} onChange={(e) => setName(e.target.value)} maxLength={100} required autoFocus />
+        </label>
+        {error && <div className="form-error">{error}</div>}
+        <div className="modal-actions">
+          <button type="button" className="btn subtle" onClick={onClose}>
+            Cancelar
+          </button>
+          <button className="btn primary" disabled={busy || !name.trim()}>
+            Criar tópico
+          </button>
+        </div>
+      </form>
     </Modal>
   );
 }

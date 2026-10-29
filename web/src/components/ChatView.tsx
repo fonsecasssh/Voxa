@@ -34,6 +34,12 @@ interface Props {
   selfId: string;
   /** A display name for anyone who reacted. */
   resolveName: (userId: string) => string;
+  /** Threads: their channel's name, and going back to it. */
+  parentName?: string;
+  onOpenParent?: () => void;
+  /** Starting a thread from a message (server text channels only). */
+  onStartThread?: (m: Message) => void;
+  onOpenThread: (threadId: string) => void;
   /** Pin permission (moderators in servers, anyone in a DM). */
   canPin: boolean;
   onPin: (m: Message, pinned: boolean) => Promise<void>;
@@ -119,7 +125,8 @@ function EditableTitle({ value, placeholder, onSave }: { value: string; placehol
 export function ChatView(props: Props) {
   const { focus, hasNewer, onJumpToPresent, onJumpToMessage, channel, server, dm, headerActions, top, onRename, lastReadAt, blocked, onUnblock, messages, hasMore, typingUsers, onLoadOlder, onSend, onTyping, canDelete, onDelete, onEdit, onReact, selfId } = props;
   const title = dm ? dmTitle(dm) : channel.name;
-  const target = dm ? (dm.group ? title : `@${dm.user?.username ?? title}`) : `#${channel.name}`;
+  const isThread = channel.type === "thread";
+  const target = dm ? (dm.group ? title : `@${dm.user?.username ?? title}`) : isThread ? channel.name : `#${channel.name}`;
   const placeholder = dm && !dm.group ? `Conversar com ${target}` : `Conversar em ${target}`;
   const listRef = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
@@ -399,8 +406,27 @@ export function ChatView(props: Props) {
       )}
       <header className="chat-header">
         <MobileNavButton />
-        {dm ? <DmAvatar dm={dm} size={24} /> : <span className="channel-icon">#</span>}
-        {onRename ? <EditableTitle value={dm?.group?.name ?? ""} placeholder={title} onSave={onRename} /> : <strong className="ellipsis">{title}</strong>}
+        {dm ? (
+          <DmAvatar dm={dm} size={24} />
+        ) : isThread ? (
+          <>
+            {props.parentName && (
+              <button className="thread-parent" onClick={props.onOpenParent}>
+                #{props.parentName}
+              </button>
+            )}
+            <span className="channel-icon">
+              <Icon name="thread" size={18} />
+            </span>
+          </>
+        ) : (
+          <span className="channel-icon">#</span>
+        )}
+        {onRename ? (
+          <EditableTitle value={isThread ? channel.name : (dm?.group?.name ?? "")} placeholder={title} onSave={onRename} />
+        ) : (
+          <strong className="ellipsis">{title}</strong>
+        )}
         {headerActions && <div className="chat-header-actions">{headerActions}</div>}
       </header>
       {top}
@@ -458,9 +484,9 @@ export function ChatView(props: Props) {
                   </>
                 ) : (
                   <>
-                    <div className="channel-intro-icon">#</div>
-                    <h2>Boas-vindas a #{channel.name}!</h2>
-                    <p className="muted">Este é o começo do canal.</p>
+                    <div className="channel-intro-icon">{isThread ? <Icon name="thread" size={32} /> : "#"}</div>
+                    <h2>{isThread ? channel.name : `Boas-vindas a #${channel.name}!`}</h2>
+                    <p className="muted">{isThread ? `Começo do tópico em #${props.parentName ?? ""}.` : "Este é o começo do canal."}</p>
                   </>
                 )}
               </div>
@@ -504,6 +530,8 @@ export function ChatView(props: Props) {
                   highlighted={highlight === m.id || replyingTo?.id === m.id}
                   canDelete={canDelete(m)}
                   canPin={props.canPin}
+                  onStartThread={props.onStartThread && !m.thread ? () => props.onStartThread!(m) : undefined}
+                  onOpenThread={props.onOpenThread}
                   onPin={(pinned) => attempt(() => props.onPin(m, pinned))}
                   resolveName={props.resolveName}
                   resolveUsername={resolveUsername}

@@ -112,6 +112,9 @@ export interface MessageItemProps {
   editing: boolean;
   highlighted: boolean;
   canDelete: boolean;
+  /** Starts a thread from this message (when possible here). */
+  onStartThread?: () => void;
+  onOpenThread: (threadId: string) => void;
   /** Can pin and unpin (moderators in servers, anyone in a DM). */
   canPin: boolean;
   onPin: (pinned: boolean) => void;
@@ -145,6 +148,15 @@ export function MessageItem(p: MessageItemProps) {
         </button>
       ) : (
         m.content && <MessageText content={m.content} edited={m.editedAt} selfId={p.selfId} resolveUsername={p.resolveUsername} />
+      )}
+      {m.thread && (
+        <button type="button" className="thread-chip" onClick={() => p.onOpenThread(m.thread!.id)}>
+          <Icon name="thread" size={14} />
+          <strong>{m.thread.name}</strong>
+          <span className="muted small">
+            {m.thread.count === 0 ? "Sem mensagens ainda" : `${m.thread.count} ${m.thread.count === 1 ? "mensagem" : "mensagens"}`}
+          </span>
+        </button>
       )}
       {m.embeds?.length > 0 && !(m.content && GIPHY_MEDIA.test(m.content)) && <LinkEmbeds embeds={m.embeds} />}
       {m.files.length > 0 && <MessageFiles files={m.files} onOpenImage={p.onOpenImage} />}
@@ -185,6 +197,11 @@ export function MessageItem(p: MessageItemProps) {
       <button className="msg-action" title="Responder" aria-label="Responder" onClick={p.onReply}>
         <Icon name="reply" size={16} />
       </button>
+      {p.onStartThread && (
+        <button className="msg-action" title="Criar tópico" aria-label="Criar tópico" onClick={p.onStartThread}>
+          <Icon name="thread" size={16} />
+        </button>
+      )}
       {p.canPin && (
         <button
           className="msg-action"

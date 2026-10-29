@@ -28,7 +28,7 @@ export interface Server {
   icon: string | null;
 }
 
-export type ChannelType = "text" | "voice" | "dm";
+export type ChannelType = "text" | "voice" | "dm" | "thread";
 
 export interface Channel {
   id: string;
@@ -41,6 +41,10 @@ export interface Channel {
   /** Only the owner, administrators and the roles in roleIds see a private channel. */
   private: boolean;
   roleIds: string[];
+  /** Threads: the channel they belong to, the message they started from, who started them. */
+  parentId: string | null;
+  starterMessageId: string | null;
+  creatorId: string | null;
 }
 
 export type NotifyLevel = "all" | "mentions" | "none";
@@ -147,6 +151,8 @@ export interface Message {
   pinnedAt: number | null;
   /** Previews of the links in it (filled in a moment after it's sent). */
   embeds: LinkEmbed[];
+  /** The thread started from this message, if any. */
+  thread: { id: string; name: string; count: number; lastAt: number | null } | null;
 }
 
 export interface ReplyPreview {
@@ -285,6 +291,9 @@ const toChannel = (r: Row): Channel => ({
   categoryId: (r.category_id as string | null) ?? null,
   private: r.private === 1,
   roleIds: r.role_ids ? (r.role_ids as string).split(",") : [],
+  parentId: (r.parent_id as string | null) ?? null,
+  starterMessageId: (r.starter_message_id as string | null) ?? null,
+  creatorId: (r.creator_id as string | null) ?? null,
 });
 
 /** Channels with the roles a private one is open to (comma-separated). */
@@ -334,6 +343,7 @@ const toMessage = (r: Row): Message => ({
   mentionsEveryone: !!r.mention_everyone,
   pinnedAt: (r.pinned_at as number | null) ?? null,
   embeds: [],
+  thread: null,
 });
 
 const MESSAGE_SELECT = `SELECT m.*, u.username, u.display_name, u.avatar, u.profile_banner FROM messages m JOIN users u ON u.id = m.author_id`;
@@ -700,7 +710,7 @@ export function createStore(db: DB) {
         .get(low, high) as Row | undefined;
       if (existing) return { channel: toChannel(existing), created: false };
 
-      const channel: Channel = { id: randomUUID(), serverId: null, name: "", type: "dm", position: 0, categoryId: null, private: false, roleIds: [] };
+      const channel: Channel = { id: randomUUID(), serverId: null, name: "", type: "dm", position: 0, categoryId: null, private: false, roleIds: [], parentId: null, starterMessageId: null, creatorId: null };
       db.exec("BEGIN");
       try {
         db.prepare("INSERT INTO channels (id, server_id, name, type, position, created_at) VALUES (?, NULL, '', 'dm', 0, ?)")
@@ -745,7 +755,7 @@ export function createStore(db: DB) {
 
     /** A new group DM with its owner and these people. */
     createGroupDm(ownerId: string, userIds: string[], name: string | null): Channel {
-      const channel: Channel = { id: randomUUID(), serverId: null, name: "", type: "dm", position: 0, categoryId: null, private: false, roleIds: [] };
+      const channel: Channel = { id: randomUUID(), serverId: null, name: "", type: "dm", position: 0, categoryId: null, private: false, roleIds: [], parentId: null, starterMessageId: null, creatorId: null };
       const now = Date.now();
       db.exec("BEGIN");
       try {
@@ -1062,6 +1072,11 @@ export function createStore(db: DB) {
      * private channel, which only the owner, administrators and its roles see.
      */
     canViewChannel(channel: Channel, userId: string): boolean {
+      // A thread is seen by whoever sees its channel.
+      if (channel.type === "thread") {
+        const parent = channel.parentId ? this.channelById(channel.parentId) : null;
+        return !!parent && this.canViewChannel(parent, userId);
+      }
       if (!channel.serverId) return !!this.dmParticipants(channel.id)?.includes(userId);
       const info = this.memberInfo(channel.serverId, userId);
       if (!info) return false;
@@ -1073,6 +1088,10 @@ export function createStore(db: DB) {
 
     /** Server members who see this channel (all of them unless it's private). */
     channelViewers(channel: Channel): string[] {
+      if (channel.type === "thread") {
+        const parent = channel.parentId ? this.channelById(channel.parentId) : null;
+        return parent ? this.channelViewers(parent) : [];
+      }
       if (!channel.serverId) return this.dmParticipants(channel.id) ?? [];
       const ids = (db.prepare("SELECT user_id FROM members WHERE server_id = ?").all(channel.serverId) as Row[]).map((r) => r.user_id as string);
       return channel.private ? ids.filter((id) => this.canViewChannel(channel, id)) : ids;
@@ -1088,7 +1107,7 @@ export function createStore(db: DB) {
      * channel or at the end, and renumbers positions so the order is stable.
      */
     moveChannel(serverId: string, channelId: string, categoryId: string | null, beforeId: string | null): void {
-      const order = this.channels(serverId).filter((c) => c.id !== channelId);
+      const order = this.channels(serverId).filter((c) => c.id !== channelId && c.type !== "thread");
       const at = beforeId ? order.findIndex((c) => c.id === beforeId) : -1;
       const ids = order.map((c) => c.id);
       if (at >= 0) ids.splice(at, 0, channelId);
@@ -1102,6 +1121,20 @@ export function createStore(db: DB) {
         db.exec("ROLLBACK");
         throw err;
       }
+    },
+
+    /** A thread under a text channel, from one of its messages (or none). */
+    createThread(parent: Channel, name: string, starterMessageId: string | null, creatorId: string): Channel {
+      const id = randomUUID();
+      db.prepare(
+        "INSERT INTO channels (id, server_id, name, type, position, created_at, parent_id, starter_message_id, creator_id) VALUES (?, ?, ?, 'thread', 0, ?, ?, ?, ?)",
+      ).run(id, parent.serverId, name, Date.now(), parent.id, starterMessageId, creatorId);
+      return this.channelById(id)!;
+    },
+
+    threadOf(messageId: string): Channel | null {
+      const r = db.prepare(`${CHANNEL_SELECT} WHERE c.starter_message_id = ?`).get(messageId) as Row | undefined;
+      return r ? toChannel(r) : null;
     },
 
     // --- categories -------------------------------------------------------
@@ -1535,6 +1568,17 @@ export function createStore(db: DB) {
       db.prepare(`SELECT * FROM reactions WHERE message_id IN (${marks}) ORDER BY created_at`).all(...msgs.map((m) => m.id)) as Row[],
     );
     for (const m of msgs) m.reactions = reactions.get(m.id) ?? [];
+    // Threads started from these messages, with how many messages they have.
+    for (const r of db
+      .prepare(
+        `SELECT c.id, c.name, c.starter_message_id, (SELECT COUNT(*) FROM messages x WHERE x.channel_id = c.id) AS n,
+                (SELECT MAX(created_at) FROM messages x WHERE x.channel_id = c.id) AS last_at
+         FROM channels c WHERE c.starter_message_id IN (${marks})`,
+      )
+      .all(...msgs.map((m) => m.id)) as Row[]) {
+      const m = msgs.find((x) => x.id === r.starter_message_id);
+      if (m) m.thread = { id: r.id as string, name: r.name as string, count: r.n as number, lastAt: (r.last_at as number | null) ?? null };
+    }
     // Link previews, from the cache by URL.
     const links = new Map(msgs.map((m) => [m.id, previewLinks(m.content)]));
     const urls = [...new Set([...links.values()].flat())];

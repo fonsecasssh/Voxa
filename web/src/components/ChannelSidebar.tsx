@@ -75,7 +75,9 @@ export function ChannelSidebar(props: Props) {
   };
 
   const known = new Set(details.categories.map((c) => c.id));
-  const inCategory = (id: string | null) => details.channels.filter((c) => (c.categoryId && known.has(c.categoryId) ? c.categoryId : null) === id);
+  const inCategory = (id: string | null) =>
+    details.channels.filter((c) => c.type !== "thread" && (c.categoryId && known.has(c.categoryId) ? c.categoryId : null) === id);
+  const threadsOf = (id: string) => details.channels.filter((c) => c.type === "thread" && c.parentId === id);
 
   const finishDrop = (target: Drop) => {
     const d = drag;
@@ -177,6 +179,24 @@ export function ChannelSidebar(props: Props) {
             </button>
           )}
         </div>
+        {c.type === "text" &&
+          threadsOf(c.id)
+            .filter((t) => !hidden || t.id === activeChannelId || props.unread.has(t.id))
+            .map((t) => (
+              <button
+                key={t.id}
+                className={`channel thread-row ${t.id === activeChannelId ? "active" : ""} ${props.unread.has(t.id) && t.id !== activeChannelId ? "unread" : ""}`}
+                onClick={() => open(t)}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  props.onNotify({ id: t.id, kind: "channel", label: t.name });
+                }}
+              >
+                <span className="thread-branch" aria-hidden="true" />
+                <span className="ellipsis">{t.name}</span>
+                {!!props.mentionCounts[t.id] && t.id !== activeChannelId && <span className="badge">{props.mentionCounts[t.id]}</span>}
+              </button>
+            ))}
         {c.type === "voice" && (
           <VoiceMembers details={details} members={details.voice[c.id] ?? []} speaking={vs.speaking} selfSocketId={vs.selfSocketId} selfId={selfId} />
         )}
