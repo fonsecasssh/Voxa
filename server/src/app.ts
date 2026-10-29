@@ -656,6 +656,56 @@ export function createApp({ db, webDist, ice = createIceProvider(), trustProxy =
     res.json({ messages: store.messages(channel.id, before, limit), lastReadAt });
   });
 
+  // A page around one message (jumping to a search result or a quoted reply).
+  app.get("/api/channels/:id/messages/around/:messageId", requireAuth, (req, res) => {
+    const channel = requireChannelAccess(req, req.params.id as string);
+    const found = store.messagesAround(channel.id, req.params.messageId as string, 25);
+    if (!found) throw new HttpError(404, "Essa mensagem não existe mais.");
+    res.json(found);
+  });
+
+  // Search a server (the channels you see) or one DM. Besides words, the query takes
+  // de:usuario, em:canal and tem:arquivo|imagem|video|link|replay.
+  const searchLimit = rateLimit({ windowMs: 60_000, max: 60, message: "Muitas buscas. Espere um pouco." });
+  app.get("/api/search", requireAuth, searchLimit, (req, res) => {
+    const me = req.user!.id;
+    const scope = typeof req.query.scope === "string" ? req.query.scope : "";
+    const raw = typeof req.query.q === "string" ? req.query.q.slice(0, 200) : "";
+    const offset = Math.min(Math.max(Math.floor(Number(req.query.offset) || 0), 0), 5000);
+    const server = store.serverById(scope);
+    let channels: Channel[];
+    if (server) {
+      if (!store.isMember(server.id, me)) throw new HttpError(404, "Servidor não encontrado.");
+      channels = store.visibleChannels(server.id, me).filter((c) => c.type === "text");
+    } else {
+      const channel = store.channelById(scope);
+      if (!channel || channel.serverId || !store.canViewChannel(channel, me)) throw new HttpError(404, "Conversa não encontrada.");
+      channels = [channel];
+    }
+    const words: string[] = [];
+    let authorId: string | undefined;
+    let has: "file" | "image" | "video" | "link" | "clip" | undefined;
+    const HAS: Record<string, typeof has> = { arquivo: "file", arquivos: "file", imagem: "image", imagens: "image", video: "video", vídeo: "video", link: "link", links: "link", replay: "clip", clipe: "clip" };
+    for (const token of raw.split(/\s+/).filter(Boolean)) {
+      const [key, ...rest] = token.split(":");
+      const value = rest.join(":").replace(/^[@#]/, "");
+      if (rest.length && key === "de" && value) {
+        // Someone who doesn't exist matches nothing (not everything).
+        authorId = store.userByUsername(value)?.id ?? "-";
+      } else if (rest.length && key === "em" && value) {
+        channels = channels.filter((c) => c.name.toLowerCase() === value.toLowerCase());
+      } else if (rest.length && key === "tem" && HAS[value.toLowerCase()]) {
+        has = HAS[value.toLowerCase()];
+      } else {
+        // Only letters and digits reach the index (no FTS syntax from the query).
+        words.push(...token.normalize("NFC").split(/[^\p{L}\p{N}]+/u).filter(Boolean));
+      }
+    }
+    if (!words.length && !authorId && !has) return void res.json({ messages: [], total: 0 });
+    const { messages, total } = store.searchMessages(me, channels.map((c) => c.id), { words: words.slice(0, 10), authorId, has, offset, limit: 25 });
+    res.json({ messages, total });
+  });
+
   // Read up to `at` (the newest message you saw); your other devices clear it too.
   app.post("/api/channels/:id/read", requireAuth, (req, res) => {
     const channel = requireChannelAccess(req, req.params.id as string);

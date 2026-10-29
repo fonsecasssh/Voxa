@@ -48,6 +48,7 @@ import type { Category, Channel } from "../api.ts";
 import { notifyFor, type NotifySettings } from "../notifications.ts";
 import { NotifyModal, type NotifyTarget } from "./NotifyModal.tsx";
 import { BlockedContext } from "../blocking.ts";
+import { SearchBox, SearchPanel, type SearchScope } from "./Search.tsx";
 
 const TYPING_MS = 4000;
 const HOME = "@me";
@@ -57,6 +58,8 @@ interface ChannelMessages {
   hasMore: boolean;
   /** Where you had stopped reading (for the "Novas mensagens" line). */
   lastReadAt?: number;
+  /** An older stretch is shown (after jumping to a message); live messages wait. */
+  hasNewer?: boolean;
 }
 
 type ModalKind =
@@ -138,6 +141,8 @@ export function Shell({
   /** An incoming DM call we haven't answered or declined. */
   const [ringing, setRinging] = useState<{ channelId: string; from: User } | null>(null);
   const [showGroupMembers, setShowGroupMembers] = useState(true);
+  const [search, setSearch] = useState<{ scope: SearchScope; q: string } | null>(null);
+  const [focus, setFocus] = useState<{ channelId: string; id: string; n: number } | null>(null);
   /** Phones: the server and channel lists are showing (instead of the conversation). */
   const [navOpen, setNavOpen] = useState(true);
   const openNav = useCallback(() => setNavOpen(true), []);
@@ -279,7 +284,8 @@ export function Shell({
     socket.on("message:new", (m) => {
       setMessages((all) => {
         const ch = all[m.channelId];
-        if (!ch || ch.items.some((x) => x.id === m.id)) return all;
+        // Looking at older messages: the new one shows when going back to the present.
+        if (!ch || ch.hasNewer || ch.items.some((x) => x.id === m.id)) return all;
         return { ...all, [m.channelId]: { ...ch, items: [...ch.items, m] } };
       });
       setTyping((all) => {
@@ -657,6 +663,28 @@ export function Shell({
     }
   };
 
+  /** Opens a channel at one message (loading the messages around it when needed). */
+  const jumpToMessage = async (channelId: string, messageId: string) => {
+    const owner = Object.values(details).find((d) => d.channels.some((c) => c.id === channelId));
+    navigate(`/channels/${owner?.server.id ?? HOME}/${channelId}`);
+    if (!messages[channelId]?.items.some((m) => m.id === messageId)) {
+      try {
+        const r = await api.messagesAround(channelId, messageId);
+        setMessages((all) => ({ ...all, [channelId]: { items: r.messages, hasMore: true, hasNewer: r.hasNewer, lastReadAt: all[channelId]?.lastReadAt } }));
+      } catch (err) {
+        return alert((err as Error).message);
+      }
+    }
+    setFocus({ channelId, id: messageId, n: Date.now() });
+  };
+
+  // Searching another server or conversation closes the results.
+  useEffect(() => {
+    if (!search) return;
+    const here = isHome ? channelId : serverId;
+    if (here !== search.scope.id) setSearch(null);
+  }, [serverId, channelId, isHome, search]);
+
   /** Answers (or starts) a call in a DM, optionally with the camera on. */
   const joinDmCall = async (channelId: string, video: boolean) => {
     setRinging(null);
@@ -743,8 +771,18 @@ export function Shell({
       blocked={blocked}
       onUnblock={(id) => api.unblock(id).catch((e) => alert((e as Error).message))}
       onRename={dm?.group ? (name) => api.renameGroupDm(dm.channel.id, name).then(() => {}) : undefined}
+      focus={focus && focus.channelId === channel.id ? focus : undefined}
+      hasNewer={messages[channel.id]?.hasNewer}
+      onJumpToPresent={() => loadMessages(channel.id).catch(() => {})}
+      onJumpToMessage={(id) => jumpToMessage(channel.id, id)}
       headerActions={
-        dm && (
+        <>
+          <SearchBox
+            key={dm ? channel.id : current?.server.id}
+            scope={dm ? { id: channel.id, label: dmTitle(dm) } : { id: current!.server.id, label: current!.server.name }}
+            onSearch={(q) => setSearch({ scope: dm ? { id: channel.id, label: dmTitle(dm) } : { id: current!.server.id, label: current!.server.name }, q })}
+          />
+          {dm && (
           <>
             <button className="icon-btn" title="Iniciar chamada de voz" aria-label="Iniciar chamada de voz" onClick={() => joinDmCall(dm.channel.id, false)}>
               <Icon name="phone" size={20} />
@@ -772,7 +810,8 @@ export function Shell({
               </button>
             )}
           </>
-        )
+          )}
+        </>
       }
       top={
         dm && (
@@ -818,6 +857,17 @@ export function Shell({
     />
   );
 
+  const searchPanel = search && (
+    <SearchPanel
+      scope={search.scope}
+      query={search.q}
+      server={current}
+      channelName={(id) => current?.channels.find((c) => c.id === id)?.name ?? null}
+      onOpen={(m) => jumpToMessage(m.channelId, m.id)}
+      onClose={() => setSearch(null)}
+    />
+  );
+
   let body;
   if (isHome) {
     body = (
@@ -843,7 +893,7 @@ export function Shell({
         ) : (
           <FriendsView friends={friends} presence={presence} onOpenDm={openDm} />
         )}
-        {dm?.group && showGroupMembers && <GroupMembers dm={dm} self={user} presence={presence} onLeave={() => leaveGroup(dm)} />}
+        {search ? searchPanel : dm?.group && showGroupMembers && <GroupMembers dm={dm} self={user} presence={presence} onLeave={() => leaveGroup(dm)} />}
       </>
     );
   } else if (current) {
@@ -880,7 +930,7 @@ export function Shell({
           ) : (
             <main className="main placeholder" />
           ))}
-        <MemberList details={current} presence={presence} selfId={user.id} onOpenDm={openDm} />
+        {search ? searchPanel : <MemberList details={current} presence={presence} selfId={user.id} onOpenDm={openDm} />}
       </>
     );
   } else {
@@ -933,7 +983,7 @@ export function Shell({
         </div>
       )}
       <div
-        className={`shell ${current || (dm?.group && showGroupMembers) ? "" : "no-members"} ${navOpen ? "nav-open" : ""}`}
+        className={`shell ${current || search || (dm?.group && showGroupMembers) ? "" : "no-members"} ${navOpen ? "nav-open" : ""} ${search ? "searching" : ""}`}
         // Phones: picking a channel or conversation shows it.
         onClick={(e) => (e.target as Element).closest?.(".sidebar .channel, .sidebar .channel.dm") && setNavOpen(false)}
       >

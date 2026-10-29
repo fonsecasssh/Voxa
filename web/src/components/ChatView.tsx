@@ -33,6 +33,13 @@ interface Props {
   selfId: string;
   /** A display name for anyone who reacted. */
   resolveName: (userId: string) => string;
+  /** Scroll to and highlight this message (a search result, a quoted reply); `n` repeats it. */
+  focus?: { id: string; n: number };
+  /** Showing an older stretch (after jumping): newer messages aren't loaded. */
+  hasNewer?: boolean;
+  onJumpToPresent: () => void;
+  /** A message that isn't loaded here (loads the messages around it). */
+  onJumpToMessage: (id: string) => void;
   /** Where you had stopped reading: messages after it get a "Novas mensagens" line. */
   lastReadAt?: number;
   /** People you blocked: their messages are folded away. */
@@ -106,7 +113,7 @@ function EditableTitle({ value, placeholder, onSave }: { value: string; placehol
 }
 
 export function ChatView(props: Props) {
-  const { channel, server, dm, headerActions, top, onRename, lastReadAt, blocked, onUnblock, messages, hasMore, typingUsers, onLoadOlder, onSend, onTyping, canDelete, onDelete, onEdit, onReact, selfId } = props;
+  const { focus, hasNewer, onJumpToPresent, onJumpToMessage, channel, server, dm, headerActions, top, onRename, lastReadAt, blocked, onUnblock, messages, hasMore, typingUsers, onLoadOlder, onSend, onTyping, canDelete, onDelete, onEdit, onReact, selfId } = props;
   const title = dm ? dmTitle(dm) : channel.name;
   const target = dm ? (dm.group ? title : `@${dm.user?.username ?? title}`) : `#${channel.name}`;
   const placeholder = dm && !dm.group ? `Conversar com ${target}` : `Conversar em ${target}`;
@@ -199,7 +206,8 @@ export function ChatView(props: Props) {
   /** Scrolls to a message (e.g. the one a reply quotes) and flashes it. */
   const jumpTo = (id: string) => {
     const el = document.getElementById(`msg-${id}`);
-    if (!el) return;
+    if (!el) return onJumpToMessage(id);
+    stickToBottom.current = false;
     el.scrollIntoView({ block: "center", behavior: "smooth" });
     setHighlight(id);
     setTimeout(() => setHighlight((h) => (h === id ? null : h)), 1600);
@@ -235,6 +243,19 @@ export function ChatView(props: Props) {
     setDividerAbove(!!el && !!line && line.getBoundingClientRect().top < el.getBoundingClientRect().top + 8);
   };
   useLayoutEffect(checkDivider, [messages, dividerAt]);
+
+  // Asked to show a message (search, reply): once it's here, scroll to it and light it up.
+  const focused = useRef<number | null>(null);
+  useLayoutEffect(() => {
+    if (!focus || focused.current === focus.n) return;
+    const el = document.getElementById(`msg-${focus.id}`);
+    if (!el) return;
+    focused.current = focus.n;
+    stickToBottom.current = false;
+    el.scrollIntoView({ block: "center" });
+    setHighlight(focus.id);
+    setTimeout(() => setHighlight((h) => (h === focus.id ? null : h)), 2000);
+  }, [focus, messages]);
 
   useLayoutEffect(() => {
     stickToBottom.current = true;
@@ -503,6 +524,14 @@ export function ChatView(props: Props) {
         )}
       </div>
 
+      {hasNewer && (
+        <div className="old-bar" role="status">
+          <span>Você está vendo mensagens antigas</span>
+          <button type="button" onClick={onJumpToPresent}>
+            Ir para o presente
+          </button>
+        </div>
+      )}
       {dm && !dm.group && dm.user && blocked.has(dm.user.id) ? (
         <div className="composer blocked-composer">
           Você bloqueou <strong>@{dm.user.username}</strong>. Vocês não podem trocar mensagens.{" "}

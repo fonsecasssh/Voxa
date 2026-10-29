@@ -1353,6 +1353,57 @@ export function createStore(db: DB) {
     },
 
     /** Newest `limit` messages older than `before`, returned oldest first. */
+    /** Messages around one (for jumping to it): `half` before and after, and whether there are newer ones. */
+    messagesAround(channelId: string, messageId: string, half: number): { messages: Message[]; hasNewer: boolean } | null {
+      const at = db.prepare("SELECT created_at, rowid AS r FROM messages WHERE id = ? AND channel_id = ?").get(messageId, channelId) as { created_at: number; r: number } | undefined;
+      if (!at) return null;
+      const older = db
+        .prepare(`${MESSAGE_SELECT} WHERE m.channel_id = ? AND (m.created_at < ? OR (m.created_at = ? AND m.rowid <= ?)) ORDER BY m.created_at DESC, m.rowid DESC LIMIT ?`)
+        .all(channelId, at.created_at, at.created_at, at.r, half + 1) as Row[];
+      const newer = db
+        .prepare(`${MESSAGE_SELECT} WHERE m.channel_id = ? AND (m.created_at > ? OR (m.created_at = ? AND m.rowid > ?)) ORDER BY m.created_at, m.rowid LIMIT ?`)
+        .all(channelId, at.created_at, at.created_at, at.r, half + 1) as Row[];
+      const hasNewer = newer.length > half;
+      return { messages: hydrate([...older.reverse(), ...newer.slice(0, half)].map(toMessage)), hasNewer };
+    },
+
+    /**
+     * Search: words (all of them, the last one as a prefix) in these channels, newest first,
+     * optionally by author and with files, images, videos, links or clips. Skips people the
+     * searcher blocked.
+     */
+    searchMessages(
+      viewerId: string,
+      channelIds: string[],
+      opts: { words: string[]; authorId?: string; has?: "file" | "image" | "video" | "link" | "clip"; offset: number; limit: number },
+    ): { messages: Message[]; total: number } {
+      if (channelIds.length === 0) return { messages: [], total: 0 };
+      const where: string[] = [`m.channel_id IN (${channelIds.map(() => "?").join(",")})`, "m.author_id NOT IN (SELECT blocked_id FROM blocks WHERE user_id = ?)"];
+      const params: (string | number)[] = [...channelIds, viewerId];
+      let from = "messages m";
+      if (opts.words.length) {
+        from = "messages_fts f JOIN messages m ON m.rowid = f.rowid";
+        where.push("messages_fts MATCH ?");
+        params.push(opts.words.map((w, i) => `"${w.replace(/"/g, "")}"${i === opts.words.length - 1 ? "*" : ""}`).join(" "));
+      }
+      if (opts.authorId) {
+        where.push("m.author_id = ?");
+        params.push(opts.authorId);
+      }
+      if (opts.has === "link") where.push("(m.content LIKE '%http://%' OR m.content LIKE '%https://%')");
+      else if (opts.has === "clip") where.push("m.attachment IS NOT NULL");
+      else if (opts.has) {
+        where.push(`EXISTS (SELECT 1 FROM attachments a WHERE a.message_id = m.id${opts.has === "file" ? "" : " AND a.kind = ?"})`);
+        if (opts.has !== "file") params.push(opts.has);
+      }
+      const clause = where.join(" AND ");
+      const total = (db.prepare(`SELECT COUNT(*) AS n FROM ${from} WHERE ${clause}`).get(...params) as Row).n as number;
+      const ids = (
+        db.prepare(`SELECT m.id FROM ${from} WHERE ${clause} ORDER BY m.created_at DESC LIMIT ? OFFSET ?`).all(...params, opts.limit, opts.offset) as Row[]
+      ).map((r) => r.id as string);
+      return { messages: ids.map((id) => this.messageById(id)!).filter(Boolean), total };
+    },
+
     messages(channelId: string, before: number, limit: number): Message[] {
       const rows = db
         .prepare(`${MESSAGE_SELECT} WHERE m.channel_id = ? AND m.created_at < ? ORDER BY m.created_at DESC, m.rowid DESC LIMIT ?`)

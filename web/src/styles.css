@@ -4201,3 +4201,132 @@ kbd {
 .channel.muted-channel {
   opacity: 0.55;
 }
+
+/* --- Search ----------------------------------------------------------------------- */
+.search-box {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.search-box input {
+  width: 180px;
+  height: 28px;
+  padding: 0 28px 0 10px;
+  border-radius: 6px;
+  border: 0;
+  background: var(--bg-sidebar);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  transition: width 0.15s;
+}
+.search-box input:focus {
+  width: 240px;
+  outline: 1px solid var(--grad-1);
+}
+.search-box svg {
+  position: absolute;
+  right: 8px;
+  color: var(--text-muted);
+  pointer-events: none;
+}
+.search-panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+}
+.search-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 12px 4px;
+}
+.search-tip {
+  padding: 0 12px 8px;
+}
+.search-tip code {
+  font-size: 11px;
+}
+.search-results {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0 8px 12px;
+}
+.search-result {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 0;
+  background: var(--bg-main);
+  color: var(--text);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+.search-result:hover {
+  background: var(--bg-hover);
+}
+.search-result-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+.search-result-text {
+  font-size: 14px;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.search-result mark {
+  background: color-mix(in srgb, var(--grad-2) 35%, transparent);
+  color: inherit;
+  border-radius: 3px;
+}
+.search-pages {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-top: 1px solid var(--border);
+}
+.old-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0 16px;
+  padding: 6px 12px;
+  border-radius: 8px 8px 0 0;
+  background: var(--bg-sidebar);
+  font-size: 13px;
+  color: var(--text-muted);
+}
+.old-bar button {
+  border: 0;
+  background: none;
+  color: var(--link);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+@media (max-width: 700px) {
+  .search-box input,
+  .search-box input:focus {
+    width: 120px;
+  }
+  .shell.searching > .search-panel {
+    display: flex;
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    background: var(--bg-sidebar);
+  }
+}

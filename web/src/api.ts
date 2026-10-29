@@ -270,6 +270,10 @@ export const api = {
       /** People you blocked. */
       blocked: string[];
     }>("GET", "/api/me"),
+  search: (scope: string, q: string, offset = 0) =>
+    request<{ messages: Message[]; total: number }>("GET", `/api/search?${new URLSearchParams({ scope, q, offset: String(offset) })}`),
+  messagesAround: (channelId: string, messageId: string) =>
+    request<{ messages: Message[]; hasNewer: boolean }>("GET", `/api/channels/${channelId}/messages/around/${messageId}`),
   markRead: (channelId: string, at: number) => request<{ lastReadAt: number }>("POST", `/api/channels/${channelId}/read`, { at }),
   setNotify: (targetId: string, level: NotifyLevel | null, mutedUntil: number | null) =>
     request<{ notify: NotifySettings }>("PUT", `/api/notify/${targetId}`, { level, mutedUntil }),
