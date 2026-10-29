@@ -49,8 +49,8 @@ describe("files in chat", () => {
   it("uploads files, sends them with a message, serves them safely and cleans up", async () => {
     const owner = await user();
     const friend = await user();
-    const { server } = (await api("POST", "/api/servers", { name: "Arquivos" }, owner.token)).body;
-    await api("POST", `/api/invites/${server.inviteCode}`, undefined, friend.token);
+    const { server, inviteCode } = (await api("POST", "/api/servers", { name: "Arquivos" }, owner.token)).body;
+    await api("POST", `/api/invites/${inviteCode}`, undefined, friend.token);
     const general = (await api("GET", `/api/servers/${server.id}`, undefined, owner.token)).body.channels.find((c: { type: string }) => c.type === "text");
     const send = (body: unknown, token = owner.token) => api("POST", `/api/channels/${general.id}/messages`, body, token);
 

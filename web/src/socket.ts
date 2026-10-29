@@ -1,5 +1,5 @@
 import { io, type Socket } from "socket.io-client";
-import type { Channel, DmSummary, FriendState, MemberData, Message, Presence, Role, Server, User, Reaction } from "./api.ts";
+import type { Category, Channel, DmSummary, FriendState, MemberData, Message, Presence, Role, Server, User, Reaction } from "./api.ts";
 import type { VoiceMember } from "./voice/types.ts";
 
 export interface ServerToClient {
@@ -8,6 +8,8 @@ export interface ServerToClient {
   "message:delete": (e: { channelId: string; id: string }) => void;
   "message:reactions": (e: { channelId: string; messageId: string; reactions: Reaction[] }) => void;
   "channel:new": (c: Channel) => void;
+  /** The channels (and categories) of a server that you see, after any change to them. */
+  "channels:update": (p: { serverId: string; channels: Channel[]; categories: Category[] }) => void;
   "member:join": (p: { serverId: string; user: User; presence: Presence }) => void;
   presence: (p: { userId: string; presence: Presence }) => void;
   "friend:update": (p: { user: User; state: FriendState | null; presence: Presence | null }) => void;

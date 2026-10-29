@@ -216,6 +216,49 @@ const MIGRATIONS: string[] = [
     name       TEXT
   );
   `,
+
+  // 13: channel categories, private channels (open to some roles), bans, and invites
+  // that expire or run out of uses (the server's original invite code keeps working).
+  `
+  CREATE TABLE categories (
+    id         TEXT PRIMARY KEY,
+    server_id  TEXT NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+    name       TEXT NOT NULL,
+    position   INTEGER NOT NULL,
+    created_at INTEGER NOT NULL
+  );
+  CREATE INDEX categories_by_server ON categories(server_id, position);
+  ALTER TABLE channels ADD COLUMN category_id TEXT REFERENCES categories(id) ON DELETE SET NULL;
+  ALTER TABLE channels ADD COLUMN private INTEGER NOT NULL DEFAULT 0;
+
+  CREATE TABLE channel_roles (
+    channel_id TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+    role_id    TEXT NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
+    PRIMARY KEY (channel_id, role_id)
+  );
+
+  CREATE TABLE bans (
+    server_id  TEXT NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+    user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    banned_by  TEXT,
+    reason     TEXT,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (server_id, user_id)
+  );
+
+  CREATE TABLE invites (
+    code       TEXT PRIMARY KEY,
+    server_id  TEXT NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+    creator_id TEXT,
+    max_uses   INTEGER,
+    uses       INTEGER NOT NULL DEFAULT 0,
+    expires_at INTEGER,
+    created_at INTEGER NOT NULL
+  );
+  CREATE INDEX invites_by_server ON invites(server_id);
+  -- Everyone could share the server's link so far: keep that (1024 = CREATE_INVITE).
+  UPDATE roles SET permissions = permissions | 1024 WHERE is_default = 1;
+  `,
 ];
 
 /** The schema version a fully migrated database has. */

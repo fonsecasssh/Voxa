@@ -3892,3 +3892,168 @@ kbd {
   background: var(--bg-float);
   color: var(--text);
 }
+
+/* --- Categories, drag and drop, private channels -------------------------------- */
+.category-section {
+  position: relative;
+}
+/* Always a thin strip at the top: dropping a channel there takes it out of its category. */
+.category-section.uncategorized {
+  min-height: 8px;
+  padding-top: 8px;
+}
+.category-label {
+  gap: 2px;
+  padding-right: 4px;
+}
+.category-label[draggable="true"] {
+  cursor: grab;
+}
+.category-toggle {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.category-toggle:hover {
+  color: var(--text);
+}
+.category-chevron {
+  display: inline-block;
+  width: 12px;
+  font-size: 10px;
+  transition: transform 0.12s;
+}
+.category-chevron.collapsed {
+  transform: rotate(-90deg);
+}
+.category-edit {
+  visibility: hidden;
+}
+.category-label:hover .category-edit {
+  visibility: visible;
+}
+.channel-item {
+  position: relative;
+}
+.channel-item.dragging,
+.category-section.dragging {
+  opacity: 0.45;
+}
+.channel-row[draggable="true"] {
+  cursor: grab;
+}
+.drop-line {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  height: 2px;
+  margin-top: -1px;
+  border-radius: 2px;
+  background: var(--grad);
+  box-shadow: 0 0 6px var(--grad-2);
+  pointer-events: none;
+  z-index: 2;
+}
+.category-section > .drop-line:last-child {
+  bottom: 0;
+}
+.category-end {
+  position: relative;
+  height: 28px;
+}
+.channel-lock {
+  display: inline-grid;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.privacy-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.role-pick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.role-chip {
+  display: inline-flex !important;
+  flex-direction: row !important;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  font-size: 13px;
+  cursor: pointer;
+  text-transform: none;
+  font-weight: 500;
+}
+.role-chip input {
+  display: none;
+}
+.role-chip.picked {
+  border-color: var(--grad-1);
+  background: color-mix(in srgb, var(--grad-1) 18%, transparent);
+  color: var(--text);
+}
+
+.invite-summary .link {
+  margin-left: 4px;
+}
+.invite-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+}
+.settings-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 12px 0 24px;
+}
+.settings-list-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--bg-sidebar);
+}
+.settings-list-row .ellipsis {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.invite-code {
+  font-family: ui-monospace, monospace;
+  font-size: 13px;
+  color: var(--link);
+}
+.btn.small {
+  padding: 4px 10px;
+  font-size: 13px;
+}
+@media (max-width: 700px) {
+  .settings-list-row {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+}
+.inline-icon {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}

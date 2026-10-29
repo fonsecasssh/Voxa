@@ -3,7 +3,7 @@
 import { randomUUID } from "node:crypto";
 import type { DB } from "./db.ts";
 import { newInviteCode, newToken } from "./auth.ts";
-import { DEFAULT_PERMISSIONS } from "../../shared/permissions.ts";
+import { DEFAULT_PERMISSIONS, Permission, can, permissionsOf } from "../../shared/permissions.ts";
 import { CLIP_MIME, CLIP_URL_PREFIX, imageUrlPrefix, type ClipType, type ServerImageKind, type UserImageKind } from "./media.ts";
 
 export interface PublicUser {
@@ -20,7 +20,6 @@ export interface Server {
   id: string;
   name: string;
   ownerId: string;
-  inviteCode: string;
   /** URL of the banner image, or null. */
   banner: string | null;
   /** URL of the icon image, or null (the initials are shown instead). */
@@ -36,6 +35,35 @@ export interface Channel {
   name: string;
   type: ChannelType;
   position: number;
+  categoryId: string | null;
+  /** Only the owner, administrators and the roles in roleIds see a private channel. */
+  private: boolean;
+  roleIds: string[];
+}
+
+export interface Category {
+  id: string;
+  serverId: string;
+  name: string;
+  position: number;
+}
+
+export interface Ban {
+  user: PublicUser;
+  reason: string | null;
+  createdAt: number;
+}
+
+export interface Invite {
+  code: string;
+  serverId: string;
+  creatorId: string | null;
+  /** null = unlimited. */
+  maxUses: number | null;
+  uses: number;
+  /** null = never expires. */
+  expiresAt: number | null;
+  createdAt: number;
 }
 
 export type UserStatus = "online" | "idle" | "dnd" | "invisible";
@@ -221,7 +249,6 @@ const toServer = (r: Row): Server => ({
   id: r.id as string,
   name: r.name as string,
   ownerId: r.owner_id as string,
-  inviteCode: r.invite_code as string,
   banner: r.banner ? imageUrlPrefix("banner") + (r.banner as string) : null,
   icon: r.icon ? imageUrlPrefix("icon") + (r.icon as string) : null,
 });
@@ -232,6 +259,22 @@ const toChannel = (r: Row): Channel => ({
   name: r.name as string,
   type: r.type as ChannelType,
   position: r.position as number,
+  categoryId: (r.category_id as string | null) ?? null,
+  private: r.private === 1,
+  roleIds: r.role_ids ? (r.role_ids as string).split(",") : [],
+});
+
+/** Channels with the roles a private one is open to (comma-separated). */
+const CHANNEL_SELECT = `SELECT c.*, (SELECT group_concat(role_id) FROM channel_roles cr WHERE cr.channel_id = c.id) AS role_ids FROM channels c`;
+
+const toInvite = (r: Row): Invite => ({
+  code: r.code as string,
+  serverId: r.server_id as string,
+  creatorId: (r.creator_id as string | null) ?? null,
+  maxUses: (r.max_uses as number | null) ?? null,
+  uses: r.uses as number,
+  expiresAt: (r.expires_at as number | null) ?? null,
+  createdAt: r.created_at as number,
 });
 
 const toRole = (r: Row): Role => ({
@@ -438,7 +481,7 @@ export function createStore(db: DB) {
         .get(low, high) as Row | undefined;
       if (existing) return { channel: toChannel(existing), created: false };
 
-      const channel: Channel = { id: randomUUID(), serverId: null, name: "", type: "dm", position: 0 };
+      const channel: Channel = { id: randomUUID(), serverId: null, name: "", type: "dm", position: 0, categoryId: null, private: false, roleIds: [] };
       db.exec("BEGIN");
       try {
         db.prepare("INSERT INTO channels (id, server_id, name, type, position, created_at) VALUES (?, NULL, '', 'dm', 0, ?)")
@@ -483,7 +526,7 @@ export function createStore(db: DB) {
 
     /** A new group DM with its owner and these people. */
     createGroupDm(ownerId: string, userIds: string[], name: string | null): Channel {
-      const channel: Channel = { id: randomUUID(), serverId: null, name: "", type: "dm", position: 0 };
+      const channel: Channel = { id: randomUUID(), serverId: null, name: "", type: "dm", position: 0, categoryId: null, private: false, roleIds: [] };
       const now = Date.now();
       db.exec("BEGIN");
       try {
@@ -512,7 +555,7 @@ export function createStore(db: DB) {
       db.prepare("DELETE FROM dm_members WHERE channel_id = ? AND user_id = ?").run(channelId, userId);
       const left = this.dmParticipants(channelId);
       if (!left) {
-        this.deleteChannel(channelId);
+        db.prepare("DELETE FROM channels WHERE id = ? AND type = 'dm'").run(channelId);
         return "deleted";
       }
       if (this.groupDm(channelId)?.ownerId === userId) {
@@ -560,17 +603,20 @@ export function createStore(db: DB) {
     },
 
     // --- servers & membership ---------------------------------------------
-    createServer(ownerId: string, name: string): { server: Server; channels: Channel[]; roles: Role[] } {
+    createServer(ownerId: string, name: string): { server: Server; channels: Channel[]; categories: Category[]; roles: Role[]; inviteCode: string } {
       const now = Date.now();
-      const server: Server = { id: randomUUID(), name, ownerId, inviteCode: newInviteCode(), banner: null, icon: null };
+      const server: Server = { id: randomUUID(), name, ownerId, banner: null, icon: null };
+      const inviteCode = newInviteCode();
       db.exec("BEGIN");
       try {
         db.prepare("INSERT INTO servers (id, name, owner_id, invite_code, created_at) VALUES (?, ?, ?, ?, ?)")
-          .run(server.id, name, ownerId, server.inviteCode, now);
+          .run(server.id, name, ownerId, inviteCode, now);
         db.prepare("INSERT INTO members (server_id, user_id, joined_at) VALUES (?, ?, ?)").run(server.id, ownerId, now);
+        // Like Discord's default server: a text and a voice category, one channel in each.
+        const categories = [this.createCategory(server.id, "Canais de texto"), this.createCategory(server.id, "Canais de voz")];
         const channels = [
-          this.insertChannel(server.id, "geral", "text", 0),
-          this.insertChannel(server.id, "Geral", "voice", 1),
+          this.insertChannel(server.id, "geral", "text", { categoryId: categories[0].id }),
+          this.insertChannel(server.id, "Geral", "voice", { categoryId: categories[1].id }),
         ];
         const everyone: Role = {
           id: randomUUID(),
@@ -587,7 +633,7 @@ export function createStore(db: DB) {
            VALUES (?, ?, '@everyone', NULL, ?, 0, 0, 1, ?)`,
         ).run(everyone.id, server.id, everyone.permissions, now);
         db.exec("COMMIT");
-        return { server, channels, roles: [everyone] };
+        return { server, channels, categories, roles: [everyone], inviteCode };
       } catch (err) {
         db.exec("ROLLBACK");
         throw err;
@@ -745,28 +791,221 @@ export function createStore(db: DB) {
     },
 
     // --- channels ---------------------------------------------------------
-    insertChannel(serverId: string, name: string, type: ChannelType, position?: number): Channel {
-      const pos =
-        position ??
-        ((db.prepare("SELECT COALESCE(MAX(position), -1) + 1 AS p FROM channels WHERE server_id = ?").get(serverId) as Row)
-          .p as number);
-      const channel: Channel = { id: randomUUID(), serverId, name, type, position: pos };
-      db.prepare("INSERT INTO channels (id, server_id, name, type, position, created_at) VALUES (?, ?, ?, ?, ?, ?)")
-        .run(channel.id, serverId, name, type, pos, Date.now());
-      return channel;
+    insertChannel(
+      serverId: string,
+      name: string,
+      type: ChannelType,
+      opts: { categoryId?: string | null; private?: boolean; roleIds?: string[] } = {},
+    ): Channel {
+      const pos = (db.prepare("SELECT COALESCE(MAX(position), -1) + 1 AS p FROM channels WHERE server_id = ?").get(serverId) as Row).p as number;
+      const id = randomUUID();
+      db.prepare("INSERT INTO channels (id, server_id, name, type, position, created_at, category_id, private) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").run(
+        id,
+        serverId,
+        name,
+        type,
+        pos,
+        Date.now(),
+        opts.categoryId ?? null,
+        opts.private ? 1 : 0,
+      );
+      if (opts.private) this.setChannelRoles(id, opts.roleIds ?? []);
+      return this.channelById(id)!;
     },
 
+    /** Every channel of a server, in display order within each category. */
     channels(serverId: string): Channel[] {
-      return (db.prepare("SELECT * FROM channels WHERE server_id = ? ORDER BY position").all(serverId) as Row[]).map(toChannel);
+      return (db.prepare(`${CHANNEL_SELECT} WHERE c.server_id = ? ORDER BY c.position`).all(serverId) as Row[]).map(toChannel);
     },
 
     channelById(id: string): Channel | null {
-      const r = db.prepare("SELECT * FROM channels WHERE id = ?").get(id) as Row | undefined;
+      const r = db.prepare(`${CHANNEL_SELECT} WHERE c.id = ?`).get(id) as Row | undefined;
       return r ? toChannel(r) : null;
     },
 
     renameChannel(id: string, name: string): void {
       db.prepare("UPDATE channels SET name = ? WHERE id = ?").run(name, id);
+    },
+
+    /** Makes a channel private to these roles, or public again. */
+    setChannelPrivacy(id: string, isPrivate: boolean, roleIds: string[]): void {
+      db.prepare("UPDATE channels SET private = ? WHERE id = ?").run(isPrivate ? 1 : 0, id);
+      this.setChannelRoles(id, isPrivate ? roleIds : []);
+    },
+
+    setChannelRoles(id: string, roleIds: string[]): void {
+      db.prepare("DELETE FROM channel_roles WHERE channel_id = ?").run(id);
+      for (const roleId of new Set(roleIds)) db.prepare("INSERT INTO channel_roles (channel_id, role_id) VALUES (?, ?)").run(id, roleId);
+    },
+
+    /**
+     * Whether someone sees a channel: a DM's people; a server's members, except for a
+     * private channel, which only the owner, administrators and its roles see.
+     */
+    canViewChannel(channel: Channel, userId: string): boolean {
+      if (!channel.serverId) return !!this.dmParticipants(channel.id)?.includes(userId);
+      const info = this.memberInfo(channel.serverId, userId);
+      if (!info) return false;
+      if (!channel.private) return true;
+      const server = this.serverById(channel.serverId)!;
+      if (can(permissionsOf(server, this.roles(server.id), userId, info.roleIds), Permission.ADMINISTRATOR)) return true;
+      return info.roleIds.some((id) => channel.roleIds.includes(id));
+    },
+
+    /** Server members who see this channel (all of them unless it's private). */
+    channelViewers(channel: Channel): string[] {
+      if (!channel.serverId) return this.dmParticipants(channel.id) ?? [];
+      const ids = (db.prepare("SELECT user_id FROM members WHERE server_id = ?").all(channel.serverId) as Row[]).map((r) => r.user_id as string);
+      return channel.private ? ids.filter((id) => this.canViewChannel(channel, id)) : ids;
+    },
+
+    /** The channels a member sees. */
+    visibleChannels(serverId: string, userId: string): Channel[] {
+      return this.channels(serverId).filter((c) => this.canViewChannel(c, userId));
+    },
+
+    /**
+     * Moves a channel into a category (null = above all categories), before another
+     * channel or at the end, and renumbers positions so the order is stable.
+     */
+    moveChannel(serverId: string, channelId: string, categoryId: string | null, beforeId: string | null): void {
+      const order = this.channels(serverId).filter((c) => c.id !== channelId);
+      const at = beforeId ? order.findIndex((c) => c.id === beforeId) : -1;
+      const ids = order.map((c) => c.id);
+      if (at >= 0) ids.splice(at, 0, channelId);
+      else ids.push(channelId);
+      db.exec("BEGIN");
+      try {
+        db.prepare("UPDATE channels SET category_id = ? WHERE id = ?").run(categoryId, channelId);
+        ids.forEach((id, i) => db.prepare("UPDATE channels SET position = ? WHERE id = ?").run(i, id));
+        db.exec("COMMIT");
+      } catch (err) {
+        db.exec("ROLLBACK");
+        throw err;
+      }
+    },
+
+    // --- categories -------------------------------------------------------
+    categories(serverId: string): Category[] {
+      return (db.prepare("SELECT * FROM categories WHERE server_id = ? ORDER BY position").all(serverId) as Row[]).map((r) => ({
+        id: r.id as string,
+        serverId: r.server_id as string,
+        name: r.name as string,
+        position: r.position as number,
+      }));
+    },
+
+    categoryById(id: string): Category | null {
+      const r = db.prepare("SELECT * FROM categories WHERE id = ?").get(id) as Row | undefined;
+      return r ? { id: r.id as string, serverId: r.server_id as string, name: r.name as string, position: r.position as number } : null;
+    },
+
+    createCategory(serverId: string, name: string): Category {
+      const position = (db.prepare("SELECT COALESCE(MAX(position), -1) + 1 AS p FROM categories WHERE server_id = ?").get(serverId) as Row).p as number;
+      const category: Category = { id: randomUUID(), serverId, name, position };
+      db.prepare("INSERT INTO categories (id, server_id, name, position, created_at) VALUES (?, ?, ?, ?, ?)").run(category.id, serverId, name, position, Date.now());
+      return category;
+    },
+
+    renameCategory(id: string, name: string): void {
+      db.prepare("UPDATE categories SET name = ? WHERE id = ?").run(name, id);
+    },
+
+    /** Deletes a category; its channels stay, without a category. */
+    deleteCategory(id: string): void {
+      db.prepare("UPDATE channels SET category_id = NULL WHERE category_id = ?").run(id);
+      db.prepare("DELETE FROM categories WHERE id = ?").run(id);
+    },
+
+    moveCategory(serverId: string, categoryId: string, beforeId: string | null): void {
+      const ids = this.categories(serverId).map((c) => c.id).filter((id) => id !== categoryId);
+      const at = beforeId ? ids.indexOf(beforeId) : -1;
+      if (at >= 0) ids.splice(at, 0, categoryId);
+      else ids.push(categoryId);
+      ids.forEach((id, i) => db.prepare("UPDATE categories SET position = ? WHERE id = ?").run(i, id));
+    },
+
+    // --- bans ---------------------------------------------------------------
+    isBanned(serverId: string, userId: string): boolean {
+      return db.prepare("SELECT 1 FROM bans WHERE server_id = ? AND user_id = ?").get(serverId, userId) !== undefined;
+    },
+
+    ban(serverId: string, userId: string, bannedBy: string, reason: string | null): void {
+      db.prepare("INSERT OR REPLACE INTO bans (server_id, user_id, banned_by, reason, created_at) VALUES (?, ?, ?, ?, ?)").run(
+        serverId,
+        userId,
+        bannedBy,
+        reason,
+        Date.now(),
+      );
+    },
+
+    unban(serverId: string, userId: string): boolean {
+      return db.prepare("DELETE FROM bans WHERE server_id = ? AND user_id = ?").run(serverId, userId).changes > 0;
+    },
+
+    bans(serverId: string): Ban[] {
+      return (
+        db.prepare("SELECT b.reason, b.created_at, u.* FROM bans b JOIN users u ON u.id = b.user_id WHERE b.server_id = ? ORDER BY b.created_at DESC").all(serverId) as Row[]
+      ).map((r) => ({ user: toUser(r), reason: (r.reason as string | null) ?? null, createdAt: r.created_at as number }));
+    },
+
+    // --- invites ------------------------------------------------------------
+    createInvite(serverId: string, creatorId: string, maxUses: number | null, expiresAt: number | null): Invite {
+      const invite: Invite = { code: newInviteCode(), serverId, creatorId, maxUses, uses: 0, expiresAt, createdAt: Date.now() };
+      db.prepare("INSERT INTO invites (code, server_id, creator_id, max_uses, uses, expires_at, created_at) VALUES (?, ?, ?, ?, 0, ?, ?)").run(
+        invite.code,
+        serverId,
+        creatorId,
+        maxUses,
+        expiresAt,
+        invite.createdAt,
+      );
+      return invite;
+    },
+
+    /** Invites that still work. */
+    invites(serverId: string): Invite[] {
+      return (
+        db
+          .prepare("SELECT * FROM invites WHERE server_id = ? AND (expires_at IS NULL OR expires_at > ?) AND (max_uses IS NULL OR uses < max_uses) ORDER BY created_at DESC")
+          .all(serverId, Date.now()) as Row[]
+      ).map(toInvite);
+    },
+
+    inviteByCode(code: string): Invite | null {
+      const r = db.prepare("SELECT * FROM invites WHERE code = ?").get(code) as Row | undefined;
+      return r ? toInvite(r) : null;
+    },
+
+    /** Counts a use; false when the invite expired or ran out meanwhile. */
+    useInvite(code: string): boolean {
+      return (
+        db
+          .prepare("UPDATE invites SET uses = uses + 1 WHERE code = ? AND (expires_at IS NULL OR expires_at > ?) AND (max_uses IS NULL OR uses < max_uses)")
+          .run(code, Date.now()).changes > 0
+      );
+    },
+
+    deleteInvite(code: string): void {
+      db.prepare("DELETE FROM invites WHERE code = ?").run(code);
+    },
+
+    /** Gives the server a new original invite code, so links with the old one stop working. */
+    resetServerInvite(serverId: string): void {
+      db.prepare("UPDATE servers SET invite_code = ? WHERE id = ?").run(newInviteCode(), serverId);
+    },
+
+    /** The server an invite code leads to: a working invite, or the server's original code. */
+    serverForInvite(code: string): { server: Server; invite: Invite | null } | null {
+      const invite = this.inviteByCode(code);
+      if (invite) {
+        const valid = (invite.expiresAt === null || invite.expiresAt > Date.now()) && (invite.maxUses === null || invite.uses < invite.maxUses);
+        const server = valid ? this.serverById(invite.serverId) : null;
+        return server ? { server, invite } : null;
+      }
+      const server = this.serverByInvite(code);
+      return server ? { server, invite: null } : null;
     },
 
     deleteChannel(id: string): void {
@@ -802,7 +1041,9 @@ export function createStore(db: DB) {
           db
             .prepare(`SELECT u.id FROM users u JOIN members m ON m.user_id = u.id WHERE m.server_id = ? AND lower(u.username) IN (${marks})`)
             .all(channel.serverId, ...usernames) as Row[]
-        ).map((r) => r.id as string);
+        )
+          .map((r) => r.id as string)
+          .filter((id) => !channel.private || this.canViewChannel(channel, id));
       }
       const people: string[] = this.dmParticipants(channel.id) ?? [];
       return (db.prepare(`SELECT id FROM users WHERE lower(username) IN (${marks})`).all(...usernames) as Row[])

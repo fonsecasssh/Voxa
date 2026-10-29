@@ -410,19 +410,20 @@ export function createApp({ db, webDist, ice = createIceProvider(), trustProxy =
   // --- servers --------------------------------------------------------------
   app.post("/api/servers", requireAuth, (req, res) => {
     const name = str(req.body?.name, "nome", 1, 100);
-    const { server, channels, roles } = store.createServer(req.user!.id, name);
+    const { server, channels, categories, roles, inviteCode } = store.createServer(req.user!.id, name);
     io.in(`user:${req.user!.id}`).socketsJoin(`server:${server.id}`);
-    res.status(201).json({ server, channels, roles });
+    res.status(201).json({ server, channels, categories, roles, inviteCode });
   });
 
   app.get("/api/servers/:id", requireAuth, (req, res) => {
     const server = requireMember(req, req.params.id as string);
     res.json({
       server,
-      channels: store.channels(server.id),
+      channels: store.visibleChannels(server.id, req.user!.id),
+      categories: store.categories(server.id),
       members: store.members(server.id),
       presence: realtime.presenceMap(store.members(server.id).map((m) => m.id)),
-      voice: realtime.voiceState(server.id),
+      voice: realtime.voiceState(server.id, req.user!.id),
       roles: store.roles(server.id),
       memberData: store.memberData(server.id),
     });
@@ -436,18 +437,26 @@ export function createApp({ db, webDist, ice = createIceProvider(), trustProxy =
   });
 
   app.get("/api/invites/:code", (req, res) => {
-    const server = store.serverByInvite(req.params.code as string);
-    if (!server) throw new HttpError(404, "Convite inválido.");
+    const found = store.serverForInvite(req.params.code as string);
+    if (!found) throw new HttpError(404, "Convite inválido ou expirado.");
+    const { server, invite } = found;
     res.json({
       server: { id: server.id, name: server.name, banner: server.banner, icon: server.icon },
       memberCount: store.members(server.id).length,
+      expiresAt: invite?.expiresAt ?? null,
     });
   });
 
   app.post("/api/invites/:code", requireAuth, (req, res) => {
-    const server = store.serverByInvite(req.params.code as string);
-    if (!server) throw new HttpError(404, "Convite inválido.");
-    if (store.addMember(server.id, req.user!.id)) {
+    const found = store.serverForInvite(req.params.code as string);
+    if (!found) throw new HttpError(404, "Convite inválido ou expirado.");
+    const { server, invite } = found;
+    const me = req.user!.id;
+    if (store.isMember(server.id, me)) return void res.json({ server });
+    if (store.isBanned(server.id, me)) throw new HttpError(403, "Você foi banido deste servidor.");
+    // Counted only for someone actually joining; fails if the last use went meanwhile.
+    if (invite && !store.useInvite(invite.code)) throw new HttpError(404, "Convite inválido ou expirado.");
+    if (store.addMember(server.id, me)) {
       io.in(`user:${req.user!.id}`).socketsJoin(`server:${server.id}`);
       io.to(`server:${server.id}`).emit("member:join", {
         serverId: server.id,

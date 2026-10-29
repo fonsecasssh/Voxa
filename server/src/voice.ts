@@ -41,8 +41,11 @@ export function createVoice(io: IOServer, store: Store) {
   const membersOf = (channelId: string) => [...(channels.get(channelId)?.values() ?? [])];
 
   /** Who hears about a channel's voice state: the server, or the DM's people. */
-  const roomsFor = (serverId: string | null, channelId: string) =>
-    serverId ? [`server:${serverId}`] : (store.dmParticipants(channelId) ?? []).map((id) => `user:${id}`);
+  const roomsFor = (serverId: string | null, channelId: string) => {
+    const channel = store.channelById(channelId);
+    if (serverId && !channel?.private) return [`server:${serverId}`];
+    return channel ? store.channelViewers(channel).map((id) => `user:${id}`) : [];
+  };
 
   const broadcast = (serverId: string | null, channelId: string) => {
     const rooms = roomsFor(serverId, channelId);
@@ -76,7 +79,7 @@ export function createVoice(io: IOServer, store: Store) {
       const channel = typeof channelId === "string" ? store.channelById(channelId) : null;
       const serverId = channel?.type === "voice" ? channel.serverId : null;
       const dmPeople = channel?.type === "dm" ? store.dmParticipants(channel.id) : null;
-      const allowed = serverId ? socket.rooms.has(`server:${serverId}`) : !!dmPeople?.includes(user.id);
+      const allowed = serverId ? socket.rooms.has(`server:${serverId}`) && store.canViewChannel(channel!, user.id) : !!dmPeople?.includes(user.id);
       if (!channel || !allowed) {
         return reply({ error: "Canal de voz não encontrado." });
       }
@@ -164,13 +167,21 @@ export function createVoice(io: IOServer, store: Store) {
       session.member.user = user;
       broadcast(session.serverId, session.channelId);
     },
-    /** Voice channel occupancy for one server, for the initial page load. */
-    stateForServer(serverId: string): Record<string, VoiceMember[]> {
+    /** Voice channel occupancy for one server (the channels this user sees), for the initial page load. */
+    stateForServer(serverId: string, userId: string): Record<string, VoiceMember[]> {
       const out: Record<string, VoiceMember[]> = {};
-      for (const c of store.channels(serverId)) {
+      for (const c of store.visibleChannels(serverId, userId)) {
         if (c.type === "voice" && channels.has(c.id)) out[c.id] = membersOf(c.id);
       }
       return out;
+    },
+    /** Drops people from voice channels of this server that they can't see anymore. */
+    recheckServer(serverId: string) {
+      for (const [socketId, s] of [...bySocket]) {
+        if (s.serverId !== serverId) continue;
+        const channel = store.channelById(s.channelId);
+        if (!channel || !store.canViewChannel(channel, s.member.user.id)) evict(socketId, "Você não tem mais acesso a este canal de voz.");
+      }
     },
   };
 }

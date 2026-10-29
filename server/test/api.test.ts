@@ -73,7 +73,7 @@ describe("servers, invites and messages", () => {
 
     const created = await api("POST", "/api/servers", { name: "Meu servidor" }, owner.token);
     expect(created.status).toBe(201);
-    const { server, channels } = created.body;
+    const { server, channels, inviteCode } = created.body;
     expect(channels.map((c: { type: string }) => c.type)).toEqual(["text", "voice"]);
     const textChannel = channels[0];
 
@@ -85,8 +85,8 @@ describe("servers, invites and messages", () => {
     const guestSocket = await socketFor(guest.token);
 
     const joined = next<{ user: { username: string } }>(ownerSocket, "member:join");
-    expect((await api("GET", `/api/invites/${server.inviteCode}`)).body.server.name).toBe("Meu servidor");
-    expect((await api("POST", `/api/invites/${server.inviteCode}`, undefined, guest.token)).status).toBe(200);
+    expect((await api("GET", `/api/invites/${inviteCode}`)).body.server.name).toBe("Meu servidor");
+    expect((await api("POST", `/api/invites/${inviteCode}`, undefined, guest.token)).status).toBe(200);
     expect((await joined).user.username).toBe("convidado");
 
     // The guest's already-open socket was moved into the server room.
@@ -99,9 +99,9 @@ describe("servers, invites and messages", () => {
 
     // Only the owner creates channels; text names are slugified.
     expect((await api("POST", `/api/servers/${server.id}/channels`, { name: "x" }, guest.token)).status).toBe(403);
-    const newChannel = next<{ name: string }>(guestSocket, "channel:new");
+    const newChannel = next<{ channels: { name: string }[] }>(guestSocket, "channels:update");
     await api("POST", `/api/servers/${server.id}/channels`, { name: "Jogos Online" }, owner.token);
-    expect((await newChannel).name).toBe("jogos-online");
+    expect((await newChannel).channels.map((c) => c.name)).toContain("jogos-online");
 
     const typing = next<{ user: { username: string } }>(ownerSocket, "typing");
     guestSocket.emit("typing", { channelId: textChannel.id });
@@ -125,7 +125,7 @@ describe("servers, invites and messages", () => {
     const { body } = await api("POST", "/api/servers", { name: "Voz" }, a.token);
     const voiceChannel = body.channels.find((c: { type: string }) => c.type === "voice");
     const textChannel = body.channels.find((c: { type: string }) => c.type === "text");
-    await api("POST", `/api/invites/${body.server.inviteCode}`, undefined, b.token);
+    await api("POST", `/api/invites/${body.inviteCode}`, undefined, b.token);
 
     const sa = await socketFor(a.token);
     const sb = await socketFor(b.token);

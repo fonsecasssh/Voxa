@@ -53,14 +53,13 @@ export function registerRealtime(io: IOServer, store: Store) {
     io.to(audience(userId)).emit("presence", { userId, presence: presenceOf(userId) });
   };
 
-  /** Rooms that receive a channel's messages and typing indicators. */
+  /** Rooms that receive a channel's messages and typing indicators (a private channel: only who sees it). */
   const channelRooms = (channel: Channel): string[] => {
-    if (channel.serverId) return [`server:${channel.serverId}`];
-    return (store.dmParticipants(channel.id) ?? []).map((id) => `user:${id}`);
+    if (channel.serverId && !channel.private) return [`server:${channel.serverId}`];
+    return store.channelViewers(channel).map((id) => `user:${id}`);
   };
 
-  const canAccess = (channel: Channel, userId: string): boolean =>
-    channel.serverId ? store.isMember(channel.serverId, userId) : !!store.dmParticipants(channel.id)?.includes(userId);
+  const canAccess = (channel: Channel, userId: string): boolean => store.canViewChannel(channel, userId);
 
   io.use((socket, next) => {
     const token = socket.handshake.auth?.token;
@@ -123,6 +122,17 @@ export function registerRealtime(io: IOServer, store: Store) {
     channelRooms,
     canAccess,
     voiceState: voice.stateForServer,
+    /**
+     * Sends every member the channels and categories they see (after any change that can
+     * show or hide a channel), and drops people from voice channels they can't see anymore.
+     */
+    emitChannels(serverId: string) {
+      const categories = store.categories(serverId);
+      for (const m of store.members(serverId)) {
+        io.to(`user:${m.id}`).emit("channels:update", { serverId, channels: store.visibleChannels(serverId, m.id), categories });
+      }
+      voice.recheckServer(serverId);
+    },
     dmCalls: voice.stateForChannels,
     evictVoiceChannel: voice.evictChannel,
     evictFromCall: voice.evictFromChannel,

@@ -18,6 +18,8 @@ export const Permission = {
   CHANGE_NICKNAME: 1 << 6,
   MANAGE_MESSAGES: 1 << 7,
   MENTION_EVERYONE: 1 << 8,
+  BAN_MEMBERS: 1 << 9,
+  CREATE_INVITE: 1 << 10,
 } as const;
 
 export type PermissionName = keyof typeof Permission;
@@ -25,15 +27,17 @@ export type PermissionName = keyof typeof Permission;
 export const ALL_PERMISSIONS = Object.values(Permission).reduce((a, b) => a | b, 0);
 
 /** What @everyone can do in a new server. */
-export const DEFAULT_PERMISSIONS = Permission.CHANGE_NICKNAME;
+export const DEFAULT_PERMISSIONS = Permission.CHANGE_NICKNAME | Permission.CREATE_INVITE;
 
 /** Labels and descriptions shown in the role editor, in display order. */
 export const PERMISSION_INFO: { key: PermissionName; label: string; description: string }[] = [
   { key: "ADMINISTRATOR", label: "Administrador", description: "Todas as permissões. Use com cuidado." },
-  { key: "MANAGE_SERVER", label: "Gerenciar servidor", description: "Mudar o nome do servidor." },
+  { key: "MANAGE_SERVER", label: "Gerenciar servidor", description: "Mudar o nome e a imagem do servidor e gerenciar os convites." },
   { key: "MANAGE_ROLES", label: "Gerenciar cargos", description: "Criar, editar e atribuir cargos abaixo do seu cargo mais alto." },
-  { key: "MANAGE_CHANNELS", label: "Gerenciar canais", description: "Criar, renomear e excluir canais." },
+  { key: "MANAGE_CHANNELS", label: "Gerenciar canais", description: "Criar, organizar, renomear e excluir canais e categorias." },
   { key: "KICK_MEMBERS", label: "Expulsar membros", description: "Remover membros com cargos abaixo do seu." },
+  { key: "BAN_MEMBERS", label: "Banir membros", description: "Remover membros com cargos abaixo do seu e impedir que voltem." },
+  { key: "CREATE_INVITE", label: "Criar convite", description: "Gerar links de convite para o servidor." },
   { key: "MANAGE_NICKNAMES", label: "Gerenciar apelidos", description: "Mudar o apelido de outros membros." },
   { key: "CHANGE_NICKNAME", label: "Alterar apelido", description: "Mudar o próprio apelido neste servidor." },
   { key: "MANAGE_MESSAGES", label: "Gerenciar mensagens", description: "Apagar mensagens de outros membros." },

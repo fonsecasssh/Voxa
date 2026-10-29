@@ -2,14 +2,15 @@
 
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { PERMISSION_INFO, Permission as P } from "../../../shared/permissions.ts";
-import { api, type Presence, type Role, type ServerDetails, type ServerImageKind, type User } from "../api.ts";
+import { api, type Ban, type Invite, type Presence, type Role, type ServerDetails, type ServerImageKind, type User } from "../api.ts";
 import { Permission, can, memberColor, memberName, memberRoles, myPermissions, myTop, outranks } from "../members.ts";
 import { navigate } from "../router.ts";
 import { Avatar, ServerIcon } from "./Avatar.tsx";
 import { NicknameForm } from "./MemberList.tsx";
 import { ImageCropper } from "./ImageCropper.tsx";
+import { inviteSummary } from "./ChannelModals.tsx";
 
-type Tab = "overview" | "roles" | "members";
+type Tab = "overview" | "roles" | "members" | "invites" | "bans";
 
 const SWATCHES = ["#1abc9c", "#2ecc71", "#3498db", "#9b59b6", "#e91e63", "#f1c40f", "#e67e22", "#e74c3c", "#95a5a6", "#607d8b"];
 
@@ -26,6 +27,8 @@ export function ServerSettings({ details, selfId, presence, onClose }: Props) {
     { id: "overview", label: "Visão geral", show: can(perms, Permission.MANAGE_SERVER) || details.server.ownerId === selfId },
     { id: "roles", label: "Cargos", show: can(perms, Permission.MANAGE_ROLES) },
     { id: "members", label: "Membros", show: true },
+    { id: "invites", label: "Convites", show: can(perms, Permission.MANAGE_SERVER) },
+    { id: "bans", label: "Banimentos", show: can(perms, Permission.BAN_MEMBERS) },
   ];
   const visible = tabs.filter((t) => t.show);
   const [tab, setTab] = useState<Tab>(visible[0].id);
@@ -53,6 +56,8 @@ export function ServerSettings({ details, selfId, presence, onClose }: Props) {
           {tab === "overview" && <Overview details={details} selfId={selfId} perms={perms} onClose={onClose} />}
           {tab === "roles" && <Roles details={details} selfId={selfId} perms={perms} />}
           {tab === "members" && <Members details={details} selfId={selfId} perms={perms} presence={presence} />}
+          {tab === "invites" && <Invites details={details} />}
+          {tab === "bans" && <Bans details={details} />}
         </div>
         <button className="settings-close" title="Fechar (Esc)" onClick={onClose}>
           ✕<span>ESC</span>
@@ -486,6 +491,7 @@ function MemberRow({
     ? can(perms, Permission.CHANGE_NICKNAME) || can(perms, Permission.MANAGE_NICKNAMES)
     : can(perms, Permission.MANAGE_NICKNAMES) && outranks(details, selfId, user.id);
   const canKick = !isSelf && can(perms, Permission.KICK_MEMBERS) && outranks(details, selfId, user.id);
+  const canBan = !isSelf && can(perms, Permission.BAN_MEMBERS) && outranks(details, selfId, user.id);
   const name = memberName(details, user);
 
   return (
@@ -557,7 +563,124 @@ function MemberRow({
             ⨯
           </button>
         )}
+        {canBan && (
+          <button
+            className="icon-btn danger"
+            title="Banir"
+            aria-label={`Banir ${name}`}
+            onClick={() => {
+              const reason = prompt(`Banir ${name}? Motivo (opcional):`);
+              if (reason !== null) run(() => api.banMember(sid, user.id, reason.trim() || null));
+            }}
+          >
+            ⛔
+          </button>
+        )}
       </div>
     </div>
+  );
+}
+
+// --- invites ---------------------------------------------------------------------
+
+function Invites({ details }: { details: ServerDetails }) {
+  const sid = details.server.id;
+  const [invites, setInvites] = useState<Invite[] | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const { error, run } = useAction();
+  const load = () => api.invites(sid).then((r) => setInvites(r.invites), () => setInvites([]));
+  useEffect(() => {
+    load();
+  }, [sid]);
+
+  return (
+    <>
+      <h2>Convites</h2>
+      <p className="muted">Links que ainda funcionam. Revogue um link para ele parar de funcionar na hora.</p>
+      {error && <div className="form-error">{error}</div>}
+      {invites === null ? (
+        <p className="muted">Carregando…</p>
+      ) : invites.length === 0 ? (
+        <p className="muted">Nenhum convite ativo. Crie um em "Convidar pessoas".</p>
+      ) : (
+        <div className="settings-list">
+          {invites.map((i) => (
+            <div key={i.code} className="settings-list-row">
+              <code className="invite-code">{i.code}</code>
+              <span className="ellipsis">
+                {i.creator ? (
+                  <>
+                    <Avatar name={i.creator.displayName} id={i.creator.id} size={20} src={i.creator.avatar} /> {i.creator.displayName}
+                  </>
+                ) : (
+                  "—"
+                )}
+              </span>
+              <span className="muted small">
+                {i.uses} {i.uses === 1 ? "uso" : "usos"} · {inviteSummary(i)}
+              </span>
+              <button className="btn subtle danger small" onClick={async () => (await run(() => api.deleteInvite(i.code))) && load()}>
+                Revogar
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      <h3>Link original do servidor</h3>
+      <p className="muted small">
+        Servidores criados antes dos convites com validade têm um link permanente. Se ele foi compartilhado demais, desative-o: quem já está no servidor
+        continua.
+      </p>
+      {notice && <div className="form-ok">{notice}</div>}
+      <button
+        className="btn subtle danger"
+        onClick={async () => {
+          if (!confirm("Desativar o link original deste servidor? Quem tiver esse link não vai mais conseguir entrar.")) return;
+          if (await run(() => api.resetServerInvite(sid))) setNotice("Link original desativado.");
+        }}
+      >
+        Desativar link original
+      </button>
+    </>
+  );
+}
+
+// --- bans -------------------------------------------------------------------------
+
+function Bans({ details }: { details: ServerDetails }) {
+  const sid = details.server.id;
+  const [bans, setBans] = useState<Ban[] | null>(null);
+  const { error, run } = useAction();
+  const load = () => api.bans(sid).then((r) => setBans(r.bans), () => setBans([]));
+  useEffect(() => {
+    load();
+  }, [sid]);
+
+  return (
+    <>
+      <h2>Banimentos</h2>
+      <p className="muted">Pessoas banidas não conseguem voltar ao servidor com nenhum convite até o banimento ser revogado.</p>
+      {error && <div className="form-error">{error}</div>}
+      {bans === null ? (
+        <p className="muted">Carregando…</p>
+      ) : bans.length === 0 ? (
+        <p className="muted">Ninguém banido.</p>
+      ) : (
+        <div className="settings-list">
+          {bans.map((b) => (
+            <div key={b.user.id} className="settings-list-row">
+              <Avatar name={b.user.displayName} id={b.user.id} size={32} src={b.user.avatar} />
+              <span className="ellipsis">
+                <strong>{b.user.displayName}</strong> <span className="muted small">@{b.user.username}</span>
+              </span>
+              <span className="muted small ellipsis">{b.reason ? `Motivo: ${b.reason}` : "Sem motivo"}</span>
+              <button className="btn subtle small" onClick={async () => (await run(() => api.unban(sid, b.user.id))) && load()}>
+                Revogar banimento
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </>
   );
 }

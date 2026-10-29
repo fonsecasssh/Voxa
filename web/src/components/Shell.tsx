@@ -39,10 +39,11 @@ import { VoiceView } from "./VoiceView.tsx";
 import { DmCallBar, GroupDmModal, GroupMembers, IncomingCall, RING_FOR_MS } from "./DmParts.tsx";
 import { Icon } from "./Icon.tsx";
 import type { VoiceMember } from "../voice/types.ts";
-import { CreateChannelModal, CreateServerModal, EditChannelModal, InviteModal, NicknameModal, ProfileModal } from "./Modals.tsx";
+import { CreateServerModal, NicknameModal, ProfileModal } from "./Modals.tsx";
+import { CategoryModal, CreateChannelModal, EditChannelModal, InviteModal } from "./ChannelModals.tsx";
 import { ServerSettings } from "./ServerSettings.tsx";
 import { VoiceSettingsModal } from "./VoiceSettingsModal.tsx";
-import type { Channel } from "../api.ts";
+import type { Category, Channel } from "../api.ts";
 
 const TYPING_MS = 4000;
 const HOME = "@me";
@@ -53,8 +54,11 @@ interface ChannelMessages {
 }
 
 type ModalKind =
-  | { kind: "createServer" | "createChannel" | "invite" | "nickname" | "profile" | "settings" | "voiceSettings" | "replay" | "appSettings" }
+  | { kind: "createServer" | "invite" | "nickname" | "profile" | "settings" | "voiceSettings" | "replay" | "appSettings" }
+  | { kind: "createChannel"; categoryId: string | null }
   | { kind: "editChannel"; channel: Channel }
+  /** Create a category, or edit `category`. */
+  | { kind: "category"; category?: Category }
   /** Start a group DM, or add people to one (`dm` is where the button was). */
   | { kind: "groupDm"; dm?: DmSummary }
   | null;
@@ -426,6 +430,13 @@ export function Shell({ user, setUser, initialStatus, initialActivity, servers, 
       });
     });
 
+    socket.on("channels:update", ({ serverId: sid, channels, categories }) => {
+      updateServer(sid, (d) => ({ ...d, channels, categories }));
+      // A channel we were looking at was deleted or hidden from us.
+      const { serverId: here, channelId: open } = activeRef.current;
+      if (here === sid && open && !channels.some((c) => c.id === open)) navigate(`/channels/${sid}`, true);
+    });
+
     socket.on("channel:update", (c) => {
       if (c.serverId) updateServer(c.serverId, (d) => ({ ...d, channels: d.channels.map((x) => (x.id === c.id ? c : x)) }));
     });
@@ -745,7 +756,9 @@ export function Shell({ user, setUser, initialStatus, initialActivity, servers, 
           details={current}
           activeChannelId={channelId}
           selfId={user.id}
-          onCreateChannel={() => setModal({ kind: "createChannel" })}
+          onCreateChannel={(categoryId) => setModal({ kind: "createChannel", categoryId })}
+          onCreateCategory={() => setModal({ kind: "category" })}
+          onEditCategory={(category) => setModal({ kind: "category", category })}
           onInvite={() => setModal({ kind: "invite" })}
           onOpenSettings={() => setModal({ kind: "settings" })}
           onEditNickname={() => setModal({ kind: "nickname" })}
@@ -834,13 +847,14 @@ export function Shell({ user, setUser, initialStatus, initialActivity, servers, 
         {modal?.kind === "createServer" && (
           <CreateServerModal
             onClose={() => setModal(null)}
-            onCreated={({ server, channels, roles }) => {
+            onCreated={({ server, channels, categories, roles }) => {
               setServers((s) => [...s, server]);
               setDetails((all) => ({
                 ...all,
                 [server.id]: {
                   server,
                   channels,
+                  categories,
                   members: [user],
                   presence: {},
                   voice: {},
@@ -855,7 +869,8 @@ export function Shell({ user, setUser, initialStatus, initialActivity, servers, 
         )}
         {modal?.kind === "createChannel" && current && (
           <CreateChannelModal
-            serverId={current.server.id}
+            details={current}
+            categoryId={modal.categoryId}
             onClose={() => setModal(null)}
             onCreated={(c) => {
               const sid = current.server.id;
@@ -869,8 +884,9 @@ export function Shell({ user, setUser, initialStatus, initialActivity, servers, 
             }}
           />
         )}
-        {modal?.kind === "invite" && current && <InviteModal server={current.server} onClose={() => setModal(null)} />}
-        {modal?.kind === "editChannel" && current && <EditChannelModal channel={modal.channel} onClose={() => setModal(null)} />}
+        {modal?.kind === "invite" && current && <InviteModal details={current} onClose={() => setModal(null)} />}
+        {modal?.kind === "editChannel" && current && <EditChannelModal details={current} channel={modal.channel} onClose={() => setModal(null)} />}
+        {modal?.kind === "category" && current && <CategoryModal serverId={current.server.id} category={modal.category} onClose={() => setModal(null)} />}
         {modal?.kind === "nickname" && current && (
           <NicknameModal details={current} target={user} selfId={user.id} onClose={() => setModal(null)} />
         )}

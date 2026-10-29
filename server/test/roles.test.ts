@@ -50,8 +50,8 @@ async function setup(modPermissions: number) {
   const { body } = await api("POST", "/api/servers", { name: "Cargos" }, owner.token);
   const sid = body.server.id as string;
   expect(body.roles).toEqual([expect.objectContaining({ name: "@everyone", isDefault: true, position: 0 })]);
-  await api("POST", `/api/invites/${body.server.inviteCode}`, undefined, mod.token);
-  await api("POST", `/api/invites/${body.server.inviteCode}`, undefined, member.token);
+  await api("POST", `/api/invites/${body.inviteCode}`, undefined, mod.token);
+  await api("POST", `/api/invites/${body.inviteCode}`, undefined, member.token);
   const modRole = (await api("POST", `/api/servers/${sid}/roles`, { name: "Mod", color: "#E91E63", permissions: modPermissions, hoist: true }, owner.token)).body.role;
   expect((await api("PUT", `/api/servers/${sid}/members/${mod.user.id}/roles/${modRole.id}`, undefined, owner.token)).status).toBe(200);
   return { owner, mod, member, sid, modRole, textChannel: body.channels[0], voiceChannel: body.channels[1] };

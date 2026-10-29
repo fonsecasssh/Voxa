@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { api, type Channel, type ChannelType, type ProfileImageKind, type Role, type Server, type ServerDetails, type User } from "../api.ts";
+import { api, type Category, type Channel, type ProfileImageKind, type Role, type Server, type ServerDetails, type User } from "../api.ts";
 import { Avatar } from "./Avatar.tsx";
 import { ImageCropper } from "./ImageCropper.tsx";
 import { navigate } from "../router.ts";
@@ -21,7 +21,7 @@ export function Modal({ title, onClose, children, className }: { title: string; 
   );
 }
 
-function useSubmit<T>(action: () => Promise<T>, onDone: (r: T) => void) {
+export function useSubmit<T>(action: () => Promise<T>, onDone: (r: T) => void) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const submit = async (e: FormEvent) => {
@@ -44,7 +44,7 @@ export function CreateServerModal({
   onCreated,
 }: {
   onClose: () => void;
-  onCreated: (r: { server: Server; channels: Channel[]; roles: Role[] }) => void;
+  onCreated: (r: { server: Server; channels: Channel[]; categories: Category[]; roles: Role[] }) => void;
 }) {
   const [name, setName] = useState("");
   const [code, setCode] = useState("");
@@ -85,122 +85,6 @@ export function CreateServerModal({
           <button className="btn subtle" disabled={!code.trim()}>
             Entrar no servidor
           </button>
-        </div>
-      </form>
-    </Modal>
-  );
-}
-
-export function CreateChannelModal({
-  serverId,
-  onClose,
-  onCreated,
-}: {
-  serverId: string;
-  onClose: () => void;
-  onCreated: (c: Channel) => void;
-}) {
-  const [name, setName] = useState("");
-  const [type, setType] = useState<ChannelType>("text");
-  const { busy, error, submit } = useSubmit(
-    () => api.createChannel(serverId, name, type).then((r) => r.channel),
-    onCreated,
-  );
-
-  return (
-    <Modal title="Criar canal" onClose={onClose}>
-      <form onSubmit={submit}>
-        <div className="radio-group">
-          {(["text", "voice"] as const).map((t) => (
-            <label key={t} className={`radio ${type === t ? "checked" : ""}`}>
-              <input type="radio" name="type" checked={type === t} onChange={() => setType(t)} />
-              <span>{t === "text" ? "# Texto" : "🔊 Voz"}</span>
-            </label>
-          ))}
-        </div>
-        <label>
-          Nome do canal
-          <input value={name} onChange={(e) => setName(e.target.value)} maxLength={100} required autoFocus />
-        </label>
-        {error && <div className="form-error">{error}</div>}
-        <div className="modal-actions">
-          <button type="button" className="btn subtle" onClick={onClose}>
-            Cancelar
-          </button>
-          <button className="btn primary" disabled={busy}>
-            Criar canal
-          </button>
-        </div>
-      </form>
-    </Modal>
-  );
-}
-
-export function InviteModal({ server, onClose }: { server: Server; onClose: () => void }) {
-  const link = `${location.origin}/invite/${server.inviteCode}`;
-  const [copied, setCopied] = useState(false);
-
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(link);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // Clipboard blocked: the link is still selectable in the input.
-    }
-  };
-
-  return (
-    <Modal title={`Convidar para ${server.name}`} onClose={onClose}>
-      <p className="muted">Envie este link para quem você quer chamar:</p>
-      <div className="copy-row">
-        <input readOnly value={link} onFocus={(e) => e.currentTarget.select()} />
-        <button className="btn primary" onClick={copy}>
-          {copied ? "Copiado!" : "Copiar"}
-        </button>
-      </div>
-    </Modal>
-  );
-}
-
-export function EditChannelModal({ channel, onClose }: { channel: Channel; onClose: () => void }) {
-  const [name, setName] = useState(channel.name);
-  const save = useSubmit(() => api.renameChannel(channel.id, name), onClose);
-  const [deleting, setDeleting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const remove = async () => {
-    if (!confirm(`Excluir o canal "${channel.name}"? As mensagens dele serão apagadas.`)) return;
-    setDeleting(true);
-    try {
-      await api.deleteChannel(channel.id);
-      onClose();
-    } catch (err) {
-      setError((err as Error).message);
-      setDeleting(false);
-    }
-  };
-
-  return (
-    <Modal title={`Editar ${channel.type === "voice" ? "canal de voz" : "canal"}`} onClose={onClose}>
-      <form onSubmit={save.submit}>
-        <label>
-          Nome do canal
-          <input value={name} onChange={(e) => setName(e.target.value)} maxLength={100} required autoFocus />
-        </label>
-        {(save.error || error) && <div className="form-error">{save.error || error}</div>}
-        <div className="modal-actions spread">
-          <button type="button" className="btn subtle danger" onClick={remove} disabled={deleting}>
-            Excluir canal
-          </button>
-          <span>
-            <button type="button" className="btn subtle" onClick={onClose}>
-              Cancelar
-            </button>
-            <button className="btn primary" disabled={save.busy || !name.trim()}>
-              Salvar
-            </button>
-          </span>
         </div>
       </form>
     </Modal>

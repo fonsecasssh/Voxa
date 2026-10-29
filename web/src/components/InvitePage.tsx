@@ -6,11 +6,11 @@ import { Wordmark } from "./Logo.tsx";
 
 export function InvitePage({ code, onJoined }: { code: string; onJoined: (server: Server) => void }) {
   const [info, setInfo] = useState<Awaited<ReturnType<typeof api.invite>> | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<{ title: string; message: string } | null>(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    api.invite(code).then(setInfo, (err) => setError((err as Error).message));
+    api.invite(code).then(setInfo, (err) => setError({ title: "Convite inválido", message: (err as Error).message }));
   }, [code]);
 
   const join = async () => {
@@ -20,7 +20,7 @@ export function InvitePage({ code, onJoined }: { code: string; onJoined: (server
       onJoined(server);
       navigate(`/channels/${server.id}`, true);
     } catch (err) {
-      setError((err as Error).message);
+      setError({ title: "Não foi possível entrar", message: (err as Error).message });
       setBusy(false);
     }
   };
@@ -33,8 +33,8 @@ export function InvitePage({ code, onJoined }: { code: string; onJoined: (server
         </div>
         {error ? (
           <>
-            <h1>Convite inválido</h1>
-            <p className="muted">{error}</p>
+            <h1>{error.title}</h1>
+            <p className="muted">{error.message}</p>
             <button className="btn primary" onClick={() => navigate("/channels", true)}>
               Voltar
             </button>

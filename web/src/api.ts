@@ -18,7 +18,6 @@ export interface Server {
   id: string;
   name: string;
   ownerId: string;
-  inviteCode: string;
   /** URL of the banner image, or null. */
   banner: string | null;
   /** URL of the icon image, or null (initials are shown instead). */
@@ -36,6 +35,34 @@ export interface Channel {
   name: string;
   type: ChannelType;
   position: number;
+  categoryId: string | null;
+  /** Only the owner, administrators and the roles in roleIds see a private channel. */
+  private: boolean;
+  roleIds: string[];
+}
+
+export interface Category {
+  id: string;
+  serverId: string;
+  name: string;
+  position: number;
+}
+
+export interface Invite {
+  code: string;
+  serverId: string;
+  creatorId: string | null;
+  maxUses: number | null;
+  uses: number;
+  expiresAt: number | null;
+  createdAt: number;
+  creator?: User | null;
+}
+
+export interface Ban {
+  user: User;
+  reason: string | null;
+  createdAt: number;
 }
 
 export interface Message {
@@ -160,7 +187,9 @@ export interface MemberData {
 
 export interface ServerDetails {
   server: Server;
+  /** The channels you see (private ones only if you have access). */
   channels: Channel[];
+  categories: Category[];
   members: User[];
   /** Presence of members who are not offline. */
   presence: Record<string, Presence>;
@@ -244,7 +273,7 @@ export const api = {
   addToGroupDm: (channelId: string, userId: string) => request<{ dm: DmSummary }>("POST", `/api/dms/${channelId}/members`, { userId }),
   removeFromGroupDm: (channelId: string, userId: string) => request<void>("DELETE", `/api/dms/${channelId}/members/${userId}`),
 
-  createServer: (name: string) => request<{ server: Server; channels: Channel[]; roles: Role[] }>("POST", "/api/servers", { name }),
+  createServer: (name: string) => request<{ server: Server; channels: Channel[]; categories: Category[]; roles: Role[] }>("POST", "/api/servers", { name }),
   renameServer: (id: string, name: string) => request<{ server: Server }>("PATCH", `/api/servers/${id}`, { name }),
   deleteServer: (id: string) => request<void>("DELETE", `/api/servers/${id}`),
   uploadServerImage: (id: string, kind: ServerImageKind, image: Blob) => request<{ server: Server }>("PUT", `/api/servers/${id}/${kind}`, image),
@@ -258,6 +287,16 @@ export const api = {
   removeMemberRole: (serverId: string, userId: string, roleId: string) =>
     request<MemberData>("DELETE", `/api/servers/${serverId}/members/${userId}/roles/${roleId}`),
   kickMember: (serverId: string, userId: string) => request<void>("DELETE", `/api/servers/${serverId}/members/${userId}`),
+  banMember: (serverId: string, userId: string, reason: string | null) => request<void>("PUT", `/api/servers/${serverId}/bans/${userId}`, { reason }),
+  unban: (serverId: string, userId: string) => request<void>("DELETE", `/api/servers/${serverId}/bans/${userId}`),
+  bans: (serverId: string) => request<{ bans: Ban[] }>("GET", `/api/servers/${serverId}/bans`),
+
+  /** maxAge in seconds (0 = never expires), maxUses (0 = unlimited). */
+  createInvite: (serverId: string, maxAge: number, maxUses: number) =>
+    request<{ invite: Invite }>("POST", `/api/servers/${serverId}/invites`, { maxAge, maxUses }),
+  invites: (serverId: string) => request<{ invites: Invite[] }>("GET", `/api/servers/${serverId}/invites`),
+  deleteInvite: (code: string) => request<void>("DELETE", `/api/invites/${code}`),
+  resetServerInvite: (serverId: string) => request<void>("POST", `/api/servers/${serverId}/invites/reset`),
 
   createRole: (serverId: string, fields: Partial<Pick<Role, "name" | "color" | "permissions" | "hoist">> = {}) =>
     request<{ role: Role }>("POST", `/api/servers/${serverId}/roles`, fields),
@@ -267,7 +306,14 @@ export const api = {
   moveRole: (serverId: string, roleId: string, direction: "up" | "down") =>
     request<{ roles: Role[] }>("POST", `/api/servers/${serverId}/roles/${roleId}/move`, { direction }),
 
-  renameChannel: (id: string, name: string) => request<{ channel: Channel }>("PATCH", `/api/channels/${id}`, { name }),
+  updateChannel: (id: string, patch: { name?: string; private?: boolean; roleIds?: string[] }) =>
+    request<{ channel: Channel }>("PATCH", `/api/channels/${id}`, patch),
+  moveChannel: (id: string, categoryId: string | null, beforeId: string | null) =>
+    request<void>("POST", `/api/channels/${id}/move`, { categoryId, beforeId }),
+  createCategory: (serverId: string, name: string) => request<{ category: Category }>("POST", `/api/servers/${serverId}/categories`, { name }),
+  renameCategory: (id: string, name: string) => request<{ category: Category }>("PATCH", `/api/categories/${id}`, { name }),
+  deleteCategory: (id: string) => request<void>("DELETE", `/api/categories/${id}`),
+  moveCategory: (id: string, beforeId: string | null) => request<void>("POST", `/api/categories/${id}/move`, { beforeId }),
   deleteChannel: (id: string) => request<void>("DELETE", `/api/channels/${id}`),
 
   updateProfile: (displayName: string) => request<{ user: User }>("PATCH", "/api/me", { displayName }),
@@ -276,11 +322,11 @@ export const api = {
   changePassword: (currentPassword: string, newPassword: string) =>
     request<void>("POST", "/api/me/password", { currentPassword, newPassword }),
   server: (id: string) => request<ServerDetails>("GET", `/api/servers/${id}`),
-  createChannel: (serverId: string, name: string, type: ChannelType) =>
-    request<{ channel: Channel }>("POST", `/api/servers/${serverId}/channels`, { name, type }),
+  createChannel: (serverId: string, fields: { name: string; type: ChannelType; categoryId: string | null; private: boolean; roleIds: string[] }) =>
+    request<{ channel: Channel }>("POST", `/api/servers/${serverId}/channels`, fields),
 
   invite: (code: string) =>
-    request<{ server: Pick<Server, "id" | "name" | "banner" | "icon">; memberCount: number }>("GET", `/api/invites/${code}`),
+    request<{ server: Pick<Server, "id" | "name" | "banner" | "icon">; memberCount: number; expiresAt: number | null }>("GET", `/api/invites/${code}`),
   joinInvite: (code: string) => request<{ server: Server }>("POST", `/api/invites/${code}`),
 
   rtcConfig: () => request<{ iceServers: RTCIceServer[] }>("GET", "/api/rtc-config"),

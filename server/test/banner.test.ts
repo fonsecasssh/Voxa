@@ -65,7 +65,7 @@ describe("server banner", () => {
     const { body } = await api("POST", "/api/servers", { name: "Com banner" }, owner.token);
     const sid = body.server.id;
     expect(body.server.banner).toBeNull();
-    await api("POST", `/api/invites/${body.server.inviteCode}`, undefined, member.token);
+    await api("POST", `/api/invites/${body.inviteCode}`, undefined, member.token);
 
     // Members without "Gerenciar servidor" can't change it; non-images are refused.
     expect((await upload(sid, WEBP, member.token)).status).toBe(403);
@@ -88,7 +88,7 @@ describe("server banner", () => {
     expect(img.headers.get("cache-control")).toMatch(/immutable/);
     expect(Buffer.from(await img.arrayBuffer()).equals(WEBP)).toBe(true);
     expect((await api("GET", "/api/me", undefined, member.token)).body.servers[0].banner).toBe(first.body.server.banner);
-    expect((await api("GET", `/api/invites/${body.server.inviteCode}`)).body.server.banner).toBe(first.body.server.banner);
+    expect((await api("GET", `/api/invites/${body.inviteCode}`)).body.server.banner).toBe(first.body.server.banner);
 
     // Replacing removes the old file.
     const second = await upload(sid, PNG, owner.token, "image/png");
@@ -111,7 +111,7 @@ describe("server banner", () => {
     const { body } = await api("POST", "/api/servers", { name: "Com ícone" }, owner.token);
     const sid = body.server.id;
     expect(body.server.icon).toBeNull();
-    await api("POST", `/api/invites/${body.server.inviteCode}`, undefined, member.token);
+    await api("POST", `/api/invites/${body.inviteCode}`, undefined, member.token);
     const uploadIcon = (data: Buffer, token: string) =>
       fetch(`${base}/api/servers/${sid}/icon`, { method: "PUT", headers: { "content-type": "image/webp", authorization: `Bearer ${token}` }, body: new Uint8Array(data) }).then(
         async (r) => ({ status: r.status, body: await r.json() }),
@@ -124,7 +124,7 @@ describe("server banner", () => {
     expect(icon.icon).toMatch(new RegExp(`^/media/icons/${sid}-[0-9a-f]{16}\\.webp$`));
     expect(icon.banner).toBe(banner); // the banner is untouched
     expect((await fetch(base + icon.icon)).status).toBe(200);
-    expect((await api("GET", `/api/invites/${body.server.inviteCode}`)).body.server.icon).toBe(icon.icon);
+    expect((await api("GET", `/api/invites/${body.inviteCode}`)).body.server.icon).toBe(icon.icon);
 
     const removed = (await api("DELETE", `/api/servers/${sid}/icon`, undefined, owner.token)).body.server;
     expect(removed.icon).toBeNull();
@@ -136,7 +136,7 @@ describe("server banner", () => {
     const me = await user();
     const friend = await user();
     const { body } = await api("POST", "/api/servers", { name: "Perfis" }, me.token);
-    await api("POST", `/api/invites/${body.server.inviteCode}`, undefined, friend.token);
+    await api("POST", `/api/invites/${body.inviteCode}`, undefined, friend.token);
     const channelId = body.channels[0].id;
     await api("POST", `/api/channels/${channelId}/messages`, { content: "oi" }, me.token);
 

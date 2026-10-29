@@ -208,7 +208,8 @@ describe("migrations", () => {
     expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(SCHEMA_VERSION);
     // The old server got its @everyone role.
     expect(db.prepare("SELECT name, is_default, permissions FROM roles WHERE server_id = 's1'").all()).toEqual([
-      { name: "@everyone", is_default: 1, permissions: 64 },
+      // CHANGE_NICKNAME (64), and CREATE_INVITE (1024) since migration 13.
+      { name: "@everyone", is_default: 1, permissions: 64 | 1024 },
     ]);
     // Re-opening is a no-op.
     db.close();

@@ -6,9 +6,11 @@ import { openDb } from "../src/db.ts";
 
 let base = "";
 let close: () => Promise<void>;
+const db = openDb(":memory:");
+const groupExists = (id: string) => db.prepare("SELECT 1 FROM channels WHERE id = ?").get(id) !== undefined;
 
 beforeAll(async () => {
-  const { http, io } = createApp({ db: openDb(":memory:") });
+  const { http, io } = createApp({ db });
   await new Promise<void>((r) => http.listen(0, r));
   base = `http://127.0.0.1:${(http.address() as AddressInfo).port}`;
   close = () => new Promise((r) => io.close(() => r()));
@@ -110,6 +112,7 @@ describe("group DMs", () => {
     await api("DELETE", `/api/dms/${id}/members/${duda.user.id}`, undefined, duda.token);
     await api("DELETE", `/api/dms/${id}/members/${bia.user.id}`, undefined, bia.token);
     expect((await api("GET", `/api/channels/${id}/messages`, undefined, bia.token)).status).toBe(404);
+    expect(groupExists(id)).toBe(false);
     sb.close();
     sc.close();
   });

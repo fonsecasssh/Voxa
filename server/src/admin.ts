@@ -211,6 +211,8 @@ export function registerAdminRoutes({ app, io, store, realtime, media, requireAu
     if (add) store.addMemberRole(server.id, target, role.id);
     else store.removeMemberRole(server.id, target, role.id);
     emitMember(server.id, target);
+    // A role can open private channels.
+    realtime.emitChannels(server.id);
     res.json(store.memberInfo(server.id, target));
   };
   app.put("/api/servers/:id/members/:userId/roles/:roleId", requireAuth, changeMemberRole(true));
@@ -269,6 +271,7 @@ export function registerAdminRoutes({ app, io, store, realtime, media, requireAu
     }
     store.updateRole(role.id, patch);
     emitRoles(server.id);
+    realtime.emitChannels(server.id); // administrator access can change who sees private channels
     res.json({ role: store.roleById(role.id) });
   });
 
@@ -280,6 +283,7 @@ export function registerAdminRoutes({ app, io, store, realtime, media, requireAu
     if (role.position >= top) throw new HttpError(403, "Você só pode excluir cargos abaixo do seu cargo mais alto.");
     store.deleteRole(role.id);
     emitRoles(server.id);
+    realtime.emitChannels(server.id);
     res.status(204).end();
   });
 
@@ -303,19 +307,41 @@ export function registerAdminRoutes({ app, io, store, realtime, media, requireAu
     res.json({ roles: store.roles(server.id) });
   });
 
-  // --- channels ---------------------------------------------------------------
+  // --- channels and categories ---------------------------------------------------
+  /** Roles a private channel is open to: roles of this server, not @everyone. */
+  const channelRoleIds = (serverId: string, raw: unknown): string[] => {
+    if (raw === undefined) return [];
+    if (!Array.isArray(raw) || raw.length > 250 || !raw.every((x) => typeof x === "string")) throw new HttpError(400, "Cargos inválidos.");
+    const roles = new Map(store.roles(serverId).map((r) => [r.id, r]));
+    for (const id of raw as string[]) if (!roles.get(id) || roles.get(id)!.isDefault) throw new HttpError(400, "Cargo não encontrado.");
+    return [...new Set(raw as string[])];
+  };
+
+  const categoryIn = (serverId: string, raw: unknown): string | null => {
+    if (raw === undefined || raw === null) return null;
+    const category = typeof raw === "string" ? store.categoryById(raw) : null;
+    if (!category || category.serverId !== serverId) throw new HttpError(400, "Categoria não encontrada.");
+    return category.id;
+  };
+
   app.post("/api/servers/:id/channels", requireAuth, (req, res) => {
     const { server, perms } = standing(req, req.params.id as string);
     need(perms, Permission.MANAGE_CHANNELS, "Você não tem permissão para criar canais.");
     const type: ChannelType = req.body?.type === "voice" ? "voice" : "text";
-    const channel = store.insertChannel(server.id, channelName(type, req.body?.name), type);
-    io.to(`server:${server.id}`).emit("channel:new", channel);
+    const isPrivate = req.body?.private === true;
+    const channel = store.insertChannel(server.id, channelName(type, req.body?.name), type, {
+      categoryId: categoryIn(server.id, req.body?.categoryId),
+      private: isPrivate,
+      roleIds: isPrivate ? channelRoleIds(server.id, req.body?.roleIds) : [],
+    });
+    realtime.emitChannels(server.id);
     res.status(201).json({ channel });
   });
 
+  /** A channel the requester may manage: MANAGE_CHANNELS, and they must see it. */
   const channelForManage = (req: Request) => {
     const channel = store.channelById(req.params.id as string);
-    if (!channel?.serverId) throw new HttpError(404, "Canal não encontrado.");
+    if (!channel?.serverId || !store.canViewChannel(channel, req.user!.id)) throw new HttpError(404, "Canal não encontrado.");
     const { perms } = standing(req, channel.serverId);
     need(perms, Permission.MANAGE_CHANNELS, "Você não tem permissão para gerenciar canais.");
     return { ...channel, serverId: channel.serverId };
@@ -323,17 +349,158 @@ export function registerAdminRoutes({ app, io, store, realtime, media, requireAu
 
   app.patch("/api/channels/:id", requireAuth, (req, res) => {
     const channel = channelForManage(req);
-    const updated = { ...channel, name: channelName(channel.type, req.body?.name) };
-    store.renameChannel(channel.id, updated.name);
-    io.to(`server:${channel.serverId}`).emit("channel:update", updated);
-    res.json({ channel: updated });
+    if (req.body?.name !== undefined) store.renameChannel(channel.id, channelName(channel.type, req.body.name));
+    if (typeof req.body?.private === "boolean") {
+      const roleIds = req.body.private ? channelRoleIds(channel.serverId, req.body.roleIds) : [];
+      store.setChannelPrivacy(channel.id, req.body.private, roleIds);
+    }
+    realtime.emitChannels(channel.serverId);
+    res.json({ channel: store.channelById(channel.id) });
   });
 
   app.delete("/api/channels/:id", requireAuth, (req, res) => {
     const channel = channelForManage(req);
     if (channel.type === "voice") realtime.evictVoiceChannel(channel.id);
     store.deleteChannel(channel.id);
-    io.to(`server:${channel.serverId}`).emit("channel:delete", { serverId: channel.serverId, channelId: channel.id });
+    realtime.emitChannels(channel.serverId);
+    res.status(204).end();
+  });
+
+  // Drag and drop: into a category (or none), before another channel (or at the end).
+  app.post("/api/channels/:id/move", requireAuth, (req, res) => {
+    const channel = channelForManage(req);
+    const categoryId = categoryIn(channel.serverId, req.body?.categoryId);
+    const before = typeof req.body?.beforeId === "string" ? store.channelById(req.body.beforeId) : null;
+    if (before && before.serverId !== channel.serverId) throw new HttpError(400, "Canal não encontrado.");
+    store.moveChannel(channel.serverId, channel.id, categoryId, before?.id ?? null);
+    realtime.emitChannels(channel.serverId);
+    res.status(204).end();
+  });
+
+  const categoryForManage = (req: Request) => {
+    const category = store.categoryById(req.params.id as string);
+    if (!category) throw new HttpError(404, "Categoria não encontrada.");
+    const { perms } = standing(req, category.serverId);
+    need(perms, Permission.MANAGE_CHANNELS, "Você não tem permissão para gerenciar canais.");
+    return category;
+  };
+
+  app.post("/api/servers/:id/categories", requireAuth, (req, res) => {
+    const { server, perms } = standing(req, req.params.id as string);
+    need(perms, Permission.MANAGE_CHANNELS, "Você não tem permissão para criar categorias.");
+    const category = store.createCategory(server.id, str(req.body?.name, "nome", 1, 100));
+    realtime.emitChannels(server.id);
+    res.status(201).json({ category });
+  });
+
+  app.patch("/api/categories/:id", requireAuth, (req, res) => {
+    const category = categoryForManage(req);
+    store.renameCategory(category.id, str(req.body?.name, "nome", 1, 100));
+    realtime.emitChannels(category.serverId);
+    res.json({ category: store.categoryById(category.id) });
+  });
+
+  app.delete("/api/categories/:id", requireAuth, (req, res) => {
+    const category = categoryForManage(req);
+    store.deleteCategory(category.id);
+    realtime.emitChannels(category.serverId);
+    res.status(204).end();
+  });
+
+  app.post("/api/categories/:id/move", requireAuth, (req, res) => {
+    const category = categoryForManage(req);
+    const before = typeof req.body?.beforeId === "string" ? store.categoryById(req.body.beforeId) : null;
+    if (before && before.serverId !== category.serverId) throw new HttpError(400, "Categoria não encontrada.");
+    store.moveCategory(category.serverId, category.id, before?.id ?? null);
+    realtime.emitChannels(category.serverId);
+    res.status(204).end();
+  });
+
+  // --- bans -------------------------------------------------------------------------
+  app.get("/api/servers/:id/bans", requireAuth, (req, res) => {
+    const { server, perms } = standing(req, req.params.id as string);
+    need(perms, Permission.BAN_MEMBERS, "Você não tem permissão para ver os banimentos.");
+    res.json({ bans: store.bans(server.id) });
+  });
+
+  app.put("/api/servers/:id/bans/:userId", requireAuth, (req, res) => {
+    const { server, perms, top, topOf } = standing(req, req.params.id as string);
+    need(perms, Permission.BAN_MEMBERS, "Você não tem permissão para banir membros.");
+    const target = req.params.userId as string;
+    if (target === req.user!.id) throw new HttpError(400, "Você não pode banir a si mesmo.");
+    if (!store.userById(target)) throw new HttpError(404, "Usuário não encontrado.");
+    if (target === server.ownerId || (store.isMember(server.id, target) && topOf(target) >= top)) {
+      throw new HttpError(403, "Você só pode banir membros com cargos abaixo do seu.");
+    }
+    const raw = req.body?.reason;
+    const reason = raw === undefined || raw === null || (typeof raw === "string" && raw.trim() === "") ? null : str(raw, "motivo", 1, 300);
+    store.ban(server.id, target, req.user!.id, reason);
+    if (store.removeMember(server.id, target)) {
+      realtime.removeFromServer(server.id, target, "Você foi banido do servidor.");
+      io.to(`server:${server.id}`).emit("member:leave", { serverId: server.id, userId: target });
+      io.to(`user:${target}`).emit("server:removed", {
+        serverId: server.id,
+        reason: `Você foi banido do servidor "${server.name}".${reason ? ` Motivo: ${reason}` : ""}`,
+      });
+    }
+    res.status(204).end();
+  });
+
+  app.delete("/api/servers/:id/bans/:userId", requireAuth, (req, res) => {
+    const { server, perms } = standing(req, req.params.id as string);
+    need(perms, Permission.BAN_MEMBERS, "Você não tem permissão para revogar banimentos.");
+    if (!store.unban(server.id, req.params.userId as string)) throw new HttpError(404, "Banimento não encontrado.");
+    res.status(204).end();
+  });
+
+  // --- invites --------------------------------------------------------------------
+  /** Choices offered in the invite dialog, like Discord's. */
+  const INVITE_AGES = [0, 1800, 3600, 21600, 43200, 86400, 604800];
+  const INVITE_USES = [0, 1, 5, 10, 25, 50, 100];
+
+  app.post("/api/servers/:id/invites", requireAuth, (req, res) => {
+    const { server, perms } = standing(req, req.params.id as string);
+    need(perms, Permission.CREATE_INVITE, "Você não tem permissão para criar convites.");
+    const maxAge = req.body?.maxAge ?? 604800;
+    const maxUses = req.body?.maxUses ?? 0;
+    if (!INVITE_AGES.includes(maxAge) || !INVITE_USES.includes(maxUses)) throw new HttpError(400, "Validade ou limite de usos inválido.");
+    const me = req.user!.id;
+    const now = Date.now();
+    // Opening the dialog again gives back the same link while it's fresh and unused.
+    const reuse = store
+      .invites(server.id)
+      .find(
+        (i) =>
+          i.creatorId === me &&
+          i.maxUses === (maxUses || null) &&
+          (maxAge === 0 ? i.expiresAt === null : i.expiresAt !== null && i.expiresAt - now > (maxAge * 1000) / 2 && i.expiresAt - i.createdAt === maxAge * 1000) &&
+          (maxUses === 0 || i.uses === 0),
+      );
+    const invite = reuse ?? store.createInvite(server.id, me, maxUses || null, maxAge ? now + maxAge * 1000 : null);
+    res.status(reuse ? 200 : 201).json({ invite });
+  });
+
+  app.get("/api/servers/:id/invites", requireAuth, (req, res) => {
+    const { server, perms } = standing(req, req.params.id as string);
+    need(perms, Permission.MANAGE_SERVER, "Você não tem permissão para ver os convites.");
+    const invites = store.invites(server.id).map((i) => ({ ...i, creator: i.creatorId ? store.userById(i.creatorId) : null }));
+    res.json({ invites });
+  });
+
+  app.delete("/api/invites/:code", requireAuth, (req, res) => {
+    const invite = store.inviteByCode(req.params.code as string);
+    if (!invite) throw new HttpError(404, "Convite não encontrado.");
+    const { perms } = standing(req, invite.serverId);
+    if (invite.creatorId !== req.user!.id) need(perms, Permission.MANAGE_SERVER, "Você não tem permissão para revogar este convite.");
+    store.deleteInvite(invite.code);
+    res.status(204).end();
+  });
+
+  // Turns off the server's original (permanent) link, for links that were shared too widely.
+  app.post("/api/servers/:id/invites/reset", requireAuth, (req, res) => {
+    const { server, perms } = standing(req, req.params.id as string);
+    need(perms, Permission.MANAGE_SERVER, "Você não tem permissão para gerenciar os convites.");
+    store.resetServerInvite(server.id);
     res.status(204).end();
   });
 }

@@ -65,8 +65,8 @@ describe("clips in chat", () => {
     const owner = await user();
     const friend = await user();
     const outsider = await user();
-    const { server } = (await api("POST", "/api/servers", { name: "Jogadas" }, owner.token)).body;
-    await api("POST", `/api/invites/${server.inviteCode}`, undefined, friend.token);
+    const { server, inviteCode } = (await api("POST", "/api/servers", { name: "Jogadas" }, owner.token)).body;
+    await api("POST", `/api/invites/${inviteCode}`, undefined, friend.token);
     const general = (await api("GET", `/api/servers/${server.id}`, undefined, owner.token)).body.channels.find((c: { type: string }) => c.type === "text");
 
     const socket: Socket = connect(base, { auth: { token: friend.token }, transports: ["websocket"] });
@@ -120,8 +120,8 @@ describe("deleting messages", () => {
     const owner = await user();
     const member = await user();
     const mod = await user();
-    const { server } = (await api("POST", "/api/servers", { name: "Apagar" }, owner.token)).body;
-    for (const u of [member, mod]) await api("POST", `/api/invites/${server.inviteCode}`, undefined, u.token);
+    const { server, inviteCode } = (await api("POST", "/api/servers", { name: "Apagar" }, owner.token)).body;
+    for (const u of [member, mod]) await api("POST", `/api/invites/${inviteCode}`, undefined, u.token);
     const general = (await api("GET", `/api/servers/${server.id}`, undefined, owner.token)).body.channels.find((c: { type: string }) => c.type === "text");
     const say = async (who: { token: string }, content: string) =>
       (await api("POST", `/api/channels/${general.id}/messages`, { content }, who.token)).body.message as { id: string };

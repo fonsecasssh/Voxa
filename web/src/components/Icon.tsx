@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 
 export type IconName =
   | "mic"
+  | "lock"
   | "video"
   | "videoOff"
   | "phone"
@@ -57,6 +58,12 @@ const GEAR = gearPath();
 const slash = <path d="M4 4l16 16" />;
 
 const ICONS: Record<IconName, ReactNode> = {
+  lock: (
+    <>
+      <rect x="5" y="10.5" width="14" height="10" rx="2.2" />
+      <path d="M8 10.5V8a4 4 0 0 1 8 0v2.5" />
+    </>
+  ),
   video: (
     <>
       <rect x="3" y="6.5" width="12.5" height="11" rx="2.5" />

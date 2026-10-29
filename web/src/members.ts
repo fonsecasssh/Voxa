@@ -39,5 +39,11 @@ export function outranks(d: ServerDetails, actor: string, target: string): boole
 /** Whether the user can open server settings at all. */
 export function canOpenSettings(d: ServerDetails, userId: string): boolean {
   const p = myPermissions(d, userId);
-  return can(p, Permission.MANAGE_SERVER) || can(p, Permission.MANAGE_ROLES) || can(p, Permission.KICK_MEMBERS) || can(p, Permission.MANAGE_NICKNAMES);
+  return (
+    can(p, Permission.MANAGE_SERVER) ||
+    can(p, Permission.MANAGE_ROLES) ||
+    can(p, Permission.KICK_MEMBERS) ||
+    can(p, Permission.BAN_MEMBERS) ||
+    can(p, Permission.MANAGE_NICKNAMES)
+  );
 }

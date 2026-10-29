@@ -33,8 +33,8 @@ async function user() {
 async function setup() {
   const owner = await user();
   const friend = await user();
-  const { server } = (await api("POST", "/api/servers", { name: "Conversa" }, owner.token)).body;
-  await api("POST", `/api/invites/${server.inviteCode}`, undefined, friend.token);
+  const { server, inviteCode } = (await api("POST", "/api/servers", { name: "Conversa" }, owner.token)).body;
+  await api("POST", `/api/invites/${inviteCode}`, undefined, friend.token);
   const channels = (await api("GET", `/api/servers/${server.id}`, undefined, owner.token)).body.channels;
   const general = channels.find((c: { type: string }) => c.type === "text");
   const other = (await api("POST", `/api/servers/${server.id}/channels`, { name: "outro", type: "text" }, owner.token)).body.channel;

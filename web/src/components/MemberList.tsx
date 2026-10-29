@@ -117,6 +117,7 @@ export function MemberCard({
     ? can(perms, Permission.CHANGE_NICKNAME) || can(perms, Permission.MANAGE_NICKNAMES)
     : can(perms, Permission.MANAGE_NICKNAMES) && outranks(details, selfId, user.id);
   const canKick = !isSelf && can(perms, Permission.KICK_MEMBERS) && outranks(details, selfId, user.id);
+  const canBan = !isSelf && can(perms, Permission.BAN_MEMBERS) && outranks(details, selfId, user.id);
 
   // Keep the card inside the window.
   useLayoutEffect(() => {
@@ -237,6 +238,18 @@ export function MemberCard({
               }}
             >
               Expulsar
+            </button>
+          )}
+          {canBan && (
+            <button
+              className="btn subtle danger"
+              onClick={async () => {
+                const reason = prompt(`Banir ${name}? Ele sai do servidor e não consegue voltar com convites.\n\nMotivo (opcional):`);
+                if (reason === null) return;
+                if (await act(() => api.banMember(sid, user.id, reason.trim() || null))) onClose();
+              }}
+            >
+              Banir
             </button>
           )}
         </div>
