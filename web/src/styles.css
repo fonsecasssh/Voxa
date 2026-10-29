@@ -4057,3 +4057,8 @@ kbd {
   align-items: center;
   gap: 6px;
 }
+.forgot-link {
+  align-self: flex-start;
+  margin-top: -6px;
+  font-size: 13px;
+}

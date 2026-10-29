@@ -27,11 +27,15 @@ export function usePath(): string {
 
 export type Route =
   | { name: "channels"; serverId?: string; channelId?: string }
-  | { name: "invite"; code: string };
+  | { name: "invite"; code: string }
+  | { name: "reset"; token: string }
+  | { name: "verifyEmail"; token: string };
 
 export function parseRoute(path: string): Route {
   const parts = path.split("/").filter(Boolean);
   if (parts[0] === "invite" && parts[1]) return { name: "invite", code: parts[1] };
+  if (parts[0] === "reset" && parts[1]) return { name: "reset", token: parts[1] };
+  if (parts[0] === "verify-email" && parts[1]) return { name: "verifyEmail", token: parts[1] };
   if (parts[0] === "channels") return { name: "channels", serverId: parts[1], channelId: parts[2] };
   return { name: "channels" };
 }

@@ -11,12 +11,14 @@
   },
   "dependencies": {
     "express": "^5.1.0",
+    "nodemailer": "^10.2.1",
     "socket.io": "^4.8.1",
     "tsx": "^4.19.2"
   },
   "devDependencies": {
     "@types/express": "^5.0.0",
     "@types/node": "^22.10.0",
+    "@types/nodemailer": "^8.0.2",
     "socket.io-client": "^4.8.1",
     "typescript": "^5.7.2",
     "vitest": "^3.0.0"

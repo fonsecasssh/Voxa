@@ -15,6 +15,7 @@ import { registerAdminRoutes } from "./admin.ts";
 import { Permission, can, permissionsOf } from "../../shared/permissions.ts";
 import { findMentions } from "../../shared/markdown.ts";
 import type { Gif, GifProvider } from "./gifs.ts";
+import { actionMail, type Mailer } from "./mail.ts";
 import { CLIP_MIME, CLIP_URL_PREFIX, IMAGE_KINDS, IMAGE_MIME, createClipStore, createMediaStore, detectImageType, imageUrlPrefix } from "./media.ts";
 import { tmpdir } from "node:os";
 
@@ -72,9 +73,15 @@ export interface AppOptions {
   filesMaxBytes?: number;
   /** GIF search for the chat (GIPHY); null turns the GIF tab off. */
   gifs?: GifProvider | null;
+  /** Sends e-mail (confirming addresses, password resets); null turns those off. */
+  mailer?: Mailer | null;
+  /** The site's public address, for links in e-mails (never taken from the request: it could be forged). */
+  appUrl?: string | null;
 }
 
-export function createApp({ db, webDist, ice = createIceProvider(), trustProxy = 0, signupsPerHour, mediaDir, clipsMaxBytes, maxClipBytes, filesMaxBytes, gifs = null }: AppOptions) {
+export function createApp({ db, webDist, ice = createIceProvider(), trustProxy = 0, signupsPerHour, mediaDir, clipsMaxBytes, maxClipBytes, filesMaxBytes, gifs = null, mailer = null, appUrl = null }: AppOptions) {
+  /** E-mail works only with both a way to send it and an address to link back to. */
+  const mail = mailer && appUrl ? { mailer, url: appUrl.replace(/\/+$/, "") } : null;
   const mediaRoot = mediaDir ?? path.join(tmpdir(), `voxa-media-${process.pid}`);
   const media = createMediaStore(mediaRoot);
   const clips = createClipStore(path.join(mediaRoot, "clips"), clipsMaxBytes ?? 400 * 1024 * 1024, maxClipBytes);
@@ -231,6 +238,93 @@ export function createApp({ db, webDist, ice = createIceProvider(), trustProxy =
     res.json({ token: store.createSession(user.id), user });
   });
 
+  // --- e-mail and forgotten passwords ------------------------------------------
+  const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  const VERIFY_TTL = 24 * 3_600_000;
+  const RESET_TTL = 3_600_000;
+  const forgotLimit = rateLimit({ windowMs: 15 * 60_000, max: 5, message: "Muitos pedidos. Tente de novo em alguns minutos." });
+  const tokenLimit = rateLimit({ windowMs: 15 * 60_000, max: 30, message: "Muitas tentativas. Tente de novo em alguns minutos." });
+  const requireMail = () => {
+    if (!mail) throw new HttpError(503, "O envio de e-mails não está configurado neste servidor.");
+    return mail;
+  };
+
+  // Public: whether "Esqueci minha senha" can work here.
+  app.get("/api/auth/options", (_req, res) => {
+    res.json({ passwordReset: !!mail });
+  });
+
+  // Asks for a reset link. The answer is the same whether or not the account exists.
+  app.post("/api/auth/forgot", forgotLimit, async (req, res) => {
+    const { mailer: m, url } = requireMail();
+    const login = str(req.body?.login, "usuário ou e-mail", 1, 254);
+    const user = store.userByLogin(login);
+    if (user?.email) {
+      const token = store.createEmailToken(user.id, "reset", user.email, RESET_TTL);
+      await m
+        .send(
+          actionMail(
+            user.email,
+            "Redefinir sua senha do Voxa",
+            `Alguém (talvez você) pediu para redefinir a senha da conta @${user.username}.`,
+            "Escolher uma nova senha",
+            `${url}/reset/${token}`,
+            "O link vale por 1 hora. Se não foi você, ignore este e-mail: sua senha continua a mesma.",
+          ),
+        )
+        .catch((err) => console.error("falha ao enviar e-mail:", err));
+    }
+    res.json({ ok: true });
+  });
+
+  app.post("/api/auth/reset", tokenLimit, async (req, res) => {
+    const token = str(req.body?.token, "link", 1, 200);
+    const password = str(req.body?.password, "senha", 8, 200);
+    const found = store.consumeEmailToken(token, "reset");
+    const user = found && store.userById(found.userId);
+    if (!user) throw new HttpError(400, "Este link expirou ou já foi usado. Peça um novo.");
+    // Signs out everywhere (whoever knew the old password is out) and in here.
+    res.json({ token: store.resetPassword(user.id, await hashPassword(password)), user });
+  });
+
+  app.put("/api/me/email", requireAuth, async (req, res) => {
+    const { mailer: m, url } = requireMail();
+    const email = str(req.body?.email, "e-mail", 3, 254).trim();
+    if (!EMAIL_RE.test(email)) throw new HttpError(400, "E-mail inválido.");
+    const hash = store.passwordHash(req.user!.id);
+    if (!hash || !(await verifyPassword(str(req.body?.password, "senha", 1, 200), hash))) throw new HttpError(400, "Senha incorreta.");
+    const token = store.createEmailToken(req.user!.id, "verify", email, VERIFY_TTL);
+    try {
+      await m.send(
+        actionMail(
+          email,
+          "Confirme seu e-mail no Voxa",
+          `Confirme este endereço para poder recuperar a senha da conta @${req.user!.username} se esquecê-la.`,
+          "Confirmar e-mail",
+          `${url}/verify-email/${token}`,
+          "O link vale por 24 horas. Se você não pediu isso, ignore este e-mail.",
+        ),
+      );
+    } catch (err) {
+      console.error("falha ao enviar e-mail:", err);
+      throw new HttpError(502, "Não foi possível enviar o e-mail. Tente mais tarde.");
+    }
+    res.json({ pending: email });
+  });
+
+  app.delete("/api/me/email", requireAuth, (req, res) => {
+    store.setEmail(req.user!.id, null);
+    res.status(204).end();
+  });
+
+  // The link in the confirmation e-mail (no login needed: the token proves it).
+  app.post("/api/auth/verify-email", tokenLimit, (req, res) => {
+    const found = store.consumeEmailToken(str(req.body?.token, "link", 1, 200), "verify");
+    if (!found) throw new HttpError(400, "Este link expirou ou já foi usado.");
+    if (!store.setEmail(found.userId, found.email)) throw new HttpError(409, "Esse e-mail já está em outra conta.");
+    res.json({ email: found.email });
+  });
+
   app.post("/api/auth/logout", requireAuth, (req, res) => {
     store.deleteSession(req.token!);
     res.status(204).end();
@@ -240,11 +334,12 @@ export function createApp({ db, webDist, ice = createIceProvider(), trustProxy =
     const me = req.user!.id;
     res.json({
       user: req.user,
+      email: store.emailOf(me),
       servers: store.serversForUser(me),
       status: store.getStatus(me),
       activity: store.getActivity(me),
       // What this server has turned on, so the app can show or hide it.
-      features: { gifs: !!gifs },
+      features: { gifs: !!gifs, email: !!mail },
     });
   });
 

@@ -3,6 +3,7 @@ import { api, type Category, type Channel, type ProfileImageKind, type Role, typ
 import { Avatar } from "./Avatar.tsx";
 import { ImageCropper } from "./ImageCropper.tsx";
 import { navigate } from "../router.ts";
+import { getFeatures } from "../features.ts";
 
 export function Modal({ title, onClose, children, className }: { title: string; onClose: () => void; children: ReactNode; className?: string }) {
   useEffect(() => {
@@ -218,6 +219,62 @@ function ProfileImages({ user }: { user: User }) {
   );
 }
 
+/** The confirmed e-mail used to recover a forgotten password (when the server can send e-mail). */
+function EmailSection() {
+  const [email, setEmail] = useState<string | null | undefined>(undefined);
+  const [value, setValue] = useState("");
+  const [password, setPassword] = useState("");
+  const [pending, setPending] = useState<string | null>(null);
+  useEffect(() => {
+    api.me().then((me) => setEmail(me.email), () => setEmail(null));
+  }, []);
+  const save = useSubmit(
+    () => api.setEmail(value.trim(), password),
+    (r) => {
+      setPending(r.pending);
+      setPassword("");
+    },
+  );
+  if (!getFeatures().email) return null;
+  return (
+    <>
+      <hr />
+      <form onSubmit={save.submit}>
+        <div className="field-label">E-mail para recuperar a senha</div>
+        {email ? (
+          <p className="muted small">
+            Confirmado: <strong>{email}</strong>.{" "}
+            <button type="button" className="link" onClick={() => confirm("Remover o e-mail? Você não poderá recuperar a senha se esquecê-la.") && api.removeEmail().then(() => setEmail(null))}>
+              Remover
+            </button>
+          </p>
+        ) : (
+          <p className="muted small">Sem e-mail, não dá para recuperar a conta se você esquecer a senha.</p>
+        )}
+        <label>
+          {email ? "Trocar e-mail" : "E-mail"}
+          <input type="email" value={value} onChange={(e) => setValue(e.target.value)} autoComplete="email" required />
+        </label>
+        <label>
+          Sua senha atual
+          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required />
+        </label>
+        {save.error && <div className="form-error">{save.error}</div>}
+        {pending && (
+          <div className="form-ok" role="status">
+            Enviamos um link para <strong>{pending}</strong>. Abra-o para confirmar o e-mail.
+          </div>
+        )}
+        <div className="modal-actions">
+          <button className="btn primary" disabled={save.busy}>
+            Enviar confirmação
+          </button>
+        </div>
+      </form>
+    </>
+  );
+}
+
 /** Account settings: picture, banner, display name (shown everywhere) and password. */
 export function ProfileModal({ user, onClose }: { user: User; onClose: () => void }) {
   const [displayName, setDisplayName] = useState(user.displayName);
@@ -269,6 +326,7 @@ export function ProfileModal({ user, onClose }: { user: User; onClose: () => voi
         </div>
       </form>
 
+      <EmailSection />
       <hr />
       <form onSubmit={password.submit}>
         <label>

@@ -255,7 +255,21 @@ export const api = {
   login: (username: string, password: string) => request<AuthResult>("POST", "/api/auth/login", { username, password }),
   logout: () => request<void>("POST", "/api/auth/logout"),
   me: () =>
-    request<{ user: User; servers: Server[]; status: UserStatus; activity: Activity | null; features?: { gifs: boolean } }>("GET", "/api/me"),
+    request<{
+      user: User;
+      /** Confirmed e-mail, for password recovery. */
+      email: string | null;
+      servers: Server[];
+      status: UserStatus;
+      activity: Activity | null;
+      features?: { gifs: boolean; email: boolean };
+    }>("GET", "/api/me"),
+  authOptions: () => request<{ passwordReset: boolean }>("GET", "/api/auth/options"),
+  forgotPassword: (login: string) => request<{ ok: true }>("POST", "/api/auth/forgot", { login }),
+  resetPassword: (token: string, password: string) => request<AuthResult>("POST", "/api/auth/reset", { token, password }),
+  verifyEmail: (token: string) => request<{ email: string }>("POST", "/api/auth/verify-email", { token }),
+  setEmail: (email: string, password: string) => request<{ pending: string }>("PUT", "/api/me/email", { email, password }),
+  removeEmail: () => request<void>("DELETE", "/api/me/email"),
   gifs: (query: string, offset = 0) =>
     request<{ gifs: Gif[] }>("GET", `/api/gifs?${new URLSearchParams({ q: query, offset: String(offset) })}`),
   setPresence: (patch: { status?: UserStatus; activity?: string | null }) =>

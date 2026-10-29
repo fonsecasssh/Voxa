@@ -1,6 +1,6 @@
 // All SQL lives here, so routes and socket handlers deal in plain objects.
 
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { DB } from "./db.ts";
 import { newInviteCode, newToken } from "./auth.ts";
 import { DEFAULT_PERMISSIONS, Permission, can, permissionsOf } from "../../shared/permissions.ts";
@@ -322,6 +322,8 @@ function groupReactions(rows: Row[]): Map<string, Reaction[]> {
 }
 
 /** Two user ids in canonical order, matching the (user_low, user_high) columns. */
+const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
+
 const pair = (a: string, b: string): [string, string] => (a < b ? [a, b] : [b, a]);
 
 export function createStore(db: DB) {
@@ -386,6 +388,58 @@ export function createStore(db: DB) {
     passwordHash(userId: string): string | null {
       const r = db.prepare("SELECT password_hash FROM users WHERE id = ?").get(userId) as Row | undefined;
       return (r?.password_hash as string | undefined) ?? null;
+    },
+
+    // --- e-mail -------------------------------------------------------------
+    emailOf(userId: string): string | null {
+      const r = db.prepare("SELECT email FROM users WHERE id = ?").get(userId) as Row | undefined;
+      return (r?.email as string | null) ?? null;
+    },
+
+    /** Sets (or clears) the confirmed address; false if another account already has it. */
+    setEmail(userId: string, email: string | null): boolean {
+      if (email && db.prepare("SELECT 1 FROM users WHERE email = ? COLLATE NOCASE AND id != ?").get(email, userId)) return false;
+      db.prepare("UPDATE users SET email = ? WHERE id = ?").run(email, userId);
+      return true;
+    },
+
+    /** An account by its username or its confirmed e-mail. */
+    userByLogin(login: string): (PublicUser & { email: string | null }) | null {
+      const r = db.prepare("SELECT * FROM users WHERE username = ? COLLATE NOCASE OR (email IS NOT NULL AND email = ? COLLATE NOCASE)").get(login, login) as
+        | Row
+        | undefined;
+      return r ? { ...toUser(r), email: (r.email as string | null) ?? null } : null;
+    },
+
+    /** Stores a one-time token (by its hash); a new one of the same kind replaces the old. */
+    createEmailToken(userId: string, kind: "verify" | "reset", email: string, ttlMs: number): string {
+      const token = newToken();
+      db.prepare("DELETE FROM email_tokens WHERE user_id = ? AND kind = ?").run(userId, kind);
+      db.prepare("INSERT INTO email_tokens (token_hash, user_id, kind, email, expires_at) VALUES (?, ?, ?, ?, ?)").run(
+        sha256(token),
+        userId,
+        kind,
+        email,
+        Date.now() + ttlMs,
+      );
+      return token;
+    },
+
+    /** Uses up a token: its user and e-mail if it was valid and not expired. */
+    consumeEmailToken(token: string, kind: "verify" | "reset"): { userId: string; email: string } | null {
+      const hash = sha256(token);
+      const r = db.prepare("SELECT * FROM email_tokens WHERE token_hash = ? AND kind = ?").get(hash, kind) as Row | undefined;
+      if (!r) return null;
+      db.prepare("DELETE FROM email_tokens WHERE token_hash = ?").run(hash);
+      return (r.expires_at as number) > Date.now() ? { userId: r.user_id as string, email: r.email as string } : null;
+    },
+
+    /** After a password reset: every session ends, and the new one starts. */
+    resetPassword(userId: string, passwordHash: string): string {
+      db.prepare("UPDATE users SET password_hash = ? WHERE id = ?").run(passwordHash, userId);
+      db.prepare("DELETE FROM sessions WHERE user_id = ?").run(userId);
+      db.prepare("DELETE FROM email_tokens WHERE user_id = ? AND kind = 'reset'").run(userId);
+      return this.createSession(userId);
     },
 
     /** Sets a new password and signs out every other session. */
@@ -951,14 +1005,16 @@ export function createStore(db: DB) {
     },
 
     // --- invites ------------------------------------------------------------
-    createInvite(serverId: string, creatorId: string, maxUses: number | null, expiresAt: number | null): Invite {
-      const invite: Invite = { code: newInviteCode(), serverId, creatorId, maxUses, uses: 0, expiresAt, createdAt: Date.now() };
+    /** maxAgeMs null = never expires. */
+    createInvite(serverId: string, creatorId: string, maxUses: number | null, maxAgeMs: number | null): Invite {
+      const now = Date.now();
+      const invite: Invite = { code: newInviteCode(), serverId, creatorId, maxUses, uses: 0, expiresAt: maxAgeMs ? now + maxAgeMs : null, createdAt: now };
       db.prepare("INSERT INTO invites (code, server_id, creator_id, max_uses, uses, expires_at, created_at) VALUES (?, ?, ?, ?, 0, ?, ?)").run(
         invite.code,
         serverId,
         creatorId,
         maxUses,
-        expiresAt,
+        invite.expiresAt,
         invite.createdAt,
       );
       return invite;

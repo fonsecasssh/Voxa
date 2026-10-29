@@ -476,7 +476,7 @@ export function registerAdminRoutes({ app, io, store, realtime, media, requireAu
           (maxAge === 0 ? i.expiresAt === null : i.expiresAt !== null && i.expiresAt - now > (maxAge * 1000) / 2 && i.expiresAt - i.createdAt === maxAge * 1000) &&
           (maxUses === 0 || i.uses === 0),
       );
-    const invite = reuse ?? store.createInvite(server.id, me, maxUses || null, maxAge ? now + maxAge * 1000 : null);
+    const invite = reuse ?? store.createInvite(server.id, me, maxUses || null, maxAge ? maxAge * 1000 : null);
     res.status(reuse ? 200 : 201).json({ invite });
   });
 

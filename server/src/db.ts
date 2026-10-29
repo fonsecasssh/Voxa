@@ -259,6 +259,21 @@ const MIGRATIONS: string[] = [
   -- Everyone could share the server's link so far: keep that (1024 = CREATE_INVITE).
   UPDATE roles SET permissions = permissions | 1024 WHERE is_default = 1;
   `,
+
+  // 14: a confirmed e-mail address (to reset a forgotten password), and the one-time
+  // tokens sent by e-mail (only their SHA-256 is stored).
+  `
+  ALTER TABLE users ADD COLUMN email TEXT;
+  CREATE UNIQUE INDEX users_by_email ON users(email COLLATE NOCASE) WHERE email IS NOT NULL;
+  CREATE TABLE email_tokens (
+    token_hash TEXT PRIMARY KEY,
+    user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    kind       TEXT NOT NULL CHECK (kind IN ('verify', 'reset')),
+    email      TEXT NOT NULL,
+    expires_at INTEGER NOT NULL
+  );
+  CREATE INDEX email_tokens_by_user ON email_tokens(user_id);
+  `,
 ];
 
 /** The schema version a fully migrated database has. */

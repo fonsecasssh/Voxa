@@ -2,9 +2,11 @@
 
 export interface Features {
   gifs: boolean;
+  /** E-mail (confirming an address, password recovery) is set up on the server. */
+  email: boolean;
 }
 
-let current: Features = { gifs: false };
+let current: Features = { gifs: false, email: false };
 
 export const getFeatures = () => current;
 

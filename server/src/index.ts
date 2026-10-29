@@ -4,6 +4,8 @@ import { createApp } from "./app.ts";
 import { openDb } from "./db.ts";
 import { createIceProvider } from "./ice.ts";
 import { createGiphyProvider } from "./gifs.ts";
+import { scheduleBackups } from "./backup.ts";
+import { createSmtpMailer } from "./mail.ts";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT) || 3001;
@@ -26,7 +28,20 @@ const { http, io } = createApp({
   filesMaxBytes: (Number(process.env.FILES_MAX_MB) || 300) * 1024 * 1024,
   // GIF search in chat: a free key from developers.giphy.com.
   gifs: process.env.GIPHY_API_KEY ? createGiphyProvider(process.env.GIPHY_API_KEY) : null,
+  // Password recovery by e-mail: SMTP_* (see mail.ts), and the site's address for the links
+  // (Render sets RENDER_EXTERNAL_URL by itself).
+  mailer: createSmtpMailer(process.env),
+  appUrl: process.env.PUBLIC_URL || process.env.RENDER_EXTERNAL_URL || null,
 });
+
+// A daily copy of the database, keeping the last BACKUP_KEEP (7) of them; BACKUP_DISABLED=1 turns it off.
+if (process.env.BACKUP_DISABLED !== "1" && DB_FILE !== ":memory:") {
+  scheduleBackups(db, {
+    dir: process.env.BACKUP_DIR || path.join(path.dirname(DB_FILE), "backups"),
+    keep: Math.max(1, Number(process.env.BACKUP_KEEP) || 7),
+    everyMs: 24 * 3_600_000,
+  });
+}
 
 http.listen(PORT, () => {
   console.log(`Voxa server on http://localhost:${PORT} (banco: ${DB_FILE}; voz: ${ice.describe()})`);

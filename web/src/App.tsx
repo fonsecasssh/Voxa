@@ -3,6 +3,7 @@ import { api, ApiError, getToken, setToken, type Activity, type Server, type Use
 import { parseRoute, usePath } from "./router.ts";
 import { AuthScreen } from "./components/AuthScreen.tsx";
 import { InvitePage } from "./components/InvitePage.tsx";
+import { ResetPasswordPage, VerifyEmailPage } from "./components/AccountPages.tsx";
 import { Shell } from "./components/Shell.tsx";
 import { setFeatures } from "./features.ts";
 
@@ -47,6 +48,9 @@ export function App() {
   };
 
   if (loading) return <div className="splash">Carregando…</div>;
+  // Links from e-mails work signed in or not.
+  if (route.name === "reset") return <ResetPasswordPage token={route.token} onAuthenticated={onAuthenticated} />;
+  if (route.name === "verifyEmail") return <VerifyEmailPage token={route.token} signedIn={!!session} />;
   if (!session) return <AuthScreen onAuthenticated={onAuthenticated} />;
 
   if (route.name === "invite") {
