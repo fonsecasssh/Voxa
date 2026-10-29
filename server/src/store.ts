@@ -132,6 +132,8 @@ export interface Message {
   /** Ids of the people this message pings (by @name, or by replying to them). */
   mentions: string[];
   mentionsEveryone: boolean;
+  /** When it was pinned to the channel, or null. */
+  pinnedAt: number | null;
 }
 
 export interface ReplyPreview {
@@ -309,6 +311,7 @@ const toMessage = (r: Row): Message => ({
   reactions: [],
   mentions: typeof r.mentions === "string" ? (JSON.parse(r.mentions) as string[]) : [],
   mentionsEveryone: !!r.mention_everyone,
+  pinnedAt: (r.pinned_at as number | null) ?? null,
 });
 
 const MESSAGE_SELECT = `SELECT m.*, u.username, u.display_name, u.avatar, u.profile_banner FROM messages m JOIN users u ON u.id = m.author_id`;
@@ -1353,6 +1356,23 @@ export function createStore(db: DB) {
     },
 
     /** Newest `limit` messages older than `before`, returned oldest first. */
+    /** Pins or unpins a message; false when the channel already has the maximum. */
+    setPinned(messageId: string, pinned: boolean, max: number): boolean {
+      if (pinned) {
+        const info = db.prepare("SELECT channel_id, pinned_at FROM messages WHERE id = ?").get(messageId) as { channel_id: string; pinned_at: number | null } | undefined;
+        if (!info || info.pinned_at) return true;
+        const n = (db.prepare("SELECT COUNT(*) AS n FROM messages WHERE channel_id = ? AND pinned_at IS NOT NULL").get(info.channel_id) as Row).n as number;
+        if (n >= max) return false;
+      }
+      db.prepare("UPDATE messages SET pinned_at = ? WHERE id = ?").run(pinned ? Date.now() : null, messageId);
+      return true;
+    },
+
+    pinnedMessages(channelId: string): Message[] {
+      const rows = db.prepare(`${MESSAGE_SELECT} WHERE m.channel_id = ? AND m.pinned_at IS NOT NULL ORDER BY m.pinned_at DESC`).all(channelId) as Row[];
+      return hydrate(rows.map(toMessage));
+    },
+
     /** Messages around one (for jumping to it): `half` before and after, and whether there are newer ones. */
     messagesAround(channelId: string, messageId: string, half: number): { messages: Message[]; hasNewer: boolean } | null {
       const at = db.prepare("SELECT created_at, rowid AS r FROM messages WHERE id = ? AND channel_id = ?").get(messageId, channelId) as { created_at: number; r: number } | undefined;

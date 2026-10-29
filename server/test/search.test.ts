@@ -79,3 +79,31 @@ describe("message search", () => {
     expect(end.body.messages.at(-1).content).toBe("m79");
   });
 });
+
+describe("pinned messages", () => {
+  it("lets moderators (or anyone in a DM) pin, lists them, and tells everyone", async () => {
+    const dono = await register("pin_dono");
+    const membro = await register("pin_membro");
+    const { body } = await api("POST", "/api/servers", { name: "Pins" }, dono.token);
+    await api("POST", `/api/invites/${body.inviteCode}`, undefined, membro.token);
+    const ch = body.channels.find((c: { type: string }) => c.type === "text").id;
+    const m = (await api("POST", `/api/channels/${ch}/messages`, { content: "regras do servidor" }, membro.token)).body.message;
+    expect(m.pinnedAt).toBeNull();
+    expect((await api("PUT", `/api/channels/${ch}/pins/${m.id}`, undefined, membro.token)).status).toBe(403);
+    const pinned = await api("PUT", `/api/channels/${ch}/pins/${m.id}`, undefined, dono.token);
+    expect(pinned.body.message.pinnedAt).toBeGreaterThan(0);
+    expect((await api("GET", `/api/channels/${ch}/pins`, undefined, membro.token)).body.messages.map((x: { content: string }) => x.content)).toEqual(["regras do servidor"]);
+    await api("DELETE", `/api/channels/${ch}/pins/${m.id}`, undefined, dono.token);
+    expect((await api("GET", `/api/channels/${ch}/pins`, undefined, membro.token)).body.messages).toEqual([]);
+
+    // DMs: either person.
+    await api("POST", "/api/friends", { username: "pin_membro" }, dono.token);
+    await api("POST", `/api/friends/${dono.user.id}/accept`, undefined, membro.token);
+    const dm = (await api("POST", "/api/dms", { userId: membro.user.id }, dono.token)).body.dm.channel.id;
+    const d = (await api("POST", `/api/channels/${dm}/messages`, { content: "endereço da festa" }, dono.token)).body.message;
+    expect((await api("PUT", `/api/channels/${dm}/pins/${d.id}`, undefined, membro.token)).status).toBe(200);
+    // Not your channel: 404.
+    const x = await register("pin_x");
+    expect((await api("GET", `/api/channels/${dm}/pins`, undefined, x.token)).status).toBe(404);
+  });
+});

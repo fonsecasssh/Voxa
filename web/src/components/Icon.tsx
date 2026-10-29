@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 
 export type IconName =
   | "mic"
+  | "pin"
   | "search"
   | "bell"
   | "bellOff"
@@ -62,6 +63,7 @@ const GEAR = gearPath();
 const slash = <path d="M4 4l16 16" />;
 
 const ICONS: Record<IconName, ReactNode> = {
+  pin: <path d="M9 4h6l-1 5 3.5 3.5V14H13v6l-1 1-1-1v-6H6.5v-1.5L10 9z" />,
   search: (
     <>
       <circle cx="10.5" cy="10.5" r="6" />

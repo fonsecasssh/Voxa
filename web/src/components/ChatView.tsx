@@ -33,6 +33,9 @@ interface Props {
   selfId: string;
   /** A display name for anyone who reacted. */
   resolveName: (userId: string) => string;
+  /** Pin permission (moderators in servers, anyone in a DM). */
+  canPin: boolean;
+  onPin: (m: Message, pinned: boolean) => Promise<void>;
   /** Scroll to and highlight this message (a search result, a quoted reply); `n` repeats it. */
   focus?: { id: string; n: number };
   /** Showing an older stretch (after jumping): newer messages aren't loaded. */
@@ -497,6 +500,8 @@ export function ChatView(props: Props) {
                   editing={editingId === m.id}
                   highlighted={highlight === m.id || replyingTo?.id === m.id}
                   canDelete={canDelete(m)}
+                  canPin={props.canPin}
+                  onPin={(pinned) => attempt(() => props.onPin(m, pinned))}
                   resolveName={props.resolveName}
                   resolveUsername={resolveUsername}
                   onOpenImage={setLightbox}

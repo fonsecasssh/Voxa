@@ -49,6 +49,7 @@ import { notifyFor, type NotifySettings } from "../notifications.ts";
 import { NotifyModal, type NotifyTarget } from "./NotifyModal.tsx";
 import { BlockedContext } from "../blocking.ts";
 import { SearchBox, SearchPanel, type SearchScope } from "./Search.tsx";
+import { PinsButton } from "./Pins.tsx";
 
 const TYPING_MS = 4000;
 const HOME = "@me";
@@ -775,8 +776,20 @@ export function Shell({
       hasNewer={messages[channel.id]?.hasNewer}
       onJumpToPresent={() => loadMessages(channel.id).catch(() => {})}
       onJumpToMessage={(id) => jumpToMessage(channel.id, id)}
+      canPin={!current || dm !== undefined || can(myPermissions(current, user.id), Permission.MANAGE_MESSAGES)}
+      onPin={(m, pinned) => api.pin(channel.id, m.id, pinned).then(() => {})}
       headerActions={
         <>
+          <PinsButton
+            channelId={channel.id}
+            server={current}
+            canPin={!current || dm !== undefined || can(myPermissions(current, user.id), Permission.MANAGE_MESSAGES)}
+            version={(messages[channel.id]?.items ?? [])
+              .filter((m) => m.pinnedAt)
+              .map((m) => m.id)
+              .join()}
+            onJump={(m) => jumpToMessage(channel.id, m.id)}
+          />
           <SearchBox
             key={dm ? channel.id : current?.server.id}
             scope={dm ? { id: channel.id, label: dmTitle(dm) } : { id: current!.server.id, label: current!.server.name }}

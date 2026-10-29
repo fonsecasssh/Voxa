@@ -81,6 +81,8 @@ export interface Message {
   /** Ids of the people it pings (by @name or by replying), and whether it pings @everyone. */
   mentions: string[];
   mentionsEveryone: boolean;
+  /** When it was pinned to the channel, or null. */
+  pinnedAt: number | null;
   /** Only on live "message:new" events: the server of the channel (null in DMs). */
   serverId?: string | null;
 }
@@ -270,6 +272,9 @@ export const api = {
       /** People you blocked. */
       blocked: string[];
     }>("GET", "/api/me"),
+  pins: (channelId: string) => request<{ messages: Message[] }>("GET", `/api/channels/${channelId}/pins`),
+  pin: (channelId: string, messageId: string, pinned: boolean) =>
+    request<{ message: Message }>(pinned ? "PUT" : "DELETE", `/api/channels/${channelId}/pins/${messageId}`),
   search: (scope: string, q: string, offset = 0) =>
     request<{ messages: Message[]; total: number }>("GET", `/api/search?${new URLSearchParams({ scope, q, offset: String(offset) })}`),
   messagesAround: (channelId: string, messageId: string) =>

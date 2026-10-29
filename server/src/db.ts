@@ -340,6 +340,12 @@ const MIGRATIONS: string[] = [
     INSERT INTO messages_fts(rowid, content) VALUES (new.rowid, new.content);
   END;
   `,
+
+  // 17: pinned messages.
+  `
+  ALTER TABLE messages ADD COLUMN pinned_at INTEGER;
+  CREATE INDEX messages_pinned ON messages(channel_id, pinned_at) WHERE pinned_at IS NOT NULL;
+  `,
 ];
 
 /** The schema version a fully migrated database has. */

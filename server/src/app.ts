@@ -656,6 +656,33 @@ export function createApp({ db, webDist, ice = createIceProvider(), trustProxy =
     res.json({ messages: store.messages(channel.id, before, limit), lastReadAt });
   });
 
+  // --- pins ------------------------------------------------------------------
+  const MAX_PINS = 50;
+  app.get("/api/channels/:id/pins", requireAuth, (req, res) => {
+    const channel = requireChannelAccess(req, req.params.id as string);
+    res.json({ messages: store.pinnedMessages(channel.id) });
+  });
+
+  // In a server it takes "Gerenciar mensagens"; in a DM anyone in it can pin.
+  const setPin = (pinned: boolean) => (req: Request, res: Response) => {
+    const channel = requireChannelAccess(req, req.params.id as string);
+    const id = req.params.messageId as string;
+    const info = store.messageInfo(id);
+    if (!info || info.channelId !== channel.id) throw new HttpError(404, "Mensagem não encontrada.");
+    if (channel.serverId) {
+      const server = store.serverById(channel.serverId)!;
+      const me = req.user!.id;
+      const perms = permissionsOf(server, store.roles(server.id), me, store.memberInfo(server.id, me)?.roleIds ?? []);
+      if (!can(perms, Permission.MANAGE_MESSAGES)) throw new HttpError(403, "Você não tem permissão para fixar mensagens.");
+    }
+    if (!store.setPinned(id, pinned, MAX_PINS)) throw new HttpError(400, `Um canal pode ter até ${MAX_PINS} mensagens fixadas. Desafixe alguma antes.`);
+    const message = store.messageById(id)!;
+    io.to(realtime.channelRooms(channel)).emit("message:update", message);
+    res.json({ message });
+  };
+  app.put("/api/channels/:id/pins/:messageId", requireAuth, setPin(true));
+  app.delete("/api/channels/:id/pins/:messageId", requireAuth, setPin(false));
+
   // A page around one message (jumping to a search result or a quoted reply).
   app.get("/api/channels/:id/messages/around/:messageId", requireAuth, (req, res) => {
     const channel = requireChannelAccess(req, req.params.id as string);

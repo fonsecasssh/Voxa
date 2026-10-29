@@ -99,6 +99,9 @@ export interface MessageItemProps {
   editing: boolean;
   highlighted: boolean;
   canDelete: boolean;
+  /** Can pin and unpin (moderators in servers, anyone in a DM). */
+  canPin: boolean;
+  onPin: (pinned: boolean) => void;
   resolveName: (userId: string) => string;
   resolveUsername: (username: string) => MentionTarget | null;
   onOpenImage: (f: FileAttachment) => void;
@@ -168,6 +171,16 @@ export function MessageItem(p: MessageItemProps) {
       <button className="msg-action" title="Responder" aria-label="Responder" onClick={p.onReply}>
         <Icon name="reply" size={16} />
       </button>
+      {p.canPin && (
+        <button
+          className="msg-action"
+          title={m.pinnedAt ? "Desafixar" : "Fixar"}
+          aria-label={m.pinnedAt ? "Desafixar mensagem" : "Fixar mensagem"}
+          onClick={() => p.onPin(!m.pinnedAt)}
+        >
+          <Icon name="pin" size={16} />
+        </button>
+      )}
       {mine && (
         <button className="msg-action" title="Editar" aria-label="Editar mensagem" onClick={p.onStartEdit}>
           <Icon name="pencil" size={16} />
@@ -224,6 +237,11 @@ export function MessageItem(p: MessageItemProps) {
             <div className="message-meta">
               <strong style={{ color: memberColor(p.server, m.author.id) }}>{name}</strong>
               <span className="muted small">{formatTime(m.createdAt)}</span>
+              {m.pinnedAt && (
+                <span className="pinned-mark" title="Mensagem fixada">
+                  <Icon name="pin" size={12} />
+                </span>
+              )}
             </div>
             {body}
             {reactions}
