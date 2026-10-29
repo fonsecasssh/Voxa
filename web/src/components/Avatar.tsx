@@ -3,10 +3,23 @@ import type { Presence, PresenceStatus, Server } from "../api.ts";
 // Deep tones that sit well on the Galáxia background and keep white initials readable.
 const COLORS = ["#5b3fd1", "#2f6fd6", "#16808f", "#1f8a62", "#b0457a", "#c2553a", "#7a3fb8", "#3d4fc4"];
 
-function colorFor(id: string): string {
+function hashOf(s: string): number {
   let h = 0;
-  for (const ch of id) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
-  return COLORS[h % COLORS.length];
+  for (const ch of s) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return h;
+}
+
+function colorFor(id: string): string {
+  return COLORS[hashOf(id) % COLORS.length];
+}
+
+/** A server's own two-tone gradient (from its id), so servers without an icon still look different. */
+export function serverGradient(id: string): string {
+  const h = hashOf(id);
+  const hue = h % 360;
+  const shift = 35 + ((h >>> 9) % 50);
+  const angle = 120 + ((h >>> 3) % 4) * 30;
+  return `linear-gradient(${angle}deg, hsl(${hue} 70% 56%), hsl(${(hue + shift) % 360} 72% 40%))`;
 }
 
 function initials(name: string): string {
@@ -51,6 +64,12 @@ export function Avatar({ name, id, size = 40, status, src }: AvatarProps) {
 
 /** A server's icon image, or its initials when it has none. */
 export function ServerIcon({ server, size = 48 }: { server: Pick<Server, "id" | "name" | "icon">; size?: number }) {
-  if (!server.icon) return <Avatar name={server.name} id={server.id} size={size} />;
+  if (!server.icon) {
+    return (
+      <span className="avatar server-initials" style={{ width: size, height: size, background: serverGradient(server.id), fontSize: size * 0.36 }}>
+        {initials(server.name)}
+      </span>
+    );
+  }
   return <img className="avatar server-icon" src={server.icon} alt="" width={size} height={size} draggable={false} />;
 }

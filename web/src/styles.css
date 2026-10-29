@@ -2344,15 +2344,24 @@ select:focus {
 .round-btn.danger:hover {
   background: #c53336;
 }
-/* tighter controls so the name fits */
-.split-main {
-  width: 28px;
-}
-.split-more {
-  width: 14px;
-}
+/* mic, headphones and settings: just icons, so the name and status fit */
 .self-panel .user-panel > .panel-icon {
-  width: 28px;
+  width: 30px;
+  height: 32px;
+}
+.panel-icon.off {
+  background: rgba(237, 66, 69, 0.14);
+  color: #f2585b;
+}
+.panel-icon.off:hover {
+  background: rgba(237, 66, 69, 0.24);
+  color: #f2585b;
+}
+.self-panel .user-names strong {
+  font-size: 14px;
+}
+.self-panel .user-names .muted {
+  font-size: 12px;
 }
 .voice-where strong,
 .voice-where .muted {
@@ -4980,4 +4989,39 @@ button.poll-option:hover,
 }
 .sound-row.editing input[type="range"] {
   width: 100px;
+}
+
+/* --- call: tiles fill the stage, clear speaking ring --------------------------- */
+.tiles.fitted > .tile,
+.voice-stage.compact .tiles.fitted > .tile {
+  width: var(--tile-w);
+}
+/* Its size comes from the free space only, never from the tiles (which are sized to fit it). */
+.stage:not(.has-focus) .tiles {
+  contain: size;
+  overflow: hidden;
+  padding: 4px;
+}
+.tile.user {
+  background: radial-gradient(circle at 50% 40%, color-mix(in srgb, var(--grad-1) 10%, var(--bg-sidebar)), var(--bg-sidebar) 70%);
+  transition: box-shadow 0.15s;
+}
+.tile.speaking {
+  box-shadow: 0 0 24px -6px var(--grad-1);
+}
+.tile.user .avatar {
+  transition: box-shadow 0.15s, transform 0.15s;
+}
+.tile.user.speaking .avatar {
+  box-shadow: 0 0 0 3px var(--bg-sidebar), 0 0 0 6px var(--grad-1), 0 0 26px 4px color-mix(in srgb, var(--grad-1) 55%, transparent);
+  transform: scale(1.04);
+}
+
+/* --- servers without an icon: their own gradient -------------------------------- */
+.server-initials {
+  color: #fff;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
 }

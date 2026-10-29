@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import type { Channel, ServerDetails } from "../api.ts";
 import { memberName } from "../members.ts";
 import { useVoice } from "../voice/useVoice.ts";
@@ -52,6 +52,36 @@ export function VoiceView({ channel, members, server }: { channel: Channel; memb
   );
 }
 
+/**
+ * The tile width that fills the area best for `count` 16:9 tiles, like Meet and Discord:
+ * tries every number of columns and keeps the one giving the biggest tiles.
+ */
+function useTileWidth(count: number, gap = 12) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [width, setWidth] = useState<number | null>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const fit = () => {
+      const W = el.clientWidth - 8;
+      const H = el.clientHeight - 8;
+      if (W <= 0 || H <= 0 || count === 0) return;
+      let best = 0;
+      for (let cols = 1; cols <= count; cols++) {
+        const rows = Math.ceil(count / cols);
+        const w = Math.min((W - gap * (cols - 1)) / cols, ((H - gap * (rows - 1)) / rows) * (16 / 9));
+        best = Math.max(best, w);
+      }
+      setWidth(Math.max(140, Math.floor(best)));
+    };
+    fit();
+    const ro = new ResizeObserver(fit);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [count, gap]);
+  return [ref, width] as const;
+}
+
 /** The call we are in: everyone's tiles (camera, screen shares) and the call controls. */
 export function VoiceStage({ members, server, compact = false }: { members: VoiceMember[]; server?: ServerDetails; compact?: boolean }) {
   const [voice, vs] = useVoice();
@@ -82,6 +112,9 @@ export function VoiceStage({ members, server, compact = false }: { members: Voic
   }
 
   const focusedTile = tiles.find((t) => t.key === focused);
+  const [tilesRef, tileWidth] = useTileWidth(focusedTile ? 0 : tiles.length);
+  // The picture of someone without a camera grows with their tile.
+  const avatarSize = Math.round(Math.min(128, Math.max(56, (tileWidth ?? 280) * 0.22)));
   useEffect(() => {
     if (focused && !focusedTile) setFocused(null);
   }, [focused, focusedTile]);
@@ -135,7 +168,7 @@ export function VoiceStage({ members, server, compact = false }: { members: Voic
           {cam ? (
             <CameraVideo stream={cam} mirrored={t.isSelf} />
           ) : (
-            <Avatar name={name} id={t.member.user.id} size={big ? 96 : 64} src={t.member.user.avatar} />
+            <Avatar name={name} id={t.member.user.id} size={big ? 96 : focusedTile ? 48 : avatarSize} src={t.member.user.avatar} />
           )}
           {label}
           {bubble?.socketId === t.member.socketId && (
@@ -198,7 +231,13 @@ export function VoiceStage({ members, server, compact = false }: { members: Voic
       {menu.menu}
       <div className={`stage ${focusedTile ? "has-focus" : ""}`}>
         {focusedTile && <div className="stage-focus">{renderTile(focusedTile, true)}</div>}
-        <div className="tiles">{tiles.filter((t) => t.key !== focused).map((t) => renderTile(t))}</div>
+        <div
+          className={`tiles ${tileWidth && !focusedTile ? "fitted" : ""}`}
+          ref={tilesRef}
+          style={tileWidth && !focusedTile ? ({ "--tile-w": `${tileWidth}px` } as CSSProperties) : undefined}
+        >
+          {tiles.filter((t) => t.key !== focused).map((t) => renderTile(t))}
+        </div>
       </div>
 
       <div className="voice-controls">

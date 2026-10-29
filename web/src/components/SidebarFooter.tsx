@@ -206,7 +206,11 @@ export function SidebarFooter({ user, status, activity, customStatus, voiceLocat
             }}
           />
         )}
-        <button className="user-card" title="Definir status" onClick={() => setMenuOpen((o) => !o)}>
+        <button
+          className="user-card"
+          title={`${user.displayName} (@${user.username}) · ${custom?.text ?? (activity ? `Jogando ${activity.name}` : STATUS_LABEL[status])}\nClique para definir o status`}
+          onClick={() => setMenuOpen((o) => !o)}
+        >
           <Avatar name={user.displayName} id={user.id} size={32} status={status === "invisible" ? "offline" : status} src={user.avatar} />
           <span className="user-names">
             <strong className="ellipsis">{user.displayName}</strong>
@@ -220,33 +224,23 @@ export function SidebarFooter({ user, status, activity, customStatus, voiceLocat
             )}
           </span>
         </button>
-        <div className={`split-btn ${micOff ? "off" : ""}`}>
-          <button
-            className="split-main"
-            title={vs.muted ? "Ativar microfone" : "Desativar microfone"}
-            aria-pressed={vs.muted}
-            onClick={() => voice?.setMuted(!vs.muted)}
-          >
-            <Icon name={micOff ? "micOff" : "mic"} />
-          </button>
-          <button className="split-more" title="Escolher microfone" onClick={onVoiceSettings}>
-            <Icon name="chevron" size={14} />
-          </button>
-        </div>
-        <div className={`split-btn ${vs.deafened ? "off" : ""}`}>
-          <button
-            className="split-main"
-            title={vs.deafened ? "Ativar áudio" : "Desativar áudio"}
-            aria-pressed={vs.deafened}
-            onClick={() => voice?.setDeafened(!vs.deafened)}
-          >
-            <Icon name={vs.deafened ? "headphonesOff" : "headphones"} />
-          </button>
-          <button className="split-more" title="Escolher saída de áudio" onClick={onVoiceSettings}>
-            <Icon name="chevron" size={14} />
-          </button>
-        </div>
-        <button className="panel-icon" title="Configurações de voz" onClick={onVoiceSettings}>
+        <button
+          className={`panel-icon ${micOff ? "off" : ""}`}
+          title={vs.muted ? "Ativar microfone" : "Desativar microfone"}
+          aria-pressed={vs.muted}
+          onClick={() => voice?.setMuted(!vs.muted)}
+        >
+          <Icon name={micOff ? "micOff" : "mic"} />
+        </button>
+        <button
+          className={`panel-icon ${vs.deafened ? "off" : ""}`}
+          title={vs.deafened ? "Ativar áudio" : "Desativar áudio"}
+          aria-pressed={vs.deafened}
+          onClick={() => voice?.setDeafened(!vs.deafened)}
+        >
+          <Icon name={vs.deafened ? "headphonesOff" : "headphones"} />
+        </button>
+        <button className="panel-icon" title="Configurações de voz (microfone, fone e câmera)" onClick={onVoiceSettings}>
           <Icon name="gear" />
         </button>
       </footer>
