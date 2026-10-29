@@ -6,7 +6,7 @@ import path from "node:path";
 import { Server as IOServer } from "socket.io";
 import { hashPassword, verifyPassword } from "./auth.ts";
 import type { DB } from "./db.ts";
-import { FILE_URL_PREFIX, createStore, toFileAttachment, type Channel, type DmSummary, type FileKind, type PublicUser, type Store, type UserStatus } from "./store.ts";
+import { FILE_URL_PREFIX, MAX_GROUP_DM, createStore, toFileAttachment, type Channel, type DmSummary, type FileKind, type PublicUser, type Store, type UserStatus } from "./store.ts";
 import { registerRealtime } from "./realtime.ts";
 import { createIceProvider, type IceProvider } from "./ice.ts";
 import { failureLimiter, rateLimit } from "./rateLimit.ts";
@@ -180,8 +180,26 @@ export function createApp({ db, webDist, ice = createIceProvider(), trustProxy =
     }
   };
 
-  const dmFor = (summary: { channel: DmSummary["channel"] }, viewer: string): DmSummary =>
-    store.dmsForUser(viewer).find((d) => d.channel.id === summary.channel.id)!;
+  const dmFor = (summary: { channel: DmSummary["channel"] }, viewer: string): DmSummary => store.dmFor(summary.channel.id, viewer)!;
+
+  /** A group DM the user is in (404 otherwise, like a channel they can't see). */
+  const requireGroup = (req: Request) => {
+    const channel = requireChannelAccess(req, req.params.id as string);
+    const group = store.groupDm(channel.id);
+    if (!group) throw new HttpError(404, "Grupo não encontrado.");
+    return { channel, group, people: store.dmParticipants(channel.id)! };
+  };
+
+  /** Everyone in a group DM gets the conversation as they see it. */
+  const emitDmUpdate = (channelId: string) => {
+    for (const id of store.dmParticipants(channelId) ?? []) io.to(`user:${id}`).emit("dm:update", dmFor({ channel: { id: channelId } as DmSummary["channel"] }, id));
+  };
+
+  const groupName = (v: unknown): string | null => {
+    if (v === undefined || v === null || v === "") return null;
+    if (typeof v !== "string" || v.trim().length > 100) throw new HttpError(400, "O nome do grupo pode ter até 100 caracteres.");
+    return v.trim() || null;
+  };
 
   // --- auth -----------------------------------------------------------------
   app.post("/api/auth/register", signupLimit, async (req, res) => {
@@ -313,7 +331,65 @@ export function createApp({ db, webDist, ice = createIceProvider(), trustProxy =
   // --- direct messages ----------------------------------------------------------
   app.get("/api/dms", requireAuth, (req, res) => {
     const dms = store.dmsForUser(req.user!.id);
-    res.json({ dms, presence: realtime.presenceMap(dms.map((d) => d.user.id)) });
+    res.json({
+      dms,
+      presence: realtime.presenceMap([...new Set(dms.flatMap((d) => d.members.map((u) => u.id)))]),
+      calls: realtime.dmCalls(dms.map((d) => d.channel.id)),
+    });
+  });
+
+  // Group DMs: you can start one with (and add) your friends, up to 10 people in all.
+  app.post("/api/dms/group", requireAuth, (req, res) => {
+    const me = req.user!;
+    const raw: unknown = req.body?.userIds;
+    if (!Array.isArray(raw) || raw.length === 0 || !raw.every((x) => typeof x === "string")) throw new HttpError(400, "Escolha quem vai participar.");
+    const ids = [...new Set(raw as string[])].filter((id) => id !== me.id);
+    if (ids.length === 0) throw new HttpError(400, "Escolha quem vai participar.");
+    if (ids.length + 1 > MAX_GROUP_DM) throw new HttpError(400, `Um grupo pode ter até ${MAX_GROUP_DM} pessoas.`);
+    for (const id of ids) {
+      if (store.friendship(me.id, id)?.status !== "accepted") throw new HttpError(403, "Só dá para adicionar amigos ao grupo.");
+    }
+    const channel = store.createGroupDm(me.id, ids, groupName(req.body?.name));
+    for (const id of [me.id, ...ids]) io.to(`user:${id}`).emit("dm:new", dmFor({ channel }, id));
+    res.status(201).json({ dm: dmFor({ channel }, me.id) });
+  });
+
+  app.patch("/api/dms/:id", requireAuth, (req, res) => {
+    const { channel } = requireGroup(req);
+    store.renameGroupDm(channel.id, groupName(req.body?.name));
+    emitDmUpdate(channel.id);
+    res.json({ dm: dmFor({ channel }, req.user!.id) });
+  });
+
+  app.post("/api/dms/:id/members", requireAuth, (req, res) => {
+    const me = req.user!;
+    const { channel, people } = requireGroup(req);
+    const other = typeof req.body?.userId === "string" ? store.userById(req.body.userId) : null;
+    if (!other || store.friendship(me.id, other.id)?.status !== "accepted") throw new HttpError(403, "Só dá para adicionar amigos ao grupo.");
+    if (people.includes(other.id)) return void res.json({ dm: dmFor({ channel }, me.id) });
+    if (people.length >= MAX_GROUP_DM) throw new HttpError(400, `Um grupo pode ter até ${MAX_GROUP_DM} pessoas.`);
+    store.addDmMember(channel.id, other.id);
+    io.to(`user:${other.id}`).emit("dm:new", dmFor({ channel }, other.id));
+    emitDmUpdate(channel.id);
+    realtime.refreshCall(channel.id);
+    res.json({ dm: dmFor({ channel }, me.id) });
+  });
+
+  // Leave (yourself) or, for the owner, remove someone.
+  app.delete("/api/dms/:id/members/:userId", requireAuth, (req, res) => {
+    const me = req.user!;
+    const { channel, group, people } = requireGroup(req);
+    const target = req.params.userId as string;
+    if (!people.includes(target)) throw new HttpError(404, "Essa pessoa não está no grupo.");
+    if (target !== me.id && group.ownerId !== me.id) throw new HttpError(403, "Só o dono do grupo pode remover pessoas.");
+    realtime.evictFromCall(target, channel.id, target === me.id ? "Você saiu do grupo." : "Você foi removido do grupo.");
+    const result = store.removeDmMember(channel.id, target);
+    io.to(`user:${target}`).emit("dm:remove", { channelId: channel.id });
+    if (result === "removed") {
+      emitDmUpdate(channel.id);
+      realtime.refreshCall(channel.id);
+    }
+    res.status(204).end();
   });
 
   app.post("/api/dms", requireAuth, (req, res) => {

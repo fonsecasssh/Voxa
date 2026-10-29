@@ -1,7 +1,8 @@
-import { useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { MAX_FILES_PER_MESSAGE, type Channel, type FileAttachment, type Message, type User, type ServerDetails } from "../api.ts";
+import { useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { MAX_FILES_PER_MESSAGE, dmTitle, type DmSummary, type Channel, type FileAttachment, type Message, type User, type ServerDetails } from "../api.ts";
 import { Lightbox, PendingTray, usePendingFiles } from "./Attachments.tsx";
 import { Avatar } from "./Avatar.tsx";
+import { DmAvatar } from "./DmParts.tsx";
 import { EmojiPicker } from "./EmojiPicker.tsx";
 import { Icon } from "./Icon.tsx";
 import { MessageItem } from "./MessageItem.tsx";
@@ -14,8 +15,14 @@ interface Props {
   channel: Channel;
   /** The server the channel belongs to, for nicknames and role colors (undefined in DMs). */
   server?: ServerDetails;
-  /** The other person, for direct messages. */
-  dmUser?: User;
+  /** The conversation, for direct messages (1:1 or group). */
+  dm?: DmSummary;
+  /** Buttons at the right of the header (calls, add people…). */
+  headerActions?: ReactNode;
+  /** Shown between the header and the messages (a DM's call). */
+  top?: ReactNode;
+  /** Makes the title editable (a group DM's name); empty resets it to the people's names. */
+  onRename?: (name: string) => Promise<void>;
   messages?: Message[];
   hasMore: boolean;
   typingUsers: User[];
@@ -59,10 +66,44 @@ function typingText(users: User[], server?: ServerDetails): string {
   return "Várias pessoas estão digitando…";
 }
 
+/** A title that turns into a text box when clicked (Enter saves, Esc cancels). */
+function EditableTitle({ value, placeholder, onSave }: { value: string; placeholder: string; onSave: (v: string) => Promise<void> }) {
+  const [editing, setEditing] = useState<string | null>(null);
+  if (editing === null) {
+    return (
+      <button type="button" className="editable-title ellipsis" title="Renomear grupo" onClick={() => setEditing(value)}>
+        {value || placeholder}
+      </button>
+    );
+  }
+  const save = () => {
+    const next = editing.trim();
+    setEditing(null);
+    if (next !== value) onSave(next).catch((e) => alert((e as Error).message));
+  };
+  return (
+    <input
+      className="editable-title-input"
+      autoFocus
+      maxLength={100}
+      value={editing}
+      placeholder={placeholder}
+      aria-label="Nome do grupo"
+      onChange={(e) => setEditing(e.target.value)}
+      onBlur={save}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") save();
+        else if (e.key === "Escape") setEditing(null);
+      }}
+    />
+  );
+}
+
 export function ChatView(props: Props) {
-  const { channel, server, dmUser, messages, hasMore, typingUsers, onLoadOlder, onSend, onTyping, canDelete, onDelete, onEdit, onReact, selfId } = props;
-  const title = dmUser ? dmUser.displayName : channel.name;
-  const placeholder = dmUser ? `Conversar com @${dmUser.username}` : `Conversar em #${channel.name}`;
+  const { channel, server, dm, headerActions, top, onRename, messages, hasMore, typingUsers, onLoadOlder, onSend, onTyping, canDelete, onDelete, onEdit, onReact, selfId } = props;
+  const title = dm ? dmTitle(dm) : channel.name;
+  const target = dm ? (dm.group ? title : `@${dm.user?.username ?? title}`) : `#${channel.name}`;
+  const placeholder = dm && !dm.group ? `Conversar com ${target}` : `Conversar em ${target}`;
   const listRef = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
   const prevHeight = useRef<number | null>(null);
@@ -285,7 +326,7 @@ export function ChatView(props: Props) {
         <div className="drop-overlay" aria-hidden="true">
           <div>
             <Icon name="file" size={40} />
-            <strong>Solte para enviar em {dmUser ? `@${dmUser.username}` : `#${channel.name}`}</strong>
+            <strong>Solte para enviar em {target}</strong>
             <span className="muted small">Até {MAX_FILES_PER_MESSAGE} arquivos de 25 MB</span>
           </div>
         </div>
@@ -303,13 +344,11 @@ export function ChatView(props: Props) {
         />
       )}
       <header className="chat-header">
-        {dmUser ? (
-          <Avatar name={dmUser.displayName} id={dmUser.id} size={24} src={dmUser.avatar} />
-        ) : (
-          <span className="channel-icon">#</span>
-        )}
-        <strong>{title}</strong>
+        {dm ? <DmAvatar dm={dm} size={24} /> : <span className="channel-icon">#</span>}
+        {onRename ? <EditableTitle value={dm?.group?.name ?? ""} placeholder={title} onSave={onRename} /> : <strong className="ellipsis">{title}</strong>}
+        {headerActions && <div className="chat-header-actions">{headerActions}</div>}
       </header>
+      {top}
 
       <div
         className="messages"
@@ -329,12 +368,20 @@ export function ChatView(props: Props) {
               </button>
             ) : (
               <div className="channel-intro">
-                {dmUser ? (
+                {dm ? (
                   <>
-                    <Avatar name={dmUser.displayName} id={dmUser.id} size={72} src={dmUser.avatar} />
-                    <h2>{dmUser.displayName}</h2>
+                    <DmAvatar dm={dm} size={72} />
+                    <h2>{title}</h2>
                     <p className="muted">
-                      Este é o começo do seu histórico de mensagens diretas com <strong>@{dmUser.username}</strong>.
+                      {dm.group ? (
+                        <>
+                          Boas-vindas ao começo do grupo <strong>{title}</strong>.
+                        </>
+                      ) : (
+                        <>
+                          Este é o começo do seu histórico de mensagens diretas com <strong>{target}</strong>.
+                        </>
+                      )}
                     </p>
                   </>
                 ) : (

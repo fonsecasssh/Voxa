@@ -12,6 +12,11 @@ export interface ServerToClient {
   presence: (p: { userId: string; presence: Presence }) => void;
   "friend:update": (p: { user: User; state: FriendState | null; presence: Presence | null }) => void;
   "dm:new": (dm: DmSummary) => void;
+  "dm:update": (dm: DmSummary) => void;
+  /** We left or were removed from a group DM (or it was deleted). */
+  "dm:remove": (p: { channelId: string }) => void;
+  /** Someone started a call in one of our DMs. */
+  "call:ring": (p: { channelId: string; from: User }) => void;
   "user:update": (user: User) => void;
   "server:update": (server: Server) => void;
   /** We are no longer in this server (kicked, left elsewhere, or it was deleted). */
@@ -23,7 +28,8 @@ export interface ServerToClient {
   "channel:delete": (p: { serverId: string; channelId: string }) => void;
   "voice:kicked": (p: { reason: string }) => void;
   typing: (p: { channelId: string; user: User }) => void;
-  "voice:update": (p: { serverId: string; channelId: string; members: VoiceMember[] }) => void;
+  /** serverId is null for a call in a DM. */
+  "voice:update": (p: { serverId: string | null; channelId: string; members: VoiceMember[] }) => void;
   "voice:signal": (p: { from: string; data: unknown }) => void;
   "voice:replaced": () => void;
 }
@@ -34,7 +40,7 @@ export interface ClientToServer {
   typing: (p: { channelId: string }) => void;
   "voice:join": (p: { channelId: string }, ack: (r: VoiceJoinResult) => void) => void;
   "voice:leave": () => void;
-  "voice:state": (p: { muted: boolean; deafened: boolean; screenStreamId: string | null }) => void;
+  "voice:state": (p: { muted: boolean; deafened: boolean; screenStreamId: string | null; cameraStreamId: string | null }) => void;
   "voice:signal": (p: { to: string; data: unknown }) => void;
 }
 

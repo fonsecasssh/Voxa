@@ -4,6 +4,11 @@ import type { ReactNode } from "react";
 
 export type IconName =
   | "mic"
+  | "video"
+  | "videoOff"
+  | "phone"
+  | "userPlus"
+  | "users"
   | "speaker"
   | "speakerOff"
   | "micOff"
@@ -52,6 +57,33 @@ const GEAR = gearPath();
 const slash = <path d="M4 4l16 16" />;
 
 const ICONS: Record<IconName, ReactNode> = {
+  video: (
+    <>
+      <rect x="3" y="6.5" width="12.5" height="11" rx="2.5" />
+      <path d="M15.5 10.5l5-3v9l-5-3" />
+    </>
+  ),
+  videoOff: (
+    <>
+      <rect x="3" y="6.5" width="12.5" height="11" rx="2.5" />
+      <path d="M15.5 10.5l5-3v9l-5-3" />
+      {slash}
+    </>
+  ),
+  phone: <path d="M6.6 3.5h2.7l1.4 4.1-2 1.4a12 12 0 0 0 6.3 6.3l1.4-2 4.1 1.4v2.7a2 2 0 0 1-2.2 2A17.5 17.5 0 0 1 4.6 5.7a2 2 0 0 1 2-2.2z" />,
+  userPlus: (
+    <>
+      <circle cx="10" cy="8" r="3.6" />
+      <path d="M3.5 20a6.5 6.5 0 0 1 13 0M19 8v6M16 11h6" />
+    </>
+  ),
+  users: (
+    <>
+      <circle cx="9" cy="8" r="3.4" />
+      <path d="M2.8 20a6.2 6.2 0 0 1 12.4 0" />
+      <path d="M15.5 4.8a3.4 3.4 0 0 1 0 6.4M17.5 14.2a6.2 6.2 0 0 1 3.7 5.8" />
+    </>
+  ),
   speaker: (
     <>
       <path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z" />

@@ -132,6 +132,14 @@ export function SidebarFooter({ user, status, activity, voiceLocation, setPresen
             >
               <Icon name={vs.localScreen ? "screenOff" : "screen"} />
             </button>
+            <button
+              className={`action-btn ${vs.localCamera ? "live" : ""}`}
+              title={vs.localCamera ? "Desligar câmera" : "Ligar câmera"}
+              disabled={!connected}
+              onClick={() => (vs.localCamera ? voice?.stopCamera() : voice?.startCamera())}
+            >
+              <Icon name={vs.localCamera ? "video" : "videoOff"} />
+            </button>
             <button className={`action-btn ${replayOn ? "live" : ""}`} title="Replay instantâneo" onClick={onReplay}>
               <Icon name="replay" />
             </button>

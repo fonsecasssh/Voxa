@@ -124,9 +124,22 @@ export interface Friend {
 
 export interface DmSummary {
   channel: Channel;
-  /** The other participant. */
-  user: User;
+  /** The other participant of a 1:1 DM; null in a group. */
+  user: User | null;
+  /** Everyone else in the conversation. */
+  members: User[];
+  /** Set for a group DM. */
+  group: { name: string | null; ownerId: string } | null;
   lastMessageAt: number | null;
+}
+
+/** People in a group DM, the owner included. */
+export const MAX_GROUP_DM = 10;
+
+/** A conversation's name: the person, or the group's name (or its people's). */
+export function dmTitle(d: DmSummary): string {
+  if (!d.group) return d.user?.displayName ?? "Conversa";
+  return d.group.name || d.members.map((u) => u.displayName).join(", ") || "Grupo vazio";
 }
 
 export interface Role {
@@ -224,8 +237,12 @@ export const api = {
   acceptFriend: (userId: string) => request<{ state: FriendState }>("POST", `/api/friends/${userId}/accept`),
   removeFriend: (userId: string) => request<void>("DELETE", `/api/friends/${userId}`),
 
-  dms: () => request<{ dms: DmSummary[]; presence: Record<string, Presence> }>("GET", "/api/dms"),
+  dms: () => request<{ dms: DmSummary[]; presence: Record<string, Presence>; calls: Record<string, VoiceMember[]> }>("GET", "/api/dms"),
   openDm: (userId: string) => request<{ dm: DmSummary }>("POST", "/api/dms", { userId }),
+  createGroupDm: (userIds: string[], name?: string) => request<{ dm: DmSummary }>("POST", "/api/dms/group", { userIds, name }),
+  renameGroupDm: (channelId: string, name: string) => request<{ dm: DmSummary }>("PATCH", `/api/dms/${channelId}`, { name }),
+  addToGroupDm: (channelId: string, userId: string) => request<{ dm: DmSummary }>("POST", `/api/dms/${channelId}/members`, { userId }),
+  removeFromGroupDm: (channelId: string, userId: string) => request<void>("DELETE", `/api/dms/${channelId}/members/${userId}`),
 
   createServer: (name: string) => request<{ server: Server; channels: Channel[]; roles: Role[] }>("POST", "/api/servers", { name }),
   renameServer: (id: string, name: string) => request<{ server: Server }>("PATCH", `/api/servers/${id}`, { name }),

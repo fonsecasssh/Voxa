@@ -21,7 +21,9 @@ export type SoundName =
   | "undeafen"
   | "message"
   | "streamStart"
-  | "replay";
+  | "replay"
+  | "ring"
+  | "callEnd";
 
 interface Note {
   /** Frequency (Hz), start and duration (s). */
@@ -163,6 +165,23 @@ const SOUNDS: Record<SoundName, Sound> = {
       { f: 990, t: 0.09, d: 0.3 },
     ],
   },
+  // Incoming call (repeats every couple of seconds): two quick bell triplets climbing, like a phone.
+  ring: {
+    notes: [
+      ...[0, 0.42].flatMap((t) => [bell(E5, t, 0.3, -0.3, 0.85, 1.4), bell(Gs5, t + 0.1, 0.3, 0, 0.85, 1.4), bell(B5, t + 0.2, 0.42, 0.3, 0.8, 1.4)]),
+      { f: E4, t: 0, d: 0.9, wave: "triangle", g: 0.18, attack: 0.03 },
+    ],
+    filter: { from: 2500, to: 8000, d: 0.3 },
+    reverb: 0.25,
+    gain: 1.15,
+  },
+  // A call ended or was declined: two short falling tones.
+  callEnd: {
+    notes: [
+      { f: B5, to: Gs5, t: 0, d: 0.16, wave: "triangle", g: 0.8 },
+      { f: E5, to: Cs5, t: 0.13, d: 0.26, wave: "triangle", g: 0.8 },
+    ],
+  },
 };
 
 export type SoundStyle = "impacto" | "arcade" | "marimba" | "classic" | "voxa";
@@ -267,6 +286,8 @@ export const SOUND_LABELS: Record<SoundName, string> = {
   message: "Mensagem direta",
   streamStart: "Transmissão iniciada",
   replay: "Replay salvo",
+  ring: "Chamada recebida",
+  callEnd: "Chamada encerrada",
 };
 
 const REVERB_SECONDS = 1.6;

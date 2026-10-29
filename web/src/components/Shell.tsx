@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   api,
+  dmTitle,
   getToken,
   type Activity,
   type DmSummary,
@@ -35,6 +36,9 @@ import { AppSettingsModal } from "./AppSettingsModal.tsx";
 import { FriendsView } from "./FriendsView.tsx";
 import { MemberList } from "./MemberList.tsx";
 import { VoiceView } from "./VoiceView.tsx";
+import { DmCallBar, GroupDmModal, GroupMembers, IncomingCall, RING_FOR_MS } from "./DmParts.tsx";
+import { Icon } from "./Icon.tsx";
+import type { VoiceMember } from "../voice/types.ts";
 import { CreateChannelModal, CreateServerModal, EditChannelModal, InviteModal, NicknameModal, ProfileModal } from "./Modals.tsx";
 import { ServerSettings } from "./ServerSettings.tsx";
 import { VoiceSettingsModal } from "./VoiceSettingsModal.tsx";
@@ -51,6 +55,8 @@ interface ChannelMessages {
 type ModalKind =
   | { kind: "createServer" | "createChannel" | "invite" | "nickname" | "profile" | "settings" | "voiceSettings" | "replay" | "appSettings" }
   | { kind: "editChannel"; channel: Channel }
+  /** Start a group DM, or add people to one (`dm` is where the button was). */
+  | { kind: "groupDm"; dm?: DmSummary }
   | null;
 
 interface Props {
@@ -100,7 +106,16 @@ export function Shell({ user, setUser, initialStatus, initialActivity, servers, 
   const voiceState = useVoiceSnapshot(voice);
 
   const [details, setDetails] = useState<Record<string, ServerDetails>>({});
-  const myVoiceMembers = voiceState.serverId && voiceState.channelId ? details[voiceState.serverId]?.voice[voiceState.channelId] : undefined;
+  /** Calls going on in our DMs, by channel. */
+  const [dmCalls, setDmCalls] = useState<Record<string, VoiceMember[]>>({});
+  /** An incoming DM call we haven't answered or declined. */
+  const [ringing, setRinging] = useState<{ channelId: string; from: User } | null>(null);
+  const [showGroupMembers, setShowGroupMembers] = useState(true);
+  const myVoiceMembers = !voiceState.channelId
+    ? undefined
+    : voiceState.serverId
+      ? details[voiceState.serverId]?.voice[voiceState.channelId]
+      : dmCalls[voiceState.channelId];
   useVoiceSounds(voiceState, myVoiceMembers);
   usePushToTalk(voice);
   // Each person's volume for us follows them across reconnects (stored by user, applied by socket).
@@ -166,9 +181,10 @@ export function Shell({ user, setUser, initialStatus, initialActivity, servers, 
       setFriends(list);
       applyPresenceSnapshot(list.filter((f) => f.state === "accepted").map((f) => f.user.id), p, requestedAt);
     });
-    api.dms().then(({ dms: list, presence: p }) => {
+    api.dms().then(({ dms: list, presence: p, calls }) => {
       setDms(list);
-      applyPresenceSnapshot(list.map((d) => d.user.id), p, requestedAt);
+      setDmCalls(calls);
+      applyPresenceSnapshot([...new Set(list.flatMap((d) => d.members.map((u) => u.id)))], p, requestedAt);
     });
   }, [applyPresenceSnapshot]);
 
@@ -327,8 +343,25 @@ export function Shell({ user, setUser, initialStatus, initialActivity, servers, 
     socket.on("dm:new", (dm) => {
       setDms((list) => (list?.some((d) => d.channel.id === dm.channel.id) ? list : [dm, ...(list ?? [])]));
     });
+    socket.on("dm:update", (dm) => {
+      setDms((list) => list?.map((d) => (d.channel.id === dm.channel.id ? dm : d)) ?? list);
+    });
+    socket.on("dm:remove", ({ channelId: cid }) => {
+      setDms((list) => list?.filter((d) => d.channel.id !== cid) ?? list);
+      setDmCalls(({ [cid]: _, ...rest }) => rest);
+      setRinging((r) => (r?.channelId === cid ? null : r));
+      if (activeRef.current.channelId === cid) navigate(`/channels/${HOME}`, true);
+    });
+    socket.on("call:ring", (r) => {
+      if (myStatusRef.current === "dnd") return;
+      setRinging(r);
+    });
 
     socket.on("voice:update", ({ serverId: sid, channelId: cid, members }) => {
+      if (sid === null) {
+        setDmCalls(({ [cid]: _, ...rest }) => (members.length ? { ...rest, [cid]: members } : rest));
+        return;
+      }
       setDetails((all) => {
         const d = all[sid];
         if (!d) return all;
@@ -344,7 +377,7 @@ export function Shell({ user, setUser, initialStatus, initialActivity, servers, 
       const swap = (x: User) => (x.id === u.id ? u : x);
       setDetails((all) => Object.fromEntries(Object.entries(all).map(([sid, d]) => [sid, { ...d, members: d.members.map(swap) }])));
       setFriends((list) => list?.map((f) => ({ ...f, user: swap(f.user) })) ?? list);
-      setDms((list) => list?.map((d) => ({ ...d, user: swap(d.user) })) ?? list);
+      setDms((list) => list?.map((d) => ({ ...d, user: d.user && swap(d.user), members: d.members.map(swap) })) ?? list);
       setMessages((all) =>
         Object.fromEntries(
           Object.entries(all).map(([cid, ch]) => [
@@ -530,6 +563,35 @@ export function Shell({ user, setUser, initialStatus, initialActivity, servers, 
     }
   };
 
+  /** Answers (or starts) a call in a DM, optionally with the camera on. */
+  const joinDmCall = async (channelId: string, video: boolean) => {
+    setRinging(null);
+    if (!voice) return;
+    navigate(`/channels/${HOME}/${channelId}`);
+    await voice.join(channelId, null);
+    if (video) await voice.startCamera();
+  };
+
+  // An unanswered ring stops when the call ends, when we pick up, or after a while.
+  useEffect(() => {
+    if (!ringing) return;
+    if (!dmCalls[ringing.channelId]?.length || (voiceState.channelId === ringing.channelId && voiceState.status !== "idle")) {
+      setRinging(null);
+      return;
+    }
+    const t = setTimeout(() => setRinging(null), RING_FOR_MS);
+    return () => clearTimeout(t);
+  }, [ringing, dmCalls, voiceState.channelId, voiceState.status]);
+
+  const leaveGroup = async (d: DmSummary) => {
+    if (!confirm(`Sair de ${dmTitle(d)}? Você só volta se alguém te adicionar de novo.`)) return;
+    try {
+      await api.removeFromGroupDm(d.channel.id, user.id);
+    } catch (err) {
+      alert((err as Error).message);
+    }
+  };
+
   const setPresence: SetPresence = async (patch) => {
     const r = await api.setPresence(patch);
     setMyStatus(r.status);
@@ -546,6 +608,7 @@ export function Shell({ user, setUser, initialStatus, initialActivity, servers, 
   const typingUsers = channel ? Object.values(typing[channel.id] ?? {}).map((t) => t.user) : [];
   const voiceServer = voiceState.serverId ? details[voiceState.serverId] : undefined;
   const voiceChannel = voiceServer?.channels.find((c) => c.id === voiceState.channelId);
+  const voiceDm = !voiceState.serverId && voiceState.channelId ? dms?.find((d) => d.channel.id === voiceState.channelId) : undefined;
 
   const footer = (
     <SidebarFooter
@@ -560,7 +623,9 @@ export function Shell({ user, setUser, initialStatus, initialActivity, servers, 
       voiceLocation={
         voiceServer && voiceChannel
           ? { label: `${voiceChannel.name} / ${voiceServer.server.name}`, path: `/channels/${voiceServer.server.id}/${voiceChannel.id}` }
-          : null
+          : voiceDm
+            ? { label: `Chamada / ${dmTitle(voiceDm)}`, path: `/channels/${HOME}/${voiceDm.channel.id}` }
+            : null
       }
       onLogout={onLogout}
     />
@@ -569,8 +634,49 @@ export function Shell({ user, setUser, initialStatus, initialActivity, servers, 
   const chat = channel && channel.type !== "voice" && (
     <ChatView
       channel={channel}
-      dmUser={dm?.user}
+      dm={dm}
       server={current}
+      onRename={dm?.group ? (name) => api.renameGroupDm(dm.channel.id, name).then(() => {}) : undefined}
+      headerActions={
+        dm && (
+          <>
+            <button className="icon-btn" title="Iniciar chamada de voz" aria-label="Iniciar chamada de voz" onClick={() => joinDmCall(dm.channel.id, false)}>
+              <Icon name="phone" size={20} />
+            </button>
+            <button className="icon-btn" title="Iniciar chamada de vídeo" aria-label="Iniciar chamada de vídeo" onClick={() => joinDmCall(dm.channel.id, true)}>
+              <Icon name="video" size={20} />
+            </button>
+            <button
+              className="icon-btn"
+              title={dm.group ? "Adicionar amigos ao grupo" : "Criar grupo com esta pessoa"}
+              aria-label={dm.group ? "Adicionar amigos ao grupo" : "Criar grupo com esta pessoa"}
+              onClick={() => setModal({ kind: "groupDm", dm })}
+            >
+              <Icon name="userPlus" size={20} />
+            </button>
+            {dm.group && (
+              <button
+                className={`icon-btn ${showGroupMembers ? "active" : ""}`}
+                title="Mostrar membros"
+                aria-label="Mostrar membros"
+                aria-pressed={showGroupMembers}
+                onClick={() => setShowGroupMembers((v) => !v)}
+              >
+                <Icon name="users" size={20} />
+              </button>
+            )}
+          </>
+        )
+      }
+      top={
+        dm && (
+          <DmCallBar
+            members={dmCalls[dm.channel.id] ?? []}
+            inCall={voiceState.status !== "idle" && voiceState.channelId === dm.channel.id}
+            onJoin={(video) => joinDmCall(dm.channel.id, video)}
+          />
+        )
+      }
       messages={messages[channel.id]?.items}
       hasMore={messages[channel.id]?.hasMore ?? false}
       typingUsers={typingUsers}
@@ -586,7 +692,8 @@ export function Shell({ user, setUser, initialStatus, initialActivity, servers, 
       resolveName={(id) => {
         const member = current?.members.find((u) => u.id === id);
         if (member) return memberName(current, member);
-        if (dm?.user.id === id) return dm.user.displayName;
+        const inDm = dm?.members.find((u) => u.id === id);
+        if (inDm) return inDm.displayName;
         return id === user.id ? user.displayName : "Alguém";
       }}
       onEdit={(m, content) => api.editMessage(channel.id, m.id, content).then(() => {})}
@@ -594,7 +701,7 @@ export function Shell({ user, setUser, initialStatus, initialActivity, servers, 
         current && !dm
           ? current.members.map((u) => ({ id: u.id, username: u.username, label: memberName(current, u), avatar: u.avatar }))
           : dm
-            ? [dm.user, user].map((u) => ({ id: u.id, username: u.username, label: u.displayName, avatar: u.avatar }))
+            ? [...dm.members, user].map((u) => ({ id: u.id, username: u.username, label: u.displayName, avatar: u.avatar }))
             : []
       }
       canMentionEveryone={!!current && !dm && can(myPermissions(current, user.id), Permission.MENTION_EVERYONE)}
@@ -615,6 +722,8 @@ export function Shell({ user, setUser, initialStatus, initialActivity, servers, 
           unread={unread}
           activeChannelId={channelId}
           pendingCount={friends?.filter((f) => f.state === "incoming").length ?? 0}
+          calls={dmCalls}
+          onCreateGroup={() => setModal({ kind: "groupDm" })}
           footer={footer}
         />
         {channelId ? (
@@ -626,6 +735,7 @@ export function Shell({ user, setUser, initialStatus, initialActivity, servers, 
         ) : (
           <FriendsView friends={friends} presence={presence} onOpenDm={openDm} />
         )}
+        {dm?.group && showGroupMembers && <GroupMembers dm={dm} self={user} presence={presence} onLeave={() => leaveGroup(dm)} />}
       </>
     );
   } else if (current) {
@@ -674,6 +784,21 @@ export function Shell({ user, setUser, initialStatus, initialActivity, servers, 
 
   return (
     <VoiceContext.Provider value={voice}>
+      {ringing &&
+        (() => {
+          const d = dms?.find((x) => x.channel.id === ringing.channelId);
+          return (
+            <IncomingCall
+              from={ringing.from}
+              title={d ? dmTitle(d) : ringing.from.displayName}
+              onAccept={(video) => joinDmCall(ringing.channelId, video)}
+              onDecline={() => {
+                setRinging(null);
+                playSound("callEnd");
+              }}
+            />
+          );
+        })()}
       {notice && (
         <div className="update-banner notice" role="status">
           {notice}
@@ -693,7 +818,7 @@ export function Shell({ user, setUser, initialStatus, initialActivity, servers, 
           </button>
         </div>
       )}
-      <div className={`shell ${current ? "" : "no-members"}`}>
+      <div className={`shell ${current || (dm?.group && showGroupMembers) ? "" : "no-members"}`}>
         <ServerRail
           servers={servers}
           activeId={serverId}
@@ -751,11 +876,23 @@ export function Shell({ user, setUser, initialStatus, initialActivity, servers, 
         )}
         {modal?.kind === "profile" && <ProfileModal user={user} onClose={() => setModal(null)} />}
         {modal?.kind === "voiceSettings" && <VoiceSettingsModal onClose={() => setModal(null)} />}
+        {modal?.kind === "groupDm" && (
+          <GroupDmModal
+            friends={friends}
+            dm={modal.dm}
+            onClose={() => setModal(null)}
+            onDone={(d) => {
+              setModal(null);
+              setDms((list) => (list?.some((x) => x.channel.id === d.channel.id) ? list : [d, ...(list ?? [])]));
+              navigate(`/channels/${HOME}/${d.channel.id}`);
+            }}
+          />
+        )}
         {modal?.kind === "appSettings" && <AppSettingsModal onClose={() => setModal(null)} />}
         {modal?.kind === "replay" && (
           <ReplayModal
             onClose={() => setModal(null)}
-            shareTarget={channel && channel.type !== "voice" ? { channelId: channel.id, label: dm ? `@${dm.user.displayName}` : `#${channel.name}` } : null}
+            shareTarget={channel && channel.type !== "voice" ? { channelId: channel.id, label: dm ? (dm.group ? dmTitle(dm) : `@${dmTitle(dm)}`) : `#${channel.name}` } : null}
           />
         )}
         {modal?.kind === "settings" && current && (

@@ -16,31 +16,72 @@ import {
   type PttBinding,
 } from "../voice/audioSettings.ts";
 import { desktop } from "../desktop.ts";
-import { buildMicPipeline, getAudioContext, levelDb, openMic, type MicPipeline } from "../voice/audioPipeline.ts";
+import {
+  buildMicPipeline,
+  getAudioContext,
+  levelDb,
+  openMic,
+  type MicPipeline,
+} from "../voice/audioPipeline.ts";
 import { useAudioSettings } from "../voice/useAudioSettings.ts";
 
-const SUPPRESSION: { value: NoiseSuppression; label: string; hint: string }[] = [
-  { value: "off", label: "Desligada", hint: "Só a redução básica do navegador." },
-  { value: "light", label: "Leve", hint: "IA leve (RNNoise): reduz chiado e ventilador; o teclado ainda passa um pouco." },
-  { value: "strong", label: "Forte (recomendado)", hint: "IA (GTCRN): remove teclado, cliques, ventilador e chiado, mantendo a voz." },
-];
+const SUPPRESSION: { value: NoiseSuppression; label: string; hint: string }[] =
+  [
+    {
+      value: "off",
+      label: "Desligada",
+      hint: "Só a redução básica do navegador.",
+    },
+    {
+      value: "light",
+      label: "Leve",
+      hint: "IA leve (RNNoise): reduz chiado e ventilador; o teclado ainda passa um pouco.",
+    },
+    {
+      value: "strong",
+      label: "Forte (recomendado)",
+      hint: "IA (GTCRN): remove teclado, cliques, ventilador e chiado, mantendo a voz.",
+    },
+  ];
 
 function useDevices() {
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   useEffect(() => {
-    const load = () => navigator.mediaDevices?.enumerateDevices().then(setDevices).catch(() => {});
+    const load = () =>
+      navigator.mediaDevices
+        ?.enumerateDevices()
+        .then(setDevices)
+        .catch(() => {});
     load();
     navigator.mediaDevices?.addEventListener("devicechange", load);
-    return () => navigator.mediaDevices?.removeEventListener("devicechange", load);
+    return () =>
+      navigator.mediaDevices?.removeEventListener("devicechange", load);
   }, []);
-  return { devices, refresh: () => navigator.mediaDevices?.enumerateDevices().then(setDevices).catch(() => {}) };
+  return {
+    devices,
+    refresh: () =>
+      navigator.mediaDevices
+        ?.enumerateDevices()
+        .then(setDevices)
+        .catch(() => {}),
+  };
 }
 
 /** Maps dBFS to 0..100% of the meter. */
-const pct = (db: number) => ((Math.min(SENSITIVITY_RANGE.max, Math.max(SENSITIVITY_RANGE.min, db)) - SENSITIVITY_RANGE.min) / (SENSITIVITY_RANGE.max - SENSITIVITY_RANGE.min)) * 100;
+const pct = (db: number) =>
+  ((Math.min(SENSITIVITY_RANGE.max, Math.max(SENSITIVITY_RANGE.min, db)) -
+    SENSITIVITY_RANGE.min) /
+    (SENSITIVITY_RANGE.max - SENSITIVITY_RANGE.min)) *
+  100;
 
 /** "Gravar atalho": the next key or mouse button (middle, back, forward) becomes push-to-talk. */
-function PttRecorder({ binding, onChange }: { binding: PttBinding; onChange: (b: PttBinding) => void }) {
+function PttRecorder({
+  binding,
+  onChange,
+}: {
+  binding: PttBinding;
+  onChange: (b: PttBinding) => void;
+}) {
   const [recording, setRecording] = useState(false);
   const change = useRef(onChange);
   change.current = onChange;
@@ -51,8 +92,13 @@ function PttRecorder({ binding, onChange }: { binding: PttBinding; onChange: (b:
       e.preventDefault();
       e.stopPropagation();
       if (e.code !== "Escape") {
-        const label = e.key.length === 1 && e.key !== " " ? e.key.toUpperCase() : undefined;
-        onChange(label ? { type: "key", code: e.code, label } : { type: "key", code: e.code });
+        const label =
+          e.key.length === 1 && e.key !== " " ? e.key.toUpperCase() : undefined;
+        onChange(
+          label
+            ? { type: "key", code: e.code, label }
+            : { type: "key", code: e.code },
+        );
       }
       setRecording(false);
     };
@@ -74,7 +120,12 @@ function PttRecorder({ binding, onChange }: { binding: PttBinding; onChange: (b:
     };
   }, [recording]);
   return (
-    <button type="button" className={`ptt-key ${recording ? "recording" : ""}`} onClick={() => setRecording((r) => !r)} aria-label="Gravar atalho">
+    <button
+      type="button"
+      className={`ptt-key ${recording ? "recording" : ""}`}
+      onClick={() => setRecording((r) => !r)}
+      aria-label="Gravar atalho"
+    >
       {recording ? "Aperte uma tecla…" : <kbd>{bindingLabel(binding)}</kbd>}
     </button>
   );
@@ -89,8 +140,19 @@ export function VoiceSettingsModal({ onClose }: { onClose: () => void }) {
   const test = useRef<{ raw: MediaStream; pipeline: MicPipeline } | null>(null);
   const monitor = useRef<HTMLAudioElement | null>(null);
 
-  const inputs = devices.filter((d) => d.kind === "audioinput" && d.deviceId !== "default" && d.deviceId !== "communications");
-  const outputs = devices.filter((d) => d.kind === "audiooutput" && d.deviceId !== "default" && d.deviceId !== "communications");
+  const inputs = devices.filter(
+    (d) =>
+      d.kind === "audioinput" &&
+      d.deviceId !== "default" &&
+      d.deviceId !== "communications",
+  );
+  const outputs = devices.filter(
+    (d) =>
+      d.kind === "audiooutput" &&
+      d.deviceId !== "default" &&
+      d.deviceId !== "communications",
+  );
+  const cameras = devices.filter((d) => d.kind === "videoinput" && d.deviceId);
   const { openDb } = gateThresholds(settings);
 
   // A private test pipeline with the current settings, rebuilt whenever they change.
@@ -111,7 +173,11 @@ export function VoiceSettingsModal({ onClose }: { onClose: () => void }) {
         refresh(); // device names only appear once the mic is allowed
       } catch (err) {
         if (!cancelled) {
-          setError((err as Error).name === "NotAllowedError" ? "Permita o acesso ao microfone para testar." : "Não foi possível abrir o microfone.");
+          setError(
+            (err as Error).name === "NotAllowedError"
+              ? "Permita o acesso ao microfone para testar."
+              : "Não foi possível abrir o microfone.",
+          );
         }
       }
     })();
@@ -122,7 +188,14 @@ export function VoiceSettingsModal({ onClose }: { onClose: () => void }) {
       test.current = null;
     };
     // Only input-related settings rebuild the test mic.
-  }, [settings.inputDeviceId, settings.noiseSuppression, settings.echoCancellation, settings.autoSensitivity, settings.sensitivityDb, settings.inputMode]);
+  }, [
+    settings.inputDeviceId,
+    settings.noiseSuppression,
+    settings.echoCancellation,
+    settings.autoSensitivity,
+    settings.sensitivityDb,
+    settings.inputMode,
+  ]);
 
   // Meter.
   useEffect(() => {
@@ -161,7 +234,8 @@ export function VoiceSettingsModal({ onClose }: { onClose: () => void }) {
   }, [hearSelf]);
 
   useEffect(() => {
-    if (monitor.current) applyOutputDevice(monitor.current, settings.outputDeviceId);
+    if (monitor.current)
+      applyOutputDevice(monitor.current, settings.outputDeviceId);
   }, [settings.outputDeviceId, hearSelf]);
 
   const open = level >= openDb;
@@ -172,7 +246,12 @@ export function VoiceSettingsModal({ onClose }: { onClose: () => void }) {
         <div className="device-row">
           <label>
             Microfone
-            <select value={settings.inputDeviceId} onChange={(e) => audioSettings.update({ inputDeviceId: e.target.value })}>
+            <select
+              value={settings.inputDeviceId}
+              onChange={(e) =>
+                audioSettings.update({ inputDeviceId: e.target.value })
+              }
+            >
               <option value="">Padrão do sistema</option>
               {inputs.map((d, i) => (
                 <option key={d.deviceId} value={d.deviceId}>
@@ -184,7 +263,12 @@ export function VoiceSettingsModal({ onClose }: { onClose: () => void }) {
           <label>
             Saída (fone ou caixa)
             {canChooseOutput ? (
-              <select value={settings.outputDeviceId} onChange={(e) => audioSettings.update({ outputDeviceId: e.target.value })}>
+              <select
+                value={settings.outputDeviceId}
+                onChange={(e) =>
+                  audioSettings.update({ outputDeviceId: e.target.value })
+                }
+              >
                 <option value="">Padrão do sistema</option>
                 {outputs.map((d, i) => (
                   <option key={d.deviceId} value={d.deviceId}>
@@ -193,29 +277,65 @@ export function VoiceSettingsModal({ onClose }: { onClose: () => void }) {
                 ))}
               </select>
             ) : (
-              <span className="muted small no-transform">Este navegador não permite escolher. Use o app desktop ou o Chrome.</span>
+              <span className="muted small no-transform">
+                Este navegador não permite escolher. Use o app desktop ou o
+                Chrome.
+              </span>
             )}
           </label>
         </div>
 
+        {cameras.length > 0 && (
+          <div className="device-row">
+            <label>
+              Câmera
+              <select
+                value={settings.videoDeviceId}
+                onChange={(e) =>
+                  audioSettings.update({ videoDeviceId: e.target.value })
+                }
+              >
+                <option value="">Padrão do sistema</option>
+                {cameras.map((d, i) => (
+                  <option key={d.deviceId} value={d.deviceId}>
+                    {d.label || `Câmera ${i + 1}`}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        )}
+
         <div className="field-label">Supressão de ruído</div>
-        <div className="segmented" role="radiogroup" aria-label="Supressão de ruído">
+        <div
+          className="segmented"
+          role="radiogroup"
+          aria-label="Supressão de ruído"
+        >
           {SUPPRESSION.map((o) => (
             <button
               key={o.value}
               role="radio"
               aria-checked={settings.noiseSuppression === o.value}
               className={settings.noiseSuppression === o.value ? "active" : ""}
-              onClick={() => audioSettings.update({ noiseSuppression: o.value })}
+              onClick={() =>
+                audioSettings.update({ noiseSuppression: o.value })
+              }
             >
               {o.label}
             </button>
           ))}
         </div>
-        <p className="muted small">{SUPPRESSION.find((o) => o.value === settings.noiseSuppression)?.hint}</p>
+        <p className="muted small">
+          {SUPPRESSION.find((o) => o.value === settings.noiseSuppression)?.hint}
+        </p>
 
         <div className="field-label">Modo de entrada</div>
-        <div className="segmented" role="radiogroup" aria-label="Modo de entrada">
+        <div
+          className="segmented"
+          role="radiogroup"
+          aria-label="Modo de entrada"
+        >
           {(
             [
               ["voice", "Detecção de voz"],
@@ -237,11 +357,15 @@ export function VoiceSettingsModal({ onClose }: { onClose: () => void }) {
           <div className="ptt-settings">
             <div className="ptt-row">
               <span>Atalho</span>
-              <PttRecorder binding={settings.pttBinding} onChange={(pttBinding) => audioSettings.update({ pttBinding })} />
+              <PttRecorder
+                binding={settings.pttBinding}
+                onChange={(pttBinding) => audioSettings.update({ pttBinding })}
+              />
             </div>
             <label className="ptt-row">
               <span>
-                Atraso ao soltar <span className="muted">{settings.pttReleaseMs} ms</span>
+                Atraso ao soltar{" "}
+                <span className="muted">{settings.pttReleaseMs} ms</span>
               </span>
               <input
                 type="range"
@@ -251,7 +375,9 @@ export function VoiceSettingsModal({ onClose }: { onClose: () => void }) {
                 max={PTT_RELEASE_RANGE.max}
                 step={20}
                 value={settings.pttReleaseMs}
-                onChange={(e) => audioSettings.update({ pttReleaseMs: Number(e.target.value) })}
+                onChange={(e) =>
+                  audioSettings.update({ pttReleaseMs: Number(e.target.value) })
+                }
               />
             </label>
             <p className="muted small">
@@ -264,16 +390,35 @@ export function VoiceSettingsModal({ onClose }: { onClose: () => void }) {
           </div>
         )}
 
-        <div className="field-label">{settings.inputMode === "ptt" ? "Nível do microfone" : "Sensibilidade de entrada"}</div>
+        <div className="field-label">
+          {settings.inputMode === "ptt"
+            ? "Nível do microfone"
+            : "Sensibilidade de entrada"}
+        </div>
         {settings.inputMode === "voice" && (
           <label className="toggle-row compact">
             <span>Determinar automaticamente</span>
-            <input type="checkbox" checked={settings.autoSensitivity} onChange={(e) => audioSettings.update({ autoSensitivity: e.target.checked })} />
+            <input
+              type="checkbox"
+              checked={settings.autoSensitivity}
+              onChange={(e) =>
+                audioSettings.update({ autoSensitivity: e.target.checked })
+              }
+            />
           </label>
         )}
         <div className="meter" aria-label="Nível do microfone">
-          <div className={`meter-fill ${open ? "open" : ""}`} style={{ width: `${pct(level)}%` }} />
-          {settings.inputMode === "voice" && <div className="meter-threshold" style={{ left: `${pct(openDb)}%` }} title={`${openDb} dB`} />}
+          <div
+            className={`meter-fill ${open ? "open" : ""}`}
+            style={{ width: `${pct(level)}%` }}
+          />
+          {settings.inputMode === "voice" && (
+            <div
+              className="meter-threshold"
+              style={{ left: `${pct(openDb)}%` }}
+              title={`${openDb} dB`}
+            />
+          )}
         </div>
         {settings.inputMode === "ptt" ? null : !settings.autoSensitivity ? (
           <input
@@ -284,28 +429,49 @@ export function VoiceSettingsModal({ onClose }: { onClose: () => void }) {
             max={SENSITIVITY_RANGE.max}
             step={1}
             value={settings.sensitivityDb}
-            onChange={(e) => audioSettings.update({ sensitivityDb: Number(e.target.value) })}
+            onChange={(e) =>
+              audioSettings.update({ sensitivityDb: Number(e.target.value) })
+            }
           />
         ) : null}
         <p className="muted small" hidden={settings.inputMode === "ptt"}>
-          {open ? "🟢 Transmitindo" : "⚪ Em silêncio"} — fale e veja a barra: só o que passa da linha
-          {settings.autoSensitivity ? ` (automática, ${AUTO_GATE.openDb} dB)` : ` (${settings.sensitivityDb} dB)`} chega aos outros.
+          {open ? "🟢 Transmitindo" : "⚪ Em silêncio"} — fale e veja a barra:
+          só o que passa da linha
+          {settings.autoSensitivity
+            ? ` (automática, ${AUTO_GATE.openDb} dB)`
+            : ` (${settings.sensitivityDb} dB)`}{" "}
+          chega aos outros.
         </p>
 
         <label className="toggle-row compact">
           <span>
             Ouvir meu microfone
-            <span className="muted small block">Escute como os outros te ouvem (use fone para não dar microfonia).</span>
+            <span className="muted small block">
+              Escute como os outros te ouvem (use fone para não dar microfonia).
+            </span>
           </span>
-          <input type="checkbox" checked={hearSelf} onChange={(e) => setHearSelf(e.target.checked)} />
+          <input
+            type="checkbox"
+            checked={hearSelf}
+            onChange={(e) => setHearSelf(e.target.checked)}
+          />
         </label>
         <label className="toggle-row compact">
           <span>Cancelamento de eco</span>
-          <input type="checkbox" checked={settings.echoCancellation} onChange={(e) => audioSettings.update({ echoCancellation: e.target.checked })} />
+          <input
+            type="checkbox"
+            checked={settings.echoCancellation}
+            onChange={(e) =>
+              audioSettings.update({ echoCancellation: e.target.checked })
+            }
+          />
         </label>
 
         {error && <div className="form-error">{error}</div>}
-        <p className="muted small">Essas configurações valem para este computador e já se aplicam se você estiver numa chamada.</p>
+        <p className="muted small">
+          Essas configurações valem para este computador e já se aplicam se você
+          estiver numa chamada.
+        </p>
         <div className="modal-actions">
           <button className="btn primary" onClick={onClose}>
             Pronto

@@ -4,7 +4,6 @@
 // push-to-talk while Voxa has focus.
 
 import { app, ipcMain, type BrowserWindow, type IpcMainInvokeEvent } from "electron";
-import path from "node:path";
 import { IPC } from "./channels.ts";
 
 /** What the page asks for: a key by its KeyboardEvent.code, or a mouse button by MouseEvent.button. */
@@ -70,8 +69,7 @@ let hook: Hook | null | undefined;
 function loadHook(): Hook | null {
   if (hook !== undefined) return hook;
   try {
-    // Shipped next to main.js (see scripts/build.mjs), outside the asar archive.
-    hook = require(path.join(__dirname, "node_modules", "uiohook-napi")) as Hook;
+    hook = require("uiohook-napi") as Hook;
   } catch (err) {
     console.warn("push-to-talk global indisponível:", (err as Error).message);
     hook = null;

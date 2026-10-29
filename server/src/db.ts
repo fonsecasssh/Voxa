@@ -196,6 +196,26 @@ const MIGRATIONS: string[] = [
   ALTER TABLE messages ADD COLUMN mentions TEXT;
   ALTER TABLE messages ADD COLUMN mention_everyone INTEGER NOT NULL DEFAULT 0;
   `,
+
+  // 12: group DMs. Every DM conversation lists its people in dm_members (a 1:1 DM keeps
+  // its row in dms, which makes the pair unique); a group also has a row in group_dms.
+  `
+  CREATE TABLE dm_members (
+    channel_id TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+    user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    joined_at  INTEGER NOT NULL,
+    PRIMARY KEY (channel_id, user_id)
+  );
+  CREATE INDEX dm_members_by_user ON dm_members(user_id);
+  INSERT INTO dm_members (channel_id, user_id, joined_at) SELECT channel_id, user_low, 0 FROM dms;
+  INSERT INTO dm_members (channel_id, user_id, joined_at) SELECT channel_id, user_high, 0 FROM dms;
+
+  CREATE TABLE group_dms (
+    channel_id TEXT PRIMARY KEY REFERENCES channels(id) ON DELETE CASCADE,
+    owner_id   TEXT NOT NULL,
+    name       TEXT
+  );
+  `,
 ];
 
 /** The schema version a fully migrated database has. */

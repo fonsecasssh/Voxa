@@ -1,5 +1,7 @@
 // The voice engine: microphone, peer connections, screen sharing and playback.
 //
+// Calls in DMs work the same way on the DM's channel (serverId is then null).
+//
 // Topology is a full mesh — every participant has one RTCPeerConnection to each
 // other participant — which is simple and has the lowest latency, and is fine
 // for small groups (up to ~8 people). Larger rooms would need an SFU.
@@ -41,6 +43,7 @@ interface Peer {
 export interface VoiceSnapshot {
   status: "idle" | "connecting" | "connected";
   channelId: string | null;
+  /** null for a call in a DM. */
   serverId: string | null;
   /** Our socket id while connected, to find ourselves in the member list. */
   selfSocketId: string | null;
@@ -49,6 +52,7 @@ export interface VoiceSnapshot {
   /** Push-to-talk mode: whether the key is held (or within its release delay). */
   pttActive: boolean;
   localScreen: MediaStream | null;
+  localCamera: MediaStream | null;
   /** socketId -> remote streams (by stream id). */
   remoteStreams: Record<string, Record<string, MediaStream>>;
   /** socketIds currently speaking; "self" for the local user. */
@@ -74,6 +78,7 @@ const initial: VoiceSnapshot = {
   deafened: false,
   pttActive: false,
   localScreen: null,
+  localCamera: null,
   remoteStreams: {},
   speaking: [],
   watching: [],
@@ -89,6 +94,9 @@ export class VoiceClient {
   private mic: MediaStream | null = null;
   private pipeline: MicPipeline | null = null;
   private screen: MediaStream | null = null;
+  private camera: MediaStream | null = null;
+  /** Each peer's camera stream id (from the member list), to tell it from a screen share. */
+  private remoteCameras = new Map<string, string | null>();
   private iceServers: RTCIceServer[] | null = null;
   private speakingTimer: ReturnType<typeof setInterval> | null = null;
   private settings: AudioSettings = audioSettings.get();
@@ -105,6 +113,7 @@ export class VoiceClient {
     socket.on("voice:update", ({ channelId, members }) => {
       if (channelId !== this.snapshot.channelId || this.snapshot.status === "idle") return;
       const present = new Set(members.map((m) => m.socketId));
+      this.remoteCameras = new Map(members.map((m) => [m.socketId, m.cameraStreamId ?? null]));
       for (const id of [...this.peers.keys()]) if (!present.has(id)) this.closePeer(id);
       // A stream that ended can't be watched anymore; starting a new one needs a new click.
       const live = new Set(members.filter((m) => m.screenStreamId).map((m) => m.socketId));
@@ -144,7 +153,7 @@ export class VoiceClient {
   }
 
   // --- joining and leaving ------------------------------------------------------
-  async join(channelId: string, serverId: string) {
+  async join(channelId: string, serverId: string | null) {
     if (this.snapshot.channelId === channelId && this.snapshot.status !== "idle") return;
     if (this.snapshot.status !== "idle") this.leave();
     this.set({ status: "connecting", channelId, serverId, error: null });
@@ -187,7 +196,9 @@ export class VoiceClient {
     this.pipeline?.dispose();
     this.mic?.getTracks().forEach((t) => t.stop());
     this.screen?.getTracks().forEach((t) => t.stop());
-    this.mic = this.screen = null;
+    this.camera?.getTracks().forEach((t) => t.stop());
+    this.mic = this.screen = this.camera = null;
+    this.remoteCameras.clear();
     this.pipeline = null;
     this.watchers.clear();
     if (this.speakingTimer) clearInterval(this.speakingTimer);
@@ -336,6 +347,10 @@ export class VoiceClient {
         if (p.boost) applyOutputDevice(p.boost.el, next.outputDeviceId);
       }
     }
+    if (next.videoDeviceId !== prev.videoDeviceId && this.camera) {
+      this.stopCamera();
+      this.startCamera();
+    }
     if (next.inputMode !== prev.inputMode) {
       if (this.pttRelease) clearTimeout(this.pttRelease);
       this.pttRelease = null;
@@ -360,7 +375,61 @@ export class VoiceClient {
       muted: this.snapshot.muted || this.snapshot.deafened,
       deafened: this.snapshot.deafened,
       screenStreamId: this.screen?.id ?? null,
+      cameraStreamId: this.camera?.id ?? null,
     });
+  }
+
+  // --- camera -------------------------------------------------------------------------
+  async startCamera() {
+    if (this.snapshot.status !== "connected" || this.camera) return;
+    let stream: MediaStream;
+    const id = this.settings.videoDeviceId;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { ...(id ? { deviceId: { exact: id } } : {}), width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } },
+      });
+    } catch (err) {
+      const denied = (err as Error).name === "NotAllowedError";
+      this.set({ error: denied ? "Permita o acesso à câmera para ligá-la." : "Não foi possível abrir a câmera." });
+      return;
+    }
+    // Left the call (or turned it on twice) while the camera was opening.
+    if (this.snapshot.status !== "connected" || this.camera) {
+      stream.getTracks().forEach((t) => t.stop());
+      return;
+    }
+    this.camera = stream;
+    stream.getVideoTracks()[0]?.addEventListener("ended", () => this.stopCamera());
+    for (const p of this.peers.values()) this.addCameraTracks(p);
+    this.set({ localCamera: stream, error: null });
+    this.emitState();
+  }
+
+  stopCamera() {
+    if (!this.camera) return;
+    const tracks = new Set(this.camera.getTracks());
+    for (const p of this.peers.values()) {
+      for (const sender of p.pc.getSenders()) if (sender.track && tracks.has(sender.track)) p.pc.removeTrack(sender);
+    }
+    this.camera.getTracks().forEach((t) => t.stop());
+    this.camera = null;
+    this.set({ localCamera: null });
+    this.emitState();
+  }
+
+  /** Unlike a screen share, the camera goes to everyone in the call. */
+  private addCameraTracks(p: Peer) {
+    if (!this.camera) return;
+    const sending = new Set(p.pc.getSenders().map((x) => x.track));
+    for (const track of this.camera.getVideoTracks()) {
+      if (sending.has(track)) continue;
+      track.contentHint = "motion";
+      const sender = p.pc.addTrack(track, this.camera);
+      // Everyone sends to everyone (mesh): keep each copy light.
+      const params = sender.getParameters();
+      params.encodings = [{ ...(params.encodings?.[0] ?? {}), maxBitrate: this.peers.size > 3 ? 600_000 : 1_200_000 }];
+      sender.setParameters(params).catch(() => {});
+    }
   }
 
   async startScreenShare() {
@@ -405,8 +474,9 @@ export class VoiceClient {
     this.socket.emit("voice:signal", { to: socketId, data: { watch: false } });
     const p = this.peers.get(socketId);
     if (p) {
-      // Keep only the microphone stream; the screen stream goes away right now, not after renegotiation.
-      for (const id of [...p.streams.keys()]) if (p.streams.get(id) !== p.audio.srcObject) p.streams.delete(id);
+      // Keep the microphone and camera; the screen stream goes away right now, not after renegotiation.
+      const camera = this.remoteCameras.get(socketId);
+      for (const id of [...p.streams.keys()]) if (p.streams.get(id) !== p.audio.srcObject && id !== camera) p.streams.delete(id);
       this.syncRemote();
     }
   }
@@ -495,6 +565,7 @@ export class VoiceClient {
     };
 
     if (this.pipeline) pc.addTrack(this.pipeline.track, this.pipeline.stream);
+    this.addCameraTracks(peer);
     this.addScreenTracks(peer);
     this.syncRemote();
     return peer;

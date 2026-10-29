@@ -47,6 +47,14 @@ jobs:
           for f in Voxa-Setup.exe Voxa-Setup.exe.blockmap latest.yml; do
             [[ -f "$f" ]] || { echo "::error::Arquivo $f não foi gerado pelo build."; ls -la; exit 1; }
           done
+      # The global push-to-talk hook is native code: load it with the packaged app itself.
+      - name: Conferir push-to-talk global (módulo nativo)
+        shell: bash
+        working-directory: desktop/release/win-unpacked
+        run: |
+          f=resources/app.asar.unpacked/node_modules/uiohook-napi/prebuilds/win32-x64/uiohook-napi.node
+          [[ -f "$f" ]] || { echo "::error::$f não foi incluído no app."; exit 1; }
+          ELECTRON_RUN_AS_NODE=1 ./Voxa.exe -e "const h = require(require('path').resolve('resources/app.asar/node_modules/uiohook-napi')); if (typeof h.uIOhook.start !== 'function' || h.UiohookKey.Backquote !== 41) process.exit(1)"
       - uses: actions/upload-artifact@v4
         with:
           name: Voxa-Setup

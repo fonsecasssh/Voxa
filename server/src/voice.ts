@@ -6,6 +6,9 @@
 //
 // A user can be in one voice channel at a time. Joining from a second tab or
 // device moves the session there and tells the old socket it was replaced.
+//
+// Calls in DMs (1:1 and group) are the same thing on the DM's channel: its people
+// hear about them on their user rooms, and starting one rings the others.
 
 import type { Server as IOServer, Socket } from "socket.io";
 import type { PublicUser, Store } from "./store.ts";
@@ -17,13 +20,18 @@ export interface VoiceMember {
   deafened: boolean;
   /** MediaStream id of the screen share being sent, so peers can tell it from the mic. */
   screenStreamId: string | null;
+  /** MediaStream id of the camera, while it's on. */
+  cameraStreamId: string | null;
 }
 
 interface Session {
   channelId: string;
-  serverId: string;
+  /** null for a call in a DM. */
+  serverId: string | null;
   member: VoiceMember;
 }
+
+const isStreamId = (v: unknown) => v === null || (typeof v === "string" && v.length <= 100);
 
 export function createVoice(io: IOServer, store: Store) {
   const bySocket = new Map<string, Session>();
@@ -32,8 +40,13 @@ export function createVoice(io: IOServer, store: Store) {
 
   const membersOf = (channelId: string) => [...(channels.get(channelId)?.values() ?? [])];
 
-  const broadcast = (serverId: string, channelId: string) => {
-    io.to(`server:${serverId}`).emit("voice:update", { serverId, channelId, members: membersOf(channelId) });
+  /** Who hears about a channel's voice state: the server, or the DM's people. */
+  const roomsFor = (serverId: string | null, channelId: string) =>
+    serverId ? [`server:${serverId}`] : (store.dmParticipants(channelId) ?? []).map((id) => `user:${id}`);
+
+  const broadcast = (serverId: string | null, channelId: string) => {
+    const rooms = roomsFor(serverId, channelId);
+    if (rooms.length) io.to(rooms).emit("voice:update", { serverId, channelId, members: membersOf(channelId) });
   };
 
   const leave = (socketId: string) => {
@@ -62,7 +75,9 @@ export function createVoice(io: IOServer, store: Store) {
       const channelId = (payload as { channelId?: unknown })?.channelId;
       const channel = typeof channelId === "string" ? store.channelById(channelId) : null;
       const serverId = channel?.type === "voice" ? channel.serverId : null;
-      if (!channel || !serverId || !socket.rooms.has(`server:${serverId}`)) {
+      const dmPeople = channel?.type === "dm" ? store.dmParticipants(channel.id) : null;
+      const allowed = serverId ? socket.rooms.has(`server:${serverId}`) : !!dmPeople?.includes(user.id);
+      if (!channel || !allowed) {
         return reply({ error: "Canal de voz não encontrado." });
       }
 
@@ -73,7 +88,7 @@ export function createVoice(io: IOServer, store: Store) {
         io.to(previous).emit("voice:replaced");
       }
 
-      const member: VoiceMember = { socketId: socket.id, user, muted: false, deafened: false, screenStreamId: null };
+      const member: VoiceMember = { socketId: socket.id, user, muted: false, deafened: false, screenStreamId: null, cameraStreamId: null };
       const peers = membersOf(channel.id);
       if (!channels.has(channel.id)) channels.set(channel.id, new Map());
       channels.get(channel.id)!.set(socket.id, member);
@@ -83,6 +98,11 @@ export function createVoice(io: IOServer, store: Store) {
 
       reply({ channelId: channel.id, self: member, peers });
       broadcast(serverId, channel.id);
+      // Starting a call in a DM rings everyone else there (not the caller's other devices).
+      if (dmPeople && peers.length === 0) {
+        const others = dmPeople.filter((id) => id !== user.id).map((id) => `user:${id}`);
+        if (others.length) io.to(others).emit("call:ring", { channelId: channel.id, from: user });
+      }
     });
 
     socket.on("voice:leave", () => leave(socket.id));
@@ -94,7 +114,8 @@ export function createVoice(io: IOServer, store: Store) {
       const m = session.member;
       if (typeof p.muted === "boolean") m.muted = p.muted;
       if (typeof p.deafened === "boolean") m.deafened = p.deafened;
-      if (p.screenStreamId === null || typeof p.screenStreamId === "string") m.screenStreamId = p.screenStreamId;
+      if (isStreamId(p.screenStreamId)) m.screenStreamId = p.screenStreamId!;
+      if (isStreamId(p.cameraStreamId)) m.cameraStreamId = p.cameraStreamId!;
       broadcast(session.serverId, session.channelId);
     });
 
@@ -114,6 +135,21 @@ export function createVoice(io: IOServer, store: Store) {
     /** Disconnects everyone from a voice channel that is being deleted. */
     evictChannel(channelId: string) {
       for (const [socketId, s] of [...bySocket]) if (s.channelId === channelId) evict(socketId, "O canal de voz foi excluído.");
+    },
+    /** Disconnects a user from a call in one channel (e.g. removed from a group DM). */
+    evictFromChannel(userId: string, channelId: string, reason: string) {
+      const socketId = byUser.get(userId);
+      if (socketId && bySocket.get(socketId)?.channelId === channelId) evict(socketId, reason);
+    },
+    /** Re-sends a DM call's state to its (changed) people. */
+    refreshChannel(channelId: string) {
+      if (channels.has(channelId)) broadcast(null, channelId);
+    },
+    /** Calls going on in these DM channels, for the initial page load. */
+    stateForChannels(channelIds: string[]): Record<string, VoiceMember[]> {
+      const out: Record<string, VoiceMember[]> = {};
+      for (const id of channelIds) if (channels.has(id)) out[id] = membersOf(id);
+      return out;
     },
     /** Disconnects a user from voice in a server they no longer belong to. */
     evictUser(userId: string, serverId: string, reason: string) {

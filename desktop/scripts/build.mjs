@@ -4,7 +4,7 @@
 // (the production site). `--dev` builds for a local server (http://localhost:3001).
 
 import { build } from "esbuild";
-import { copyFileSync, cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -34,17 +34,6 @@ await Promise.all([
 for (const f of ["src/picker.html", "src/offline.html", "assets/icon.png"]) {
   copyFileSync(path.join(root, f), path.join(dist, path.basename(f)));
 }
-
-// The global push-to-talk hook is native code: ship the package (and its loader) as files
-// next to main.js, with only the prebuilt binaries we use. They stay outside the asar
-// archive (see electron-builder.yml) so the .node file can load.
-const modules = path.join(path.dirname(root), "node_modules");
-const copyDir = (from, to, filter = () => true) => cpSync(from, to, { recursive: true, filter });
-copyDir(path.join(modules, "uiohook-napi"), path.join(dist, "node_modules", "uiohook-napi"), (src) => {
-  const rel = path.relative(path.join(modules, "uiohook-napi"), src);
-  return rel === "" || rel === "package.json" || /^dist([\\/]index\.js)?$/.test(rel) || /^prebuilds([\\/](win32-x64|linux-x64)([\\/]|$)|$)/.test(rel);
-});
-copyDir(path.join(modules, "node-gyp-build"), path.join(dist, "node_modules", "node-gyp-build"));
 
 const pkg = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8"));
 const appUrl = process.argv.includes("--dev") ? "" : process.env.VOXA_APP_URL || pkg.voxaAppUrl || "";

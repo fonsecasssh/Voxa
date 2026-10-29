@@ -583,6 +583,9 @@ label .muted {
 .modal {
   width: 100%;
   max-width: 440px;
+  /* Tall dialogs scroll inside the window instead of spilling past it. */
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
   background: var(--bg-main);
   border-radius: 12px;
   padding: 24px;
@@ -2194,7 +2197,7 @@ select:focus {
 }
 .voice-card-actions {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 6px;
   margin-top: 8px;
 }
@@ -3620,4 +3623,272 @@ kbd {
 }
 .user-menu-item.link-like {
   color: var(--link);
+}
+
+/* --- Calls in DMs, camera, group DMs -------------------------------------------- */
+.voice-stage {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+.voice-stage.compact .stage {
+  padding: 12px 16px 4px;
+}
+.voice-stage.compact .tiles > .tile {
+  width: clamp(160px, 26%, 300px);
+}
+.voice-stage.compact .voice-controls {
+  padding: 8px 12px 12px;
+}
+.voice-stage.compact .round-btn {
+  width: 44px;
+  height: 44px;
+}
+.stage-error {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: rgba(237, 66, 69, 0.9);
+  color: #fff;
+  font-size: 13px;
+}
+.tile.camera {
+  cursor: pointer;
+}
+.tile video.camera-video {
+  object-fit: cover;
+}
+.tile.big video.camera-video {
+  object-fit: contain;
+  background: #000;
+}
+.camera-video.mirrored {
+  transform: scaleX(-1);
+}
+
+.chat-header-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.chat-header-actions .icon-btn {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  color: var(--text-muted);
+}
+.chat-header-actions .icon-btn:hover,
+.chat-header-actions .icon-btn.active {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
+.dm-call {
+  flex-shrink: 0;
+  height: clamp(260px, 44vh, 480px);
+  display: flex;
+  flex-direction: column;
+  background: #111216;
+  border-bottom: 1px solid var(--border);
+}
+.dm-call.idle {
+  height: auto;
+  align-items: center;
+  gap: 10px;
+  padding: 20px 16px;
+  text-align: center;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--grad-1) 14%, #111216), #111216);
+}
+.dm-call.idle p {
+  margin: 0;
+}
+.dm-call-faces {
+  display: flex;
+  gap: 8px;
+}
+.dm-call-actions {
+  display: flex;
+  gap: 8px;
+}
+.dm-call-actions .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.dm-in-call {
+  margin-left: auto;
+  color: #3ba55d;
+  display: grid;
+}
+
+.group-avatar {
+  position: relative;
+  display: inline-block;
+  flex-shrink: 0;
+}
+.group-avatar .back {
+  position: absolute;
+  left: 0;
+  top: 0;
+}
+.group-avatar .front {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px var(--bg-sidebar);
+}
+.group-avatar.empty {
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--grad);
+  color: var(--on-grad);
+}
+.group-label .icon-btn {
+  margin-left: auto;
+  color: var(--text-muted);
+}
+.group-label .icon-btn:hover {
+  color: var(--text);
+}
+
+.group-dm-modal .input {
+  width: 100%;
+  margin: 8px 0;
+}
+.friend-pick {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.friend-pick label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.friend-pick label:hover,
+.friend-pick label.picked {
+  background: var(--bg-hover);
+}
+.friend-pick label .ellipsis {
+  flex: 1;
+}
+.friend-pick input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--grad-1);
+}
+
+.group-members .member {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 8px;
+  border-radius: 6px;
+}
+.group-members .member:hover {
+  background: var(--bg-hover);
+}
+.group-members .member .ellipsis {
+  flex: 1;
+}
+.group-members .leave-group {
+  margin: 12px 8px;
+}
+
+.incoming-call {
+  position: fixed;
+  z-index: 400;
+  top: 72px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 260px;
+  padding: 24px 20px 20px;
+  border-radius: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  text-align: center;
+  background: var(--bg-float);
+  border: 1px solid var(--border);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+  animation: incoming-in 0.25s ease-out;
+}
+@keyframes incoming-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -12px);
+  }
+}
+.incoming-ring {
+  border-radius: 50%;
+  margin-bottom: 8px;
+  animation: incoming-pulse 1.3s ease-out infinite;
+}
+@keyframes incoming-pulse {
+  from {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--grad-2) 60%, transparent);
+  }
+  to {
+    box-shadow: 0 0 0 18px transparent;
+  }
+}
+.incoming-actions {
+  display: flex;
+  gap: 14px;
+  margin-top: 12px;
+}
+.round-btn.accept {
+  background: #3ba55d;
+  color: #fff;
+}
+.round-btn.accept:hover {
+  background: #2d8b4c;
+}
+@media (prefers-reduced-motion: reduce) {
+  .incoming-call,
+  .incoming-ring {
+    animation: none;
+  }
+}
+.editable-title {
+  font: inherit;
+  font-weight: 700;
+  color: var(--text);
+  background: none;
+  border: 0;
+  padding: 2px 6px;
+  margin-left: -6px;
+  border-radius: 6px;
+  cursor: text;
+  min-width: 0;
+}
+.editable-title:hover {
+  background: var(--bg-hover);
+}
+.editable-title-input {
+  font: inherit;
+  font-weight: 700;
+  min-width: 0;
+  width: min(320px, 50%);
+  padding: 3px 6px;
+  border-radius: 6px;
+  border: 1px solid var(--grad-1);
+  background: var(--bg-float);
+  color: var(--text);
 }

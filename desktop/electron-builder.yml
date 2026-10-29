@@ -9,10 +9,11 @@ files:
   - dist/**/*
   - "!dist/**/*.map"
   - package.json
-# Native code (global push-to-talk hook) must be a real file to load.
-# It is copied into dist/ by scripts/build.mjs with its prebuilt binaries, so nothing to rebuild.
-asarUnpack:
-  - dist/node_modules/**
+  # The global push-to-talk hook ships its prebuilt Windows binary: keep only that one.
+  - "!node_modules/uiohook-napi/{libuiohook,src,binding.gyp}"
+  - "!node_modules/uiohook-napi/prebuilds/!(win32-x64)"
+# Prebuilt (N-API) binaries work with Electron as they are; electron-builder unpacks
+# the .node file from the asar archive by itself.
 npmRebuild: false
 protocols:
   - name: Voxa

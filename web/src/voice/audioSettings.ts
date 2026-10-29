@@ -13,6 +13,8 @@ export interface AudioSettings {
   /** "" means the system default device. */
   inputDeviceId: string;
   outputDeviceId: string;
+  /** Camera for video calls ("" = system default). */
+  videoDeviceId: string;
   /** light = RNNoise, strong = GTCRN (both neural networks, run on this device). */
   noiseSuppression: NoiseSuppression;
   echoCancellation: boolean;
@@ -29,6 +31,7 @@ export interface AudioSettings {
 export const DEFAULT_AUDIO_SETTINGS: AudioSettings = {
   inputDeviceId: "",
   outputDeviceId: "",
+  videoDeviceId: "",
   // GTCRN removes keyboard clicks almost entirely (about 45 dB quieter in our tests), RNNoise only partly.
   noiseSuppression: "strong",
   echoCancellation: true,
@@ -88,6 +91,7 @@ function load(): AudioSettings {
     const s = { ...DEFAULT_AUDIO_SETTINGS };
     if (typeof raw.inputDeviceId === "string") s.inputDeviceId = raw.inputDeviceId;
     if (typeof raw.outputDeviceId === "string") s.outputDeviceId = raw.outputDeviceId;
+    if (typeof raw.videoDeviceId === "string") s.videoDeviceId = raw.videoDeviceId;
     if (["off", "light", "strong"].includes(raw.noiseSuppression)) s.noiseSuppression = raw.noiseSuppression;
     if (typeof raw.echoCancellation === "boolean") s.echoCancellation = raw.echoCancellation;
     if (typeof raw.autoSensitivity === "boolean") s.autoSensitivity = raw.autoSensitivity;

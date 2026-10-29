@@ -191,6 +191,11 @@ function VoiceMembers({
               {name}
             </span>
             {m.screenStreamId && <span className="live-badge">AO VIVO</span>}
+            {m.cameraStreamId && (
+              <span className="state-icon" title="Câmera ligada">
+                <Icon name="video" size={15} />
+              </span>
+            )}
             {mutedForMe && (
               <span className="state-icon" title="Silenciado para você">
                 <Icon name="speakerOff" size={15} />

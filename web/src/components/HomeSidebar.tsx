@@ -1,7 +1,10 @@
 import type { ReactNode } from "react";
-import type { DmSummary, Presence } from "../api.ts";
+import { dmTitle, type DmSummary, type Presence } from "../api.ts";
 import { navigate } from "../router.ts";
-import { Avatar, presenceText } from "./Avatar.tsx";
+import type { VoiceMember } from "../voice/types.ts";
+import { presenceText } from "./Avatar.tsx";
+import { DmAvatar } from "./DmParts.tsx";
+import { Icon } from "./Icon.tsx";
 
 interface Props {
   dms: DmSummary[] | null;
@@ -9,10 +12,13 @@ interface Props {
   unread: Set<string>;
   activeChannelId?: string;
   pendingCount: number;
+  /** Calls going on in DMs, to mark those conversations. */
+  calls: Record<string, VoiceMember[]>;
+  onCreateGroup: () => void;
   footer: ReactNode;
 }
 
-export function HomeSidebar({ dms, presence, unread, activeChannelId, pendingCount, footer }: Props) {
+export function HomeSidebar({ dms, presence, unread, activeChannelId, pendingCount, calls, onCreateGroup, footer }: Props) {
   return (
     <aside className="sidebar">
       <header className="sidebar-header">
@@ -28,6 +34,9 @@ export function HomeSidebar({ dms, presence, unread, activeChannelId, pendingCou
 
         <div className="group-label">
           <span>Conversas</span>
+          <button className="icon-btn subtle" title="Criar DM em grupo" aria-label="Criar DM em grupo" onClick={onCreateGroup}>
+            <Icon name="plus" size={16} />
+          </button>
         </div>
         {dms === null ? (
           <p className="muted small pad-x">Carregando…</p>
@@ -35,7 +44,8 @@ export function HomeSidebar({ dms, presence, unread, activeChannelId, pendingCou
           <p className="muted small pad-x">Nenhuma conversa ainda. Abra uma pela lista de amigos ou de membros.</p>
         ) : (
           dms.map((d) => {
-            const p = presence[d.user.id];
+            const p = d.user ? presence[d.user.id] : undefined;
+            const inCall = (calls[d.channel.id]?.length ?? 0) > 0;
             const isUnread = unread.has(d.channel.id);
             return (
               <button
@@ -43,11 +53,20 @@ export function HomeSidebar({ dms, presence, unread, activeChannelId, pendingCou
                 className={`channel dm ${d.channel.id === activeChannelId ? "active" : ""} ${isUnread ? "unread" : ""}`}
                 onClick={() => navigate(`/channels/@me/${d.channel.id}`)}
               >
-                <Avatar name={d.user.displayName} id={d.user.id} size={32} status={p?.status ?? "offline"} src={d.user.avatar} />
+                <DmAvatar dm={d} size={32} presence={presence} />
                 <span className="dm-names">
-                  <span className="ellipsis">{d.user.displayName}</span>
-                  {p?.activity && <span className="muted small ellipsis">{presenceText(p)}</span>}
+                  <span className="ellipsis">{dmTitle(d)}</span>
+                  {d.group ? (
+                    <span className="muted small ellipsis">{d.members.length + 1} membros</span>
+                  ) : (
+                    p?.activity && <span className="muted small ellipsis">{presenceText(p)}</span>
+                  )}
                 </span>
+                {inCall && (
+                  <span className="dm-in-call" title="Chamada em andamento">
+                    <Icon name="phone" size={14} />
+                  </span>
+                )}
                 {isUnread && <span className="unread-dot" aria-label="Mensagens não lidas" />}
               </button>
             );

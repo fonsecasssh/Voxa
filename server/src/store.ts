@@ -49,10 +49,17 @@ export interface Friend {
 
 export interface DmSummary {
   channel: Channel;
-  /** The other participant. */
-  user: PublicUser;
+  /** The other participant of a 1:1 DM; null in a group. */
+  user: PublicUser | null;
+  /** Everyone else in the conversation. */
+  members: PublicUser[];
+  /** Set for a group DM. */
+  group: { name: string | null; ownerId: string } | null;
   lastMessageAt: number | null;
 }
+
+/** People in a group DM, the owner included (like Discord). */
+export const MAX_GROUP_DM = 10;
 
 export interface Role {
   id: string;
@@ -437,6 +444,10 @@ export function createStore(db: DB) {
         db.prepare("INSERT INTO channels (id, server_id, name, type, position, created_at) VALUES (?, NULL, '', 'dm', 0, ?)")
           .run(channel.id, Date.now());
         db.prepare("INSERT INTO dms (channel_id, user_low, user_high) VALUES (?, ?, ?)").run(channel.id, low, high);
+        const now = Date.now();
+        for (const id of [low, high]) {
+          db.prepare("INSERT INTO dm_members (channel_id, user_id, joined_at) VALUES (?, ?, ?)").run(channel.id, id, now);
+        }
         db.exec("COMMIT");
       } catch (err) {
         db.exec("ROLLBACK");
@@ -445,28 +456,107 @@ export function createStore(db: DB) {
       return { channel, created: true };
     },
 
-    dmParticipants(channelId: string): [string, string] | null {
-      const r = db.prepare("SELECT user_low, user_high FROM dms WHERE channel_id = ?").get(channelId) as Row | undefined;
-      return r ? [r.user_low as string, r.user_high as string] : null;
+    /** Everyone in a DM conversation (1:1 or group), or null if the channel isn't one. */
+    dmParticipants(channelId: string): string[] | null {
+      const rows = db.prepare("SELECT user_id FROM dm_members WHERE channel_id = ? ORDER BY joined_at, user_id").all(channelId) as Row[];
+      return rows.length ? rows.map((r) => r.user_id as string) : null;
     },
 
-    dmsForUser(userId: string): DmSummary[] {
+    /** People who share a group DM with this user (they see each other's presence). */
+    groupDmPeers(userId: string): string[] {
+      return (
+        db
+          .prepare(
+            `SELECT DISTINCT o.user_id AS id FROM dm_members me
+             JOIN group_dms g ON g.channel_id = me.channel_id
+             JOIN dm_members o ON o.channel_id = me.channel_id
+             WHERE me.user_id = ? AND o.user_id != ?`,
+          )
+          .all(userId, userId) as Row[]
+      ).map((r) => r.id as string);
+    },
+
+    groupDm(channelId: string): { name: string | null; ownerId: string } | null {
+      const r = db.prepare("SELECT name, owner_id FROM group_dms WHERE channel_id = ?").get(channelId) as Row | undefined;
+      return r ? { name: (r.name as string | null) ?? null, ownerId: r.owner_id as string } : null;
+    },
+
+    /** A new group DM with its owner and these people. */
+    createGroupDm(ownerId: string, userIds: string[], name: string | null): Channel {
+      const channel: Channel = { id: randomUUID(), serverId: null, name: "", type: "dm", position: 0 };
+      const now = Date.now();
+      db.exec("BEGIN");
+      try {
+        db.prepare("INSERT INTO channels (id, server_id, name, type, position, created_at) VALUES (?, NULL, '', 'dm', 0, ?)").run(channel.id, now);
+        db.prepare("INSERT INTO group_dms (channel_id, owner_id, name) VALUES (?, ?, ?)").run(channel.id, ownerId, name);
+        [ownerId, ...userIds].forEach((id, i) => {
+          db.prepare("INSERT INTO dm_members (channel_id, user_id, joined_at) VALUES (?, ?, ?)").run(channel.id, id, now + i);
+        });
+        db.exec("COMMIT");
+      } catch (err) {
+        db.exec("ROLLBACK");
+        throw err;
+      }
+      return channel;
+    },
+
+    addDmMember(channelId: string, userId: string) {
+      db.prepare("INSERT OR IGNORE INTO dm_members (channel_id, user_id, joined_at) VALUES (?, ?, ?)").run(channelId, userId, Date.now());
+    },
+
+    /**
+     * Takes someone out of a group DM. The owner leaving hands the group to whoever joined
+     * first; the last person leaving deletes it. Returns what happened to the group.
+     */
+    removeDmMember(channelId: string, userId: string): "removed" | "deleted" {
+      db.prepare("DELETE FROM dm_members WHERE channel_id = ? AND user_id = ?").run(channelId, userId);
+      const left = this.dmParticipants(channelId);
+      if (!left) {
+        this.deleteChannel(channelId);
+        return "deleted";
+      }
+      if (this.groupDm(channelId)?.ownerId === userId) {
+        db.prepare("UPDATE group_dms SET owner_id = ? WHERE channel_id = ?").run(left[0], channelId);
+      }
+      return "removed";
+    },
+
+    renameGroupDm(channelId: string, name: string | null) {
+      db.prepare("UPDATE group_dms SET name = ? WHERE channel_id = ?").run(name, channelId);
+    },
+
+    /** One conversation as `userId` sees it. */
+    dmFor(channelId: string, userId: string): DmSummary | null {
+      return this.dmsForUser(userId, channelId)[0] ?? null;
+    },
+
+    dmsForUser(userId: string, onlyChannel?: string): DmSummary[] {
       const rows = db
         .prepare(
-          `SELECT c.*, u.id AS u_id, u.username, u.display_name, u.avatar, u.profile_banner,
+          `SELECT c.*, g.name AS g_name, g.owner_id AS g_owner,
                   (SELECT MAX(created_at) FROM messages m WHERE m.channel_id = c.id) AS last_at
-           FROM dms d
-           JOIN channels c ON c.id = d.channel_id
-           JOIN users u ON u.id = CASE WHEN d.user_low = ? THEN d.user_high ELSE d.user_low END
-           WHERE d.user_low = ? OR d.user_high = ?
+           FROM dm_members dm
+           JOIN channels c ON c.id = dm.channel_id
+           LEFT JOIN group_dms g ON g.channel_id = c.id
+           WHERE dm.user_id = ? AND (? IS NULL OR c.id = ?)
            ORDER BY COALESCE(last_at, c.created_at) DESC`,
         )
-        .all(userId, userId, userId) as Row[];
-      return rows.map((r) => ({
-        channel: toChannel(r),
-        user: toUser(r, r.u_id as string),
-        lastMessageAt: (r.last_at as number | null) ?? null,
-      }));
+        .all(userId, onlyChannel ?? null, onlyChannel ?? null) as Row[];
+      const others = db.prepare(
+        `SELECT u.* FROM dm_members dm JOIN users u ON u.id = dm.user_id
+         WHERE dm.channel_id = ? AND dm.user_id != ? ORDER BY dm.joined_at, u.id`,
+      );
+      return rows.map((r) => {
+        const members = (others.all(r.id as string, userId) as Row[]).map((u) => toUser(u));
+        const group = r.g_owner ? { name: (r.g_name as string | null) ?? null, ownerId: r.g_owner as string } : null;
+        return {
+          channel: toChannel(r),
+          user: group ? null : (members[0] ?? null),
+          members,
+          group,
+          lastMessageAt: (r.last_at as number | null) ?? null,
+        };
+      });
     },
 
     // --- servers & membership ---------------------------------------------

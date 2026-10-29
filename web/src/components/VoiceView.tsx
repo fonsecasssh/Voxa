@@ -19,17 +19,47 @@ interface Tile {
   watching?: boolean;
 }
 
+/** A voice channel's page: who is there and "Entrar na voz", or the call itself. */
 export function VoiceView({ channel, members, server }: { channel: Channel; members: VoiceMember[]; server?: ServerDetails }) {
+  const [voice, vs] = useVoice();
+  const inThisChannel = vs.status !== "idle" && vs.channelId === channel.id;
+  return (
+    <main className="main voice-view">
+      <header className="chat-header">
+        <span className="channel-icon">🔊</span>
+        <strong>{channel.name}</strong>
+      </header>
+
+      {!inThisChannel ? (
+        <div className="voice-lobby">
+          <h2>🔊 {channel.name}</h2>
+          <p className="muted">
+            {members.length === 0
+              ? "Ninguém na voz agora."
+              : `${members.map((m) => memberName(server, m.user)).join(", ")} ${members.length === 1 ? "está" : "estão"} aqui.`}
+          </p>
+          <button className="btn primary" onClick={() => channel.serverId && voice?.join(channel.id, channel.serverId)}>
+            Entrar na voz
+          </button>
+        </div>
+      ) : (
+        <VoiceStage members={members} server={server} />
+      )}
+    </main>
+  );
+}
+
+/** The call we are in: everyone's tiles (camera, screen shares) and the call controls. */
+export function VoiceStage({ members, server, compact = false }: { members: VoiceMember[]; server?: ServerDetails; compact?: boolean }) {
   const [voice, vs] = useVoice();
   const [focused, setFocused] = useState<string | null>(null);
   const volumes = useUserVolumes();
   const menu = useUserVolumeMenu();
-  const inThisChannel = vs.status !== "idle" && vs.channelId === channel.id;
 
   const tiles: Tile[] = [];
   for (const m of members) {
     const isSelf = m.socketId === vs.selfSocketId;
-    if (m.screenStreamId && inThisChannel) {
+    if (m.screenStreamId) {
       const watching = isSelf || vs.watching.includes(m.socketId);
       const stream = isSelf ? (vs.localScreen ?? undefined) : watching ? vs.remoteStreams[m.socketId]?.[m.screenStreamId] : undefined;
       tiles.push({ key: `screen:${m.socketId}`, kind: "screen", member: m, stream, isSelf, watching });
@@ -77,14 +107,24 @@ export function VoiceView({ channel, members, server }: { channel: Channel; memb
     );
 
     if (t.kind === "user") {
+      const cam = t.member.cameraStreamId
+        ? t.isSelf
+          ? vs.localCamera
+          : vs.remoteStreams[t.member.socketId]?.[t.member.cameraStreamId]
+        : null;
       return (
         <div
           key={t.key}
-          className={`tile user ${speaking ? "speaking" : ""} ${big ? "big" : ""}`}
+          className={`tile user ${speaking ? "speaking" : ""} ${big ? "big" : ""} ${cam ? "camera" : ""}`}
+          onClick={cam ? () => setFocused(focused === t.key ? null : t.key) : undefined}
           onContextMenu={t.isSelf ? undefined : (e) => menu.open(e, t.member.user.id, name)}
           title={t.isSelf ? undefined : "Clique com o botão direito para ajustar o volume"}
         >
-          <Avatar name={name} id={t.member.user.id} size={big ? 96 : 64} src={t.member.user.avatar} />
+          {cam ? (
+            <CameraVideo stream={cam} mirrored={t.isSelf} />
+          ) : (
+            <Avatar name={name} id={t.member.user.id} size={big ? 96 : 64} src={t.member.user.avatar} />
+          )}
           {label}
         </div>
       );
@@ -137,65 +177,64 @@ export function VoiceView({ channel, members, server }: { channel: Channel; memb
   };
 
   return (
-    <main className="main voice-view">
+    <div className={`voice-stage ${compact ? "compact" : ""}`}>
       {menu.menu}
-      <header className="chat-header">
-        <span className="channel-icon">🔊</span>
-        <strong>{channel.name}</strong>
-      </header>
+      <div className={`stage ${focusedTile ? "has-focus" : ""}`}>
+        {focusedTile && <div className="stage-focus">{renderTile(focusedTile, true)}</div>}
+        <div className="tiles">{tiles.filter((t) => t.key !== focused).map((t) => renderTile(t))}</div>
+      </div>
 
-      {!inThisChannel ? (
-        <div className="voice-lobby">
-          <h2>🔊 {channel.name}</h2>
-          <p className="muted">
-            {members.length === 0
-              ? "Ninguém na voz agora."
-              : `${members.map((m) => memberName(server, m.user)).join(", ")} ${members.length === 1 ? "está" : "estão"} aqui.`}
-          </p>
-          <button className="btn primary" onClick={() => channel.serverId && voice?.join(channel.id, channel.serverId)}>
-            Entrar na voz
-          </button>
-        </div>
-      ) : (
-        <>
-          <div className={`stage ${focusedTile ? "has-focus" : ""}`}>
-            {focusedTile && <div className="stage-focus">{renderTile(focusedTile, true)}</div>}
-            <div className="tiles">{tiles.filter((t) => t.key !== focused).map((t) => renderTile(t))}</div>
-          </div>
-
-          <div className="voice-controls">
-            <button
-              className={`round-btn ${vs.muted || vs.deafened ? "off" : ""}`}
-              title={vs.muted ? "Ativar microfone" : "Desativar microfone"}
-              aria-pressed={vs.muted}
-              onClick={() => voice?.setMuted(!vs.muted)}
-            >
-              <Icon name={vs.muted || vs.deafened ? "micOff" : "mic"} size={24} />
-            </button>
-            <button
-              className={`round-btn ${vs.deafened ? "off" : ""}`}
-              title={vs.deafened ? "Ativar áudio" : "Desativar áudio"}
-              aria-pressed={vs.deafened}
-              onClick={() => voice?.setDeafened(!vs.deafened)}
-            >
-              <Icon name={vs.deafened ? "headphonesOff" : "headphones"} size={24} />
-            </button>
-            <button
-              className={`round-btn ${vs.localScreen ? "on" : ""}`}
-              title={vs.localScreen ? "Parar de transmitir" : "Compartilhar tela"}
-              disabled={vs.status !== "connected"}
-              onClick={() => (vs.localScreen ? voice?.stopScreenShare() : voice?.startScreenShare())}
-            >
-              <Icon name={vs.localScreen ? "screenOff" : "screen"} size={24} />
-            </button>
-            <button className="round-btn danger" title="Desconectar" onClick={() => voice?.leave()}>
-              <Icon name="hangup" size={26} />
-            </button>
-          </div>
-        </>
-      )}
-    </main>
+      <div className="voice-controls">
+        <button
+          className={`round-btn ${vs.muted || vs.deafened ? "off" : ""}`}
+          title={vs.muted ? "Ativar microfone" : "Desativar microfone"}
+          aria-pressed={vs.muted}
+          onClick={() => voice?.setMuted(!vs.muted)}
+        >
+          <Icon name={vs.muted || vs.deafened ? "micOff" : "mic"} size={24} />
+        </button>
+        <button
+          className={`round-btn ${vs.deafened ? "off" : ""}`}
+          title={vs.deafened ? "Ativar áudio" : "Desativar áudio"}
+          aria-pressed={vs.deafened}
+          onClick={() => voice?.setDeafened(!vs.deafened)}
+        >
+          <Icon name={vs.deafened ? "headphonesOff" : "headphones"} size={24} />
+        </button>
+        <button
+          className={`round-btn ${vs.localCamera ? "on" : ""}`}
+          title={vs.localCamera ? "Desligar câmera" : "Ligar câmera"}
+          aria-pressed={!!vs.localCamera}
+          disabled={vs.status !== "connected"}
+          onClick={() => (vs.localCamera ? voice?.stopCamera() : voice?.startCamera())}
+        >
+          <Icon name={vs.localCamera ? "video" : "videoOff"} size={24} />
+        </button>
+        <button
+          className={`round-btn ${vs.localScreen ? "on" : ""}`}
+          title={vs.localScreen ? "Parar de transmitir" : "Compartilhar tela"}
+          disabled={vs.status !== "connected"}
+          onClick={() => (vs.localScreen ? voice?.stopScreenShare() : voice?.startScreenShare())}
+        >
+          <Icon name={vs.localScreen ? "screenOff" : "screen"} size={24} />
+        </button>
+        <button className="round-btn danger" title="Desconectar" onClick={() => voice?.leave()}>
+          <Icon name="hangup" size={26} />
+        </button>
+      </div>
+      {vs.error && <div className="stage-error">{vs.error}</div>}
+    </div>
   );
+}
+
+/** A camera: video only (its sound is the microphone, played elsewhere); our own is mirrored, like a mirror. */
+function CameraVideo({ stream, mirrored }: { stream: MediaStream; mirrored: boolean }) {
+  const ref = useRef<HTMLVideoElement>(null);
+  useEffect(() => {
+    const v = ref.current;
+    if (v && v.srcObject !== stream) v.srcObject = stream;
+  }, [stream]);
+  return <video ref={ref} className={`camera-video ${mirrored ? "mirrored" : ""}`} autoPlay playsInline muted />;
 }
 
 function StreamVideo({ stream, muted }: { stream: MediaStream; muted: boolean }) {

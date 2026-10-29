@@ -6,4 +6,6 @@ export interface VoiceMember {
   muted: boolean;
   deafened: boolean;
   screenStreamId: string | null;
+  /** MediaStream id of the camera, while it's on. */
+  cameraStreamId: string | null;
 }

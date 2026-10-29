@@ -46,6 +46,7 @@ export function registerRealtime(io: IOServer, store: Store) {
     `user:${userId}`,
     ...store.serversForUser(userId).map((s) => `server:${s.id}`),
     ...store.friendIds(userId).map((id) => `user:${id}`),
+    ...store.groupDmPeers(userId).map((id) => `user:${id}`),
   ];
 
   const broadcastPresence = (userId: string) => {
@@ -122,7 +123,10 @@ export function registerRealtime(io: IOServer, store: Store) {
     channelRooms,
     canAccess,
     voiceState: voice.stateForServer,
+    dmCalls: voice.stateForChannels,
     evictVoiceChannel: voice.evictChannel,
+    evictFromCall: voice.evictFromChannel,
+    refreshCall: voice.refreshChannel,
 
     /** A profile change: refresh the user on their sockets and in voice, and tell everyone who can see them. */
     updateUser(user: PublicUser) {

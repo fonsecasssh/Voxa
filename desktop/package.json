@@ -1,7 +1,7 @@
 {
   "name": "@voxa/desktop",
   "productName": "Voxa",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "description": "Voxa — servidores, voz e amigos.",
   "author": "Voxa",
@@ -17,7 +17,8 @@
     "release:win": "node scripts/build.mjs && electron-builder --win --publish always"
   },
   "dependencies": {
-    "electron-updater": "^6.3.9"
+    "electron-updater": "^6.3.9",
+    "uiohook-napi": "^1.5.5"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
@@ -25,7 +26,6 @@
     "electron-builder": "^25.1.8",
     "esbuild": "^0.24.0",
     "typescript": "^5.7.2",
-    "uiohook-napi": "^1.5.5",
     "vitest": "^3.0.0"
   }
 }
