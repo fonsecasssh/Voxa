@@ -12,6 +12,7 @@
 import type { Server as IOServer, Socket } from "socket.io";
 import type { Channel, PublicUser, Store } from "./store.ts";
 import { createVoice } from "./voice.ts";
+import type { Sfu } from "./livekit.ts";
 
 interface SocketData {
   user: PublicUser;
@@ -29,8 +30,8 @@ export interface Presence {
 
 const OFFLINE: Presence = { status: "offline", activity: null };
 
-export function registerRealtime(io: IOServer, store: Store) {
-  const voice = createVoice(io, store);
+export function registerRealtime(io: IOServer, store: Store, sfu: Sfu | null = null) {
+  const voice = createVoice(io, store, sfu);
   // Number of open sockets per user; a user is connected while this is > 0.
   const connections = new Map<string, number>();
 

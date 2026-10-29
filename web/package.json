@@ -12,6 +12,7 @@
     "@fontsource-variable/sora": "^5.3.0",
     "@sapphi-red/web-noise-suppressor": "^0.4.1",
     "emojibase-data": "^18.0.0",
+    "livekit-client": "^2.23.0",
     "mediabunny": "^1.62.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

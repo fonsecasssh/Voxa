@@ -12,6 +12,7 @@
 
 import type { Server as IOServer, Socket } from "socket.io";
 import type { PublicUser, Store } from "./store.ts";
+import type { Sfu } from "./livekit.ts";
 
 export interface VoiceMember {
   socketId: string;
@@ -33,7 +34,7 @@ interface Session {
 
 const isStreamId = (v: unknown) => v === null || (typeof v === "string" && v.length <= 100);
 
-export function createVoice(io: IOServer, store: Store) {
+export function createVoice(io: IOServer, store: Store, sfu: Sfu | null = null) {
   const bySocket = new Map<string, Session>();
   const byUser = new Map<string, string>(); // userId -> socketId
   const channels = new Map<string, Map<string, VoiceMember>>(); // channelId -> socketId -> member
@@ -99,7 +100,9 @@ export function createVoice(io: IOServer, store: Store) {
       byUser.set(user.id, socket.id);
       socket.join(`voice:${channel.id}`);
 
-      reply({ channelId: channel.id, self: member, peers });
+      // With a media server, media goes through it (signaling below is then unused).
+      const media = sfu ? { url: sfu.url, token: sfu.token(channel.id, socket.id, user.displayName) } : undefined;
+      reply({ channelId: channel.id, self: member, peers, sfu: media });
       broadcast(serverId, channel.id);
       // Starting a call in a DM rings everyone else there (not the caller's other devices).
       if (dmPeople && peers.length === 0) {

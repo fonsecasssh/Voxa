@@ -6,6 +6,7 @@ import { createIceProvider } from "./ice.ts";
 import { createGiphyProvider } from "./gifs.ts";
 import { scheduleBackups } from "./backup.ts";
 import { createSmtpMailer } from "./mail.ts";
+import { createLiveKit } from "./livekit.ts";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT) || 3001;
@@ -31,6 +32,8 @@ const { http, io } = createApp({
   // Password recovery by e-mail: SMTP_* (see mail.ts), and the site's address for the links
   // (Render sets RENDER_EXTERNAL_URL by itself).
   mailer: createSmtpMailer(process.env),
+  // Calls through a LiveKit media server (LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET); otherwise peer to peer.
+  sfu: createLiveKit(process.env),
   appUrl: process.env.PUBLIC_URL || process.env.RENDER_EXTERNAL_URL || null,
 });
 

@@ -18,6 +18,7 @@ import type { AppSocket } from "../socket.ts";
 import { applyOutputDevice, audioSettings, type AudioSettings } from "./audioSettings.ts";
 import { buildMicPipeline, getAudioContext, openMic, type MicPipeline } from "./audioPipeline.ts";
 import { DEFAULT_USER_VOLUME, type UserVolume } from "./userVolumes.ts";
+import type { SfuLink, SfuTrackKind } from "./sfu.ts";
 
 type Signal = {
   description?: RTCSessionDescriptionInit;
@@ -28,7 +29,8 @@ type Signal = {
 
 interface Peer {
   socketId: string;
-  pc: RTCPeerConnection;
+  /** The connection to them in the mesh; null through a media server (SFU). */
+  pc: RTCPeerConnection | null;
   polite: boolean;
   makingOffer: boolean;
   ignoreOffer: boolean;
@@ -102,6 +104,8 @@ export class VoiceClient {
   private settings: AudioSettings = audioSettings.get();
   /** Peers watching our screen share: only they receive its tracks (like Discord, watching is opt-in). */
   private watchers = new Set<string>();
+  /** The media server connection, when the Voxa server has one (else the mesh). */
+  private sfu: SfuLink | null = null;
   /** Bumped on every mic (re)open, so a slow, outdated one is discarded. */
   private micVersion = 0;
   private pttRelease: ReturnType<typeof setTimeout> | null = null;
@@ -147,7 +151,7 @@ export class VoiceClient {
     const connections: VoiceSnapshot["connections"] = {};
     for (const [id, p] of this.peers) {
       remoteStreams[id] = Object.fromEntries(p.streams);
-      connections[id] = p.pc.connectionState;
+      connections[id] = p.pc?.connectionState ?? "connected";
     }
     this.set({ remoteStreams, connections });
   }
@@ -179,9 +183,76 @@ export class VoiceClient {
     if (this.snapshot.channelId !== channelId) return;
     if ("error" in res) return this.cleanup(res.error);
 
+    if (res.sfu) {
+      try {
+        await this.connectSfu(res.sfu.url, res.sfu.token);
+      } catch (err) {
+        console.warn("media server", err);
+        this.socket.emit("voice:leave");
+        return this.cleanup("Não foi possível conectar ao servidor de voz.");
+      }
+      if (this.snapshot.channelId !== channelId) return;
+    }
     this.set({ status: "connected", selfSocketId: this.socket.id ?? null });
     if (this.snapshot.muted || this.snapshot.deafened) this.emitState();
-    for (const p of res.peers) this.createPeer(p.socketId);
+    if (!this.sfu) for (const p of res.peers) this.createPeer(p.socketId);
+  }
+
+  // --- media server (SFU) ------------------------------------------------------------
+  private async connectSfu(url: string, token: string) {
+    const { SfuLink } = await import("./sfu.ts");
+    // Assigned after connecting; a disconnect while still connecting is reported by connect() itself.
+    let link: SfuLink | null = null;
+    link = await SfuLink.connect(url, token, {
+      onTrack: (identity, kind, name, track) => this.onSfuTrack(identity, kind, name, track),
+      onTrackEnded: (identity, kind, name, track) => {
+        const p = this.peers.get(identity);
+        if (!p || kind === "mic") return;
+        const stream = p.streams.get(name);
+        stream?.removeTrack(track);
+        if (stream && stream.getTracks().length === 0) p.streams.delete(name);
+        this.syncRemote();
+      },
+      onLeft: (identity) => this.closePeer(identity),
+      onDisconnected: () => {
+        if (link && this.sfu === link && this.snapshot.status !== "idle") {
+          this.socket.emit("voice:leave");
+          this.cleanup("A conexão com o servidor de voz caiu.");
+        }
+      },
+    });
+    if (this.snapshot.status === "idle") {
+      link.disconnect();
+      return;
+    }
+    this.sfu = link;
+    if (this.pipeline) await link.publishMic(this.pipeline.track);
+  }
+
+  /** Someone's microphone, camera or screen arriving from the media server. */
+  private onSfuTrack(identity: string, kind: SfuTrackKind, name: string, track: MediaStreamTrack) {
+    let peer = this.peers.get(identity);
+    if (!peer) {
+      const audio = new Audio();
+      audio.autoplay = true;
+      applyOutputDevice(audio, this.settings.outputDeviceId);
+      peer = { socketId: identity, pc: null, polite: false, makingOffer: false, ignoreOffer: false, streams: new Map(), audio };
+      this.peers.set(identity, peer);
+    }
+    if (kind === "mic") {
+      const stream = new MediaStream([track]);
+      peer.audio.srcObject = stream;
+      peer.audio.play().catch(() => {});
+      peer.analyser = this.analyse(stream);
+      this.dropBoost(peer);
+      this.applyPeerAudio(peer);
+    } else {
+      // A camera or screen share, under the stream id the member list announces.
+      const stream = peer.streams.get(name) ?? new MediaStream();
+      stream.addTrack(track);
+      peer.streams.set(name, stream);
+    }
+    this.syncRemote();
   }
 
   leave() {
@@ -191,6 +262,8 @@ export class VoiceClient {
   }
 
   private cleanup(error: string | null) {
+    this.sfu?.disconnect();
+    this.sfu = null;
     for (const id of [...this.peers.keys()]) this.closePeer(id);
     this.micVersion++;
     this.pipeline?.dispose();
@@ -329,9 +402,10 @@ export class VoiceClient {
     pipeline.track.enabled = this.transmitting();
     const old = this.pipeline;
     for (const p of this.peers.values()) {
-      const sender = p.pc.getSenders().find((x) => x.track && x.track === old?.track);
+      const sender = p.pc?.getSenders().find((x) => x.track && x.track === old?.track);
       if (sender) await sender.replaceTrack(pipeline.track).catch(() => {});
     }
+    await this.sfu?.replaceMic(pipeline.track).catch(() => {});
     old?.dispose();
     this.mic?.getTracks().forEach((t) => t.stop());
     this.mic = raw;
@@ -401,6 +475,7 @@ export class VoiceClient {
     this.camera = stream;
     stream.getVideoTracks()[0]?.addEventListener("ended", () => this.stopCamera());
     for (const p of this.peers.values()) this.addCameraTracks(p);
+    this.sfu?.publishCamera(stream).catch(() => this.set({ error: "Não foi possível enviar a câmera." }));
     this.set({ localCamera: stream, error: null });
     this.emitState();
   }
@@ -408,9 +483,10 @@ export class VoiceClient {
   stopCamera() {
     if (!this.camera) return;
     const tracks = new Set(this.camera.getTracks());
-    for (const p of this.peers.values()) {
-      for (const sender of p.pc.getSenders()) if (sender.track && tracks.has(sender.track)) p.pc.removeTrack(sender);
+    for (const { pc } of this.peers.values()) {
+      for (const sender of pc?.getSenders() ?? []) if (sender.track && tracks.has(sender.track)) pc!.removeTrack(sender);
     }
+    this.sfu?.unpublish(this.camera);
     this.camera.getTracks().forEach((t) => t.stop());
     this.camera = null;
     this.set({ localCamera: null });
@@ -419,7 +495,7 @@ export class VoiceClient {
 
   /** Unlike a screen share, the camera goes to everyone in the call. */
   private addCameraTracks(p: Peer) {
-    if (!this.camera) return;
+    if (!this.camera || !p.pc) return;
     const sending = new Set(p.pc.getSenders().map((x) => x.track));
     for (const track of this.camera.getVideoTracks()) {
       if (sending.has(track)) continue;
@@ -446,6 +522,8 @@ export class VoiceClient {
     this.screen = stream;
     stream.getVideoTracks()[0]?.addEventListener("ended", () => this.stopScreenShare());
     this.watchers.clear(); // a new stream starts with no viewers
+    // Through a media server it's sent once; the server only forwards it to who watches.
+    this.sfu?.publishScreen(stream).catch(() => this.set({ error: "Não foi possível transmitir a tela." }));
     this.set({ localScreen: stream });
     this.emitState();
   }
@@ -453,6 +531,7 @@ export class VoiceClient {
   stopScreenShare() {
     if (!this.screen) return;
     for (const p of this.peers.values()) this.removeScreenTracks(p);
+    this.sfu?.unpublish(this.screen);
     this.screen.getTracks().forEach((t) => t.stop());
     this.screen = null;
     this.watchers.clear();
@@ -464,14 +543,16 @@ export class VoiceClient {
   watch(socketId: string) {
     if (this.snapshot.status !== "connected" || this.snapshot.watching.includes(socketId)) return;
     this.set({ watching: [...this.snapshot.watching, socketId] });
-    this.socket.emit("voice:signal", { to: socketId, data: { watch: true } });
+    if (this.sfu) this.sfu.setWatching(socketId, true);
+    else this.socket.emit("voice:signal", { to: socketId, data: { watch: true } });
   }
 
   /** Stops watching: they stop sending us the video, which saves bandwidth on both sides. */
   unwatch(socketId: string) {
     if (!this.snapshot.watching.includes(socketId)) return;
     this.set({ watching: this.snapshot.watching.filter((id) => id !== socketId) });
-    this.socket.emit("voice:signal", { to: socketId, data: { watch: false } });
+    if (this.sfu) this.sfu.setWatching(socketId, false);
+    else this.socket.emit("voice:signal", { to: socketId, data: { watch: false } });
     const p = this.peers.get(socketId);
     if (p) {
       // Keep the microphone and camera; the screen stream goes away right now, not after renegotiation.
@@ -482,13 +563,13 @@ export class VoiceClient {
   }
 
   private removeScreenTracks(p: Peer) {
-    if (!this.screen) return;
+    if (!this.screen || !p.pc) return;
     const tracks = new Set(this.screen.getTracks());
     for (const sender of p.pc.getSenders()) if (sender.track && tracks.has(sender.track)) p.pc.removeTrack(sender);
   }
 
   private addScreenTracks(p: Peer) {
-    if (!this.screen || !this.watchers.has(p.socketId)) return;
+    if (!this.screen || !p.pc || !this.watchers.has(p.socketId)) return;
     const sending = new Set(p.pc.getSenders().map((x) => x.track));
     for (const track of this.screen.getTracks()) {
       if (sending.has(track)) continue;
@@ -576,7 +657,7 @@ export class VoiceClient {
     if (!p) return;
     this.watchers.delete(socketId);
     if (this.snapshot.watching.includes(socketId)) this.set({ watching: this.snapshot.watching.filter((id) => id !== socketId) });
-    p.pc.close();
+    p.pc?.close();
     this.dropBoost(p);
     p.audio.srcObject = null;
     this.peers.delete(socketId);
@@ -584,9 +665,9 @@ export class VoiceClient {
   }
 
   private async onSignal(from: string, { description, candidate, watch }: Signal) {
-    if (this.snapshot.status !== "connected") return;
+    if (this.snapshot.status !== "connected" || this.sfu) return;
     const peer = this.createPeer(from);
-    const { pc } = peer;
+    const pc = peer.pc!;
     try {
       if (typeof watch === "boolean") {
         if (watch) {

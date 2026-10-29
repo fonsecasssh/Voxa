@@ -36,7 +36,10 @@ export interface ServerToClient {
   "voice:replaced": () => void;
 }
 
-export type VoiceJoinResult = { error: string } | { channelId: string; self: VoiceMember; peers: VoiceMember[] };
+export type VoiceJoinResult =
+  | { error: string }
+  /** `sfu`: the call goes through this media server (LiveKit) instead of the mesh. */
+  | { channelId: string; self: VoiceMember; peers: VoiceMember[]; sfu?: { url: string; token: string } };
 
 export interface ClientToServer {
   typing: (p: { channelId: string }) => void;

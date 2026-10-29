@@ -67,13 +67,54 @@ Quem já tem o app instalado recebe a atualização sozinho. (Também dá para p
 
 ## Backup
 
-O Render tira uma cópia (*snapshot*) do disco automaticamente todo dia e guarda por 7 dias
-(*Disks → Snapshots*), dá para restaurar por lá. Para uma cópia extra na hora, abra o *Shell* do
-serviço no Render e rode `npm run backup -w server` — a cópia é salva em `/var/data/backup-DATA.db`.
-As imagens enviadas (banners e ícones dos servidores) ficam em `/var/data/media`, no mesmo disco, e entram no snapshot.
+O Voxa tira sozinho uma cópia do banco por dia (com o servidor rodando, sem pausa) e guarda as
+últimas 7 em `/var/data/backups` (`voxa-AAAA-MM-DD-HHMM.db`). Dá para mudar com `BACKUP_KEEP`
+(quantas guardar), `BACKUP_DIR` (onde) ou desligar com `BACKUP_DISABLED=1`.
+
+Essas cópias ficam no mesmo disco: protegem contra erro e banco corrompido, não contra perder o disco.
+Por isso o snapshot diário do Render (*Disks → Snapshots*, guardado por 7 dias) continua valendo, e
+de vez em quando vale baixar uma cópia de `/var/data/backups` pelo *Shell* do Render.
+Para uma cópia extra na hora: *Shell* do Render, `npm run backup -w server`.
+As imagens e arquivos enviados ficam em `/var/data/media`, no mesmo disco, e entram no snapshot.
+
+## Recursos opcionais (variáveis de ambiente)
+
+Tudo isto fica desligado até você preencher as variáveis em *Environment* no Render.
+
+### Busca de GIFs
+
+- `GIPHY_API_KEY`: chave grátis em <https://developers.giphy.com> (*Create an App → API*).
+
+### Recuperar senha por e-mail
+
+Com isto, quem confirmar um e-mail no perfil pode usar "Esqueci minha senha" no login.
+Exemplo com Gmail (crie uma *senha de app* em <https://myaccount.google.com/apppasswords>; precisa da verificação em duas etapas ligada):
+
+- `SMTP_HOST` = `smtp.gmail.com`
+- `SMTP_PORT` = `465`
+- `SMTP_USER` = seu endereço do Gmail
+- `SMTP_PASS` = a senha de app (16 letras, sem espaços)
+- `SMTP_FROM` (opcional) = `Voxa <seu@gmail.com>`
+
+Os links dos e-mails usam o endereço do site: no Render ele é detectado sozinho (`RENDER_EXTERNAL_URL`);
+com domínio próprio, defina `PUBLIC_URL` (ex.: `https://voxa.seudominio.com`).
+
+### Servidor de mídia (LiveKit) para chamadas maiores
+
+Sem isto, cada pessoa da chamada envia áudio e vídeo direto para cada outra (ótimo até ~8 pessoas).
+Com um servidor LiveKit, cada um envia uma vez só e o servidor repassa — bom para chamadas grandes,
+câmeras e transmissões com muita gente assistindo.
+
+1. Crie um projeto grátis em <https://cloud.livekit.io> (ou hospede o LiveKit você mesmo).
+2. Em *Settings → Keys*, crie uma chave e preencha:
+   - `LIVEKIT_URL` = a URL do projeto (`wss://...livekit.cloud`)
+   - `LIVEKIT_API_KEY` e `LIVEKIT_API_SECRET`
+3. Pronto: as próximas chamadas (canais de voz e DMs) passam pelo LiveKit. Apague as variáveis para voltar ao modo direto.
+
+O Voxa continua decidindo quem entra em cada canal: ele entrega a cada pessoa um acesso válido só para aquela sala.
 
 ## Observações
 
 - A cada deploy o serviço fica fora do ar por alguns segundos (serviços com disco não têm troca sem pausa).
   Quem estiver conectado reconecta sozinho; quem estiver em chamada de voz precisa entrar de novo.
-- A voz é direta entre as pessoas (sem servidor de mídia): ótima até ~8 pessoas por canal.
+- Sem LiveKit, a voz é direta entre as pessoas: ótima até ~8 pessoas por canal (veja "Servidor de mídia" acima).

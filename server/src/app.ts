@@ -16,6 +16,7 @@ import { Permission, can, permissionsOf } from "../../shared/permissions.ts";
 import { findMentions } from "../../shared/markdown.ts";
 import type { Gif, GifProvider } from "./gifs.ts";
 import { actionMail, type Mailer } from "./mail.ts";
+import type { Sfu } from "./livekit.ts";
 import { CLIP_MIME, CLIP_URL_PREFIX, IMAGE_KINDS, IMAGE_MIME, createClipStore, createMediaStore, detectImageType, imageUrlPrefix } from "./media.ts";
 import { tmpdir } from "node:os";
 
@@ -73,13 +74,15 @@ export interface AppOptions {
   filesMaxBytes?: number;
   /** GIF search for the chat (GIPHY); null turns the GIF tab off. */
   gifs?: GifProvider | null;
+  /** Media server for calls (LiveKit); null = peer-to-peer mesh. */
+  sfu?: Sfu | null;
   /** Sends e-mail (confirming addresses, password resets); null turns those off. */
   mailer?: Mailer | null;
   /** The site's public address, for links in e-mails (never taken from the request: it could be forged). */
   appUrl?: string | null;
 }
 
-export function createApp({ db, webDist, ice = createIceProvider(), trustProxy = 0, signupsPerHour, mediaDir, clipsMaxBytes, maxClipBytes, filesMaxBytes, gifs = null, mailer = null, appUrl = null }: AppOptions) {
+export function createApp({ db, webDist, ice = createIceProvider(), trustProxy = 0, signupsPerHour, mediaDir, clipsMaxBytes, maxClipBytes, filesMaxBytes, gifs = null, mailer = null, appUrl = null, sfu = null }: AppOptions) {
   /** E-mail works only with both a way to send it and an address to link back to. */
   const mail = mailer && appUrl ? { mailer, url: appUrl.replace(/\/+$/, "") } : null;
   const mediaRoot = mediaDir ?? path.join(tmpdir(), `voxa-media-${process.pid}`);
@@ -91,7 +94,7 @@ export function createApp({ db, webDist, ice = createIceProvider(), trustProxy =
   const http = createHttpServer(app);
   // The site, its API and the socket share one origin (the desktop app loads that same site), so no CORS.
   const io = new IOServer(http);
-  const realtime = registerRealtime(io, store);
+  const realtime = registerRealtime(io, store, sfu);
 
   app.set("trust proxy", trustProxy);
   app.disable("x-powered-by");
