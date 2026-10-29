@@ -637,14 +637,63 @@ label .muted {
     display: none;
   }
 }
-@media (max-width: 600px) {
+/* Phones: the lists (servers + channels) or the conversation, one at a time. */
+.mobile-nav-btn {
+  display: none;
+}
+@media (max-width: 700px) {
   .shell,
   .shell.no-members {
-    grid-template-columns: 64px 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
-  .sidebar {
+  .shell.nav-open {
+    grid-template-columns: 64px minmax(0, 1fr);
+  }
+  .shell:not(.nav-open) > .rail,
+  .shell:not(.nav-open) > .sidebar,
+  .shell.nav-open > .main,
+  .shell > .members {
     display: none;
   }
+  .shell.nav-open > .sidebar {
+    display: flex;
+  }
+  .mobile-nav-btn {
+    display: grid;
+    place-items: center;
+    width: 36px;
+    height: 36px;
+    margin-left: -8px;
+    border: 0;
+    border-radius: 8px;
+    background: none;
+    color: var(--text-muted);
+    flex-shrink: 0;
+  }
+  .mobile-nav-btn:active {
+    background: var(--bg-hover);
+  }
+  /* Bigger touch targets. */
+  .channel {
+    min-height: 40px;
+  }
+  .composer textarea,
+  input,
+  select,
+  textarea {
+    font-size: 16px; /* below 16px, iOS zooms into the field */
+  }
+  .incoming-call {
+    top: max(16px, env(safe-area-inset-top));
+  }
+  .user-menu {
+    width: min(240px, calc(100vw - 16px));
+  }
+}
+/* Notches and home indicators (installed app with viewport-fit=cover). */
+.shell {
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  box-sizing: border-box;
 }
 
 /* --- voice --------------------------------------------------------------------------- */

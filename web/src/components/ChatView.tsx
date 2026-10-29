@@ -5,6 +5,7 @@ import { Avatar } from "./Avatar.tsx";
 import { DmAvatar } from "./DmParts.tsx";
 import { EmojiPicker } from "./EmojiPicker.tsx";
 import { Icon } from "./Icon.tsx";
+import { MobileNavButton } from "./MobileNav.tsx";
 import { MessageItem } from "./MessageItem.tsx";
 import { memberName } from "../members.ts";
 
@@ -344,6 +345,7 @@ export function ChatView(props: Props) {
         />
       )}
       <header className="chat-header">
+        <MobileNavButton />
         {dm ? <DmAvatar dm={dm} size={24} /> : <span className="channel-icon">#</span>}
         {onRename ? <EditableTitle value={dm?.group?.name ?? ""} placeholder={title} onSave={onRename} /> : <strong className="ellipsis">{title}</strong>}
         {headerActions && <div className="chat-header-actions">{headerActions}</div>}

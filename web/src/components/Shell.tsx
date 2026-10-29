@@ -38,6 +38,7 @@ import { MemberList } from "./MemberList.tsx";
 import { VoiceView } from "./VoiceView.tsx";
 import { DmCallBar, GroupDmModal, GroupMembers, IncomingCall, RING_FOR_MS } from "./DmParts.tsx";
 import { Icon } from "./Icon.tsx";
+import { MobileNavContext } from "./MobileNav.tsx";
 import type { VoiceMember } from "../voice/types.ts";
 import { CreateServerModal, NicknameModal, ProfileModal } from "./Modals.tsx";
 import { CategoryModal, CreateChannelModal, EditChannelModal, InviteModal } from "./ChannelModals.tsx";
@@ -115,6 +116,9 @@ export function Shell({ user, setUser, initialStatus, initialActivity, servers, 
   /** An incoming DM call we haven't answered or declined. */
   const [ringing, setRinging] = useState<{ channelId: string; from: User } | null>(null);
   const [showGroupMembers, setShowGroupMembers] = useState(true);
+  /** Phones: the server and channel lists are showing (instead of the conversation). */
+  const [navOpen, setNavOpen] = useState(true);
+  const openNav = useCallback(() => setNavOpen(true), []);
   const myVoiceMembers = !voiceState.channelId
     ? undefined
     : voiceState.serverId
@@ -797,6 +801,7 @@ export function Shell({ user, setUser, initialStatus, initialActivity, servers, 
 
   return (
     <VoiceContext.Provider value={voice}>
+      <MobileNavContext.Provider value={openNav}>
       {ringing &&
         (() => {
           const d = dms?.find((x) => x.channel.id === ringing.channelId);
@@ -831,7 +836,11 @@ export function Shell({ user, setUser, initialStatus, initialActivity, servers, 
           </button>
         </div>
       )}
-      <div className={`shell ${current || (dm?.group && showGroupMembers) ? "" : "no-members"}`}>
+      <div
+        className={`shell ${current || (dm?.group && showGroupMembers) ? "" : "no-members"} ${navOpen ? "nav-open" : ""}`}
+        // Phones: picking a channel or conversation shows it.
+        onClick={(e) => (e.target as Element).closest?.(".sidebar .channel, .sidebar .channel.dm") && setNavOpen(false)}
+      >
         <ServerRail
           servers={servers}
           activeId={serverId}
@@ -915,6 +924,7 @@ export function Shell({ user, setUser, initialStatus, initialActivity, servers, 
           <ServerSettings details={current} selfId={user.id} presence={presence} onClose={() => setModal(null)} />
         )}
       </div>
+      </MobileNavContext.Provider>
     </VoiceContext.Provider>
   );
 }

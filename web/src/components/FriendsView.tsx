@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { api, type Friend, type Presence, type User } from "../api.ts";
 import { Avatar, presenceText } from "./Avatar.tsx";
+import { MobileNavButton } from "./MobileNav.tsx";
 
 type Tab = "online" | "all" | "pending" | "add";
 
@@ -37,6 +38,7 @@ export function FriendsView({ friends, presence, onOpenDm }: Props) {
   return (
     <main className="main friends-view">
       <header className="chat-header friends-header">
+        <MobileNavButton />
         <span className="channel-icon">👥</span>
         <strong>Amigos</strong>
         <span className="divider" />

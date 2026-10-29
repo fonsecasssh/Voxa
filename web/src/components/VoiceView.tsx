@@ -7,6 +7,7 @@ import { applyOutputDevice } from "../voice/audioSettings.ts";
 import type { VoiceMember } from "../voice/types.ts";
 import { Avatar } from "./Avatar.tsx";
 import { Icon } from "./Icon.tsx";
+import { MobileNavButton } from "./MobileNav.tsx";
 import { useUserVolumeMenu, useUserVolumes } from "./UserVolumeMenu.tsx";
 
 interface Tile {
@@ -26,6 +27,7 @@ export function VoiceView({ channel, members, server }: { channel: Channel; memb
   return (
     <main className="main voice-view">
       <header className="chat-header">
+        <MobileNavButton />
         <span className="channel-icon">🔊</span>
         <strong>{channel.name}</strong>
       </header>

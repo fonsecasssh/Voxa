@@ -5,8 +5,29 @@ import { SOUND_LABELS, SOUND_STYLES, playSound, type SoundName } from "../sounds
 import { useAppSettings } from "../useAppSettings.ts";
 import { Icon } from "./Icon.tsx";
 import { Modal } from "./Modals.tsx";
+import { install, isIos, isStandalone, useCanInstall } from "../pwa.ts";
+import { desktop } from "../desktop.ts";
 
 const PREVIEW_SOUNDS: SoundName[] = ["join", "leave", "userJoin", "mute", "unmute", "message", "streamStart", "replay"];
+
+/** "Instalar o Voxa" on phones and browsers that allow it (the desktop app is already installed). */
+function InstallSection() {
+  const canInstall = useCanInstall();
+  if (desktop || isStandalone()) return null;
+  if (!canInstall && !isIos()) return null;
+  return (
+    <>
+      <div className="field-label">App</div>
+      {canInstall ? (
+        <button type="button" className="btn primary install-btn" onClick={() => install()}>
+          Instalar o Voxa neste dispositivo
+        </button>
+      ) : (
+        <p className="muted small">No iPhone ou iPad, toque em Compartilhar e depois em "Adicionar à Tela de Início" para usar o Voxa como app.</p>
+      )}
+    </>
+  );
+}
 
 export function AppSettingsModal({ onClose }: { onClose: () => void }) {
   const settings = useAppSettings();
@@ -85,6 +106,8 @@ export function AppSettingsModal({ onClose }: { onClose: () => void }) {
           </button>
         ))}
       </div>
+
+      <InstallSection />
 
       <p className="muted small">Essas preferências valem para este dispositivo.</p>
       <div className="modal-actions">
