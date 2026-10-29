@@ -8,6 +8,7 @@ import { memberColor, memberName } from "../members.ts";
 import { MessageFiles } from "./Attachments.tsx";
 import { Avatar } from "./Avatar.tsx";
 import { Icon } from "./Icon.tsx";
+import { LinkEmbeds } from "./LinkEmbeds.tsx";
 import { GIPHY_MEDIA } from "../features.ts";
 import { Markdown, type MentionTarget } from "./Markdown.tsx";
 import { formatDuration, formatSize } from "./ReplayModal.tsx";
@@ -133,6 +134,7 @@ export function MessageItem(p: MessageItemProps) {
       ) : (
         m.content && <MessageText content={m.content} edited={m.editedAt} selfId={p.selfId} resolveUsername={p.resolveUsername} />
       )}
+      {m.embeds?.length > 0 && !(m.content && GIPHY_MEDIA.test(m.content)) && <LinkEmbeds embeds={m.embeds} />}
       {m.files.length > 0 && <MessageFiles files={m.files} onOpenImage={p.onOpenImage} />}
       {m.attachment && <ClipView clip={m.attachment} />}
     </>

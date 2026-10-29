@@ -8,6 +8,7 @@ import { scheduleBackups } from "./backup.ts";
 import { createSmtpMailer } from "./mail.ts";
 import { createLiveKit } from "./livekit.ts";
 import { createWebPush } from "./push.ts";
+import { createUnfurler } from "./unfurl.ts";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT) || 3001;
@@ -42,6 +43,8 @@ const { http, io } = createApp({
   mailer: createSmtpMailer(process.env),
   // Calls through a LiveKit media server (LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET); otherwise peer to peer.
   sfu: createLiveKit(process.env),
+  // Link previews in chat; LINK_PREVIEWS=0 turns them off.
+  unfurler: process.env.LINK_PREVIEWS === "0" ? null : createUnfurler(),
   // Push notifications are on unless PUSH_DISABLED=1 (keys are made on first start).
   push:
     process.env.PUSH_DISABLED === "1"

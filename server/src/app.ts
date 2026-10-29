@@ -18,6 +18,7 @@ import type { Gif, GifProvider } from "./gifs.ts";
 import { actionMail, type Mailer } from "./mail.ts";
 import type { Sfu } from "./livekit.ts";
 import type { PushSender } from "./push.ts";
+import type { Unfurler } from "./unfurl.ts";
 import { createNotifier, type Notifier } from "./notify.ts";
 import { CLIP_MIME, CLIP_URL_PREFIX, IMAGE_KINDS, IMAGE_MIME, createClipStore, createMediaStore, detectImageType, imageUrlPrefix } from "./media.ts";
 import { tmpdir } from "node:os";
@@ -76,6 +77,8 @@ export interface AppOptions {
   filesMaxBytes?: number;
   /** GIF search for the chat (GIPHY); null turns the GIF tab off. */
   gifs?: GifProvider | null;
+  /** Fetches link previews; null turns them off. */
+  unfurler?: Unfurler | null;
   /** Push notifications to devices where Voxa is closed; null turns them off. */
   push?: PushSender | null | ((store: Store) => PushSender | null);
   /** Media server for calls (LiveKit); null = peer-to-peer mesh. */
@@ -86,7 +89,7 @@ export interface AppOptions {
   appUrl?: string | null;
 }
 
-export function createApp({ db, webDist, ice = createIceProvider(), trustProxy = 0, signupsPerHour, mediaDir, clipsMaxBytes, maxClipBytes, filesMaxBytes, gifs = null, mailer = null, appUrl = null, sfu = null, push: pushOption = null }: AppOptions) {
+export function createApp({ db, webDist, ice = createIceProvider(), trustProxy = 0, signupsPerHour, mediaDir, clipsMaxBytes, maxClipBytes, filesMaxBytes, gifs = null, mailer = null, appUrl = null, sfu = null, push: pushOption = null, unfurler = null }: AppOptions) {
   /** E-mail works only with both a way to send it and an address to link back to. */
   const mail = mailer && appUrl ? { mailer, url: appUrl.replace(/\/+$/, "") } : null;
   const mediaRoot = mediaDir ?? path.join(tmpdir(), `voxa-media-${process.pid}`);
@@ -775,8 +778,43 @@ export function createApp({ db, webDist, ice = createIceProvider(), trustProxy =
     io.to(realtime.channelRooms(channel)).emit("message:new", { ...message, serverId: channel.serverId });
     store.markRead(req.user!.id, channel.id, message.createdAt);
     notifier.message(channel, message);
+    refreshPreviews(channel, message.id, message.content);
     res.status(201).json({ message });
   });
+
+  // Link previews: fetched after a message is sent or edited (a few at a time, each URL
+  // once a day), then everyone gets the message again with its previews.
+  const previewsInFlight = new Map<string, Promise<void>>();
+  let previewSlots = 4;
+  const waiting: (() => void)[] = [];
+  const slot = async () => {
+    if (previewSlots > 0) previewSlots--;
+    else await new Promise<void>((r) => waiting.push(r));
+  };
+  const release = () => (waiting.length ? waiting.shift()!() : previewSlots++);
+  function refreshPreviews(channel: Channel, messageId: string, content: string) {
+    if (!unfurler) return;
+    const stale = store.stalePreviews(content, 24 * 3_600_000);
+    if (!stale.length) return;
+    const jobs = stale.map((url) => {
+      let job = previewsInFlight.get(url);
+      if (!job) {
+        job = slot()
+          .then(() => unfurler.preview(url))
+          .then((embed) => store.savePreview(url, embed))
+          .finally(() => {
+            release();
+            previewsInFlight.delete(url);
+          });
+        previewsInFlight.set(url, job);
+      }
+      return job;
+    });
+    Promise.allSettled(jobs).then(() => {
+      const m = store.messageById(messageId);
+      if (m?.embeds.length) io.to(realtime.channelRooms(channel)).emit("message:update", m);
+    });
+  }
 
   /**
    * Who a message pings: the @names who can read the channel, the author of the message it
@@ -888,6 +926,7 @@ export function createApp({ db, webDist, ice = createIceProvider(), trustProxy =
     recordMentions(channel, id, content, store.messageById(id)?.replyTo?.id ?? null, req);
     const message = store.messageById(id)!;
     io.to(realtime.channelRooms(channel)).emit("message:update", message);
+    refreshPreviews(channel, req.params.messageId as string, content);
     res.json({ message });
   });
 

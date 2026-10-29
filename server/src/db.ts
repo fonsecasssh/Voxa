@@ -346,6 +346,15 @@ const MIGRATIONS: string[] = [
   ALTER TABLE messages ADD COLUMN pinned_at INTEGER;
   CREATE INDEX messages_pinned ON messages(channel_id, pinned_at) WHERE pinned_at IS NOT NULL;
   `,
+
+  // 18: link previews, cached by URL (data is NULL when the page had none).
+  `
+  CREATE TABLE link_previews (
+    url        TEXT PRIMARY KEY,
+    data       TEXT,
+    fetched_at INTEGER NOT NULL
+  );
+  `,
 ];
 
 /** The schema version a fully migrated database has. */

@@ -72,7 +72,10 @@ function parseInline(s: string, links: { text: string; href: string }[]): MdNode
       if (rule) {
         const m = rule.re.exec(rest)!;
         flush();
-        out.push(rule.make(m, parse));
+        const node = rule.make(m, parse);
+        // Inside code a link is just text.
+        if (node.t === "code") node.v = node.v.replace(new RegExp(`${L_OPEN}(\\d+)${L_CLOSE}`, "g"), (_, n) => links[Number(n)].text);
+        out.push(node);
         i += m[0].length;
         continue;
       }
@@ -149,4 +152,20 @@ export function findMentions(content: string): { usernames: string[]; everyone: 
   };
   walk(parseMarkdown(content));
   return { usernames: [...names], everyone };
+}
+
+/**
+ * The links that get a preview: outside code and spoilers, no repeats, at most `max`.
+ * A message that is only a GIF link (from the GIF picker) shows the GIF instead.
+ */
+export function previewLinks(content: string, max = 3): string[] {
+  const out: string[] = [];
+  const walk = (nodes: MdNode[]) => {
+    for (const n of nodes) {
+      if (n.t === "link" && !out.includes(n.href)) out.push(n.href);
+      else if ((n.t === "b" || n.t === "i" || n.t === "u" || n.t === "s" || n.t === "quote") && "c" in n) walk(n.c);
+    }
+  };
+  walk(parseMarkdown(content));
+  return out.filter((u) => !/^https:\/\/media\d?\.giphy\.com\//.test(u)).slice(0, max);
 }

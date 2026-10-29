@@ -4,6 +4,8 @@ import { createHash, randomUUID } from "node:crypto";
 import type { DB } from "./db.ts";
 import { newInviteCode, newToken } from "./auth.ts";
 import { DEFAULT_PERMISSIONS, Permission, can, permissionsOf } from "../../shared/permissions.ts";
+import { previewLinks } from "../../shared/markdown.ts";
+import type { LinkEmbed } from "./unfurl.ts";
 import { CLIP_MIME, CLIP_URL_PREFIX, imageUrlPrefix, type ClipType, type ServerImageKind, type UserImageKind } from "./media.ts";
 
 export interface PublicUser {
@@ -134,6 +136,8 @@ export interface Message {
   mentionsEveryone: boolean;
   /** When it was pinned to the channel, or null. */
   pinnedAt: number | null;
+  /** Previews of the links in it (filled in a moment after it's sent). */
+  embeds: LinkEmbed[];
 }
 
 export interface ReplyPreview {
@@ -312,6 +316,7 @@ const toMessage = (r: Row): Message => ({
   mentions: typeof r.mentions === "string" ? (JSON.parse(r.mentions) as string[]) : [],
   mentionsEveryone: !!r.mention_everyone,
   pinnedAt: (r.pinned_at as number | null) ?? null,
+  embeds: [],
 });
 
 const MESSAGE_SELECT = `SELECT m.*, u.username, u.display_name, u.avatar, u.profile_banner FROM messages m JOIN users u ON u.id = m.author_id`;
@@ -1368,6 +1373,24 @@ export function createStore(db: DB) {
       return true;
     },
 
+    /** Links of this message whose preview is missing or older than `maxAge`. */
+    stalePreviews(content: string, maxAge: number): string[] {
+      const links = previewLinks(content);
+      if (!links.length) return [];
+      const fresh = new Set(
+        (db.prepare(`SELECT url FROM link_previews WHERE url IN (${links.map(() => "?").join(",")}) AND fetched_at > ?`).all(...links, Date.now() - maxAge) as Row[]).map(
+          (r) => r.url as string,
+        ),
+      );
+      return links.filter((u) => !fresh.has(u));
+    },
+
+    savePreview(url: string, embed: LinkEmbed | null): void {
+      db.prepare(
+        "INSERT INTO link_previews (url, data, fetched_at) VALUES (?, ?, ?) ON CONFLICT (url) DO UPDATE SET data = excluded.data, fetched_at = excluded.fetched_at",
+      ).run(url, embed ? JSON.stringify(embed) : null, Date.now());
+    },
+
     pinnedMessages(channelId: string): Message[] {
       const rows = db.prepare(`${MESSAGE_SELECT} WHERE m.channel_id = ? AND m.pinned_at IS NOT NULL ORDER BY m.pinned_at DESC`).all(channelId) as Row[];
       return hydrate(rows.map(toMessage));
@@ -1452,6 +1475,17 @@ export function createStore(db: DB) {
       db.prepare(`SELECT * FROM reactions WHERE message_id IN (${marks}) ORDER BY created_at`).all(...msgs.map((m) => m.id)) as Row[],
     );
     for (const m of msgs) m.reactions = reactions.get(m.id) ?? [];
+    // Link previews, from the cache by URL.
+    const links = new Map(msgs.map((m) => [m.id, previewLinks(m.content)]));
+    const urls = [...new Set([...links.values()].flat())];
+    if (urls.length) {
+      const cached = new Map(
+        (db.prepare(`SELECT url, data FROM link_previews WHERE data IS NOT NULL AND url IN (${urls.map(() => "?").join(",")})`).all(...urls) as Row[]).map(
+          (r) => [r.url as string, JSON.parse(r.data as string) as LinkEmbed],
+        ),
+      );
+      for (const m of msgs) m.embeds = (links.get(m.id) ?? []).flatMap((u) => cached.get(u) ?? []);
+    }
 
     // Replies: a short preview of each original (it may live on an older page, or be gone).
     const replyIds = [...new Set(msgs.flatMap((m) => (m.replyTo ? [m.replyTo.id] : [])))];

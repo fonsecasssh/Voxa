@@ -42,6 +42,17 @@ export interface Channel {
   roleIds: string[];
 }
 
+export interface LinkEmbed {
+  url: string;
+  kind: "link" | "image" | "youtube";
+  title: string | null;
+  description: string | null;
+  image: string | null;
+  siteName: string | null;
+  color: string | null;
+  youtubeId?: string;
+}
+
 export interface Category {
   id: string;
   serverId: string;
@@ -83,6 +94,8 @@ export interface Message {
   mentionsEveryone: boolean;
   /** When it was pinned to the channel, or null. */
   pinnedAt: number | null;
+  /** Previews of the links in it (they arrive a moment after the message). */
+  embeds: LinkEmbed[];
   /** Only on live "message:new" events: the server of the channel (null in DMs). */
   serverId?: string | null;
 }

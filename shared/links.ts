@@ -6,7 +6,8 @@
 
 export type MessagePart = { type: "text"; text: string } | { type: "link"; text: string; href: string };
 
-const LINK = /\b(?:https?:\/\/|www\.)[^\s<>"]+/gi;
+// A backtick ends a link: `https://x.com` is code, not a link followed by "`".
+const LINK = /\b(?:https?:\/\/|www\.)[^\s<>"`]+/gi;
 const TRAILING = /[.,;:!?'*_~]+$/;
 
 /** Trims sentence punctuation and unbalanced closing brackets off the end of a candidate link. */
