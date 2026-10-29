@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { api, type Friend, type Presence, type User } from "../api.ts";
 import { Avatar, presenceText } from "./Avatar.tsx";
+import { PresenceLine } from "./CustomStatus.tsx";
 import { MobileNavButton } from "./MobileNav.tsx";
 import { useBlocked } from "../blocking.ts";
 
@@ -90,13 +91,17 @@ export function FriendsView({ friends, presence, onOpenDm }: Props) {
                     <strong className="ellipsis">
                       {f.user.displayName} <span className="muted small">@{f.user.username}</span>
                     </strong>
-                    <span className="muted small ellipsis">
-                      {f.state === "incoming"
-                        ? "Pedido de amizade recebido"
-                        : f.state === "outgoing"
-                          ? "Pedido de amizade enviado"
-                          : presenceText(presence[f.user.id])}
-                    </span>
+                    {f.state === "accepted" && (presence[f.user.id]?.custom || presence[f.user.id]?.activity) ? (
+                      <PresenceLine presence={presence[f.user.id]} />
+                    ) : (
+                      <span className="muted small ellipsis">
+                        {f.state === "incoming"
+                          ? "Pedido de amizade recebido"
+                          : f.state === "outgoing"
+                            ? "Pedido de amizade enviado"
+                            : presenceText(presence[f.user.id])}
+                      </span>
+                    )}
                   </div>
                   <div className="friend-actions">
                     {f.state === "accepted" && (

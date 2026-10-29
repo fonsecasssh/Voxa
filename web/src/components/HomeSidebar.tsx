@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { dmTitle, type DmSummary, type Presence } from "../api.ts";
 import { navigate } from "../router.ts";
 import type { VoiceMember } from "../voice/types.ts";
-import { presenceText } from "./Avatar.tsx";
+import { PresenceLine } from "./CustomStatus.tsx";
 import { DmAvatar } from "./DmParts.tsx";
 import { Icon } from "./Icon.tsx";
 import { isMuted, type NotifySettings } from "../notifications.ts";
@@ -67,7 +67,7 @@ export function HomeSidebar({ dms, presence, unread, activeChannelId, pendingCou
                   {d.group ? (
                     <span className="muted small ellipsis">{d.members.length + 1} membros</span>
                   ) : (
-                    p?.activity && <span className="muted small ellipsis">{presenceText(p)}</span>
+                    <PresenceLine presence={p} />
                   )}
                 </span>
                 {inCall && (

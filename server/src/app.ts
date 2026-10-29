@@ -6,7 +6,7 @@ import path from "node:path";
 import { Server as IOServer } from "socket.io";
 import { hashPassword, verifyPassword } from "./auth.ts";
 import type { DB } from "./db.ts";
-import { FILE_URL_PREFIX, MAX_GROUP_DM, createStore, toFileAttachment, type Channel, type DmSummary, type FileKind, type PublicUser, type Store, type UserStatus } from "./store.ts";
+import { FILE_URL_PREFIX, MAX_GROUP_DM, createStore, toFileAttachment, type Channel, type CustomStatus, type DmSummary, type FileKind, type PublicUser, type Store, type UserStatus } from "./store.ts";
 import { registerRealtime } from "./realtime.ts";
 import { createIceProvider, type IceProvider } from "./ice.ts";
 import { failureLimiter, rateLimit } from "./rateLimit.ts";
@@ -417,6 +417,7 @@ export function createApp({ db, webDist, ice = createIceProvider(), trustProxy =
       servers: store.serversForUser(me),
       status: store.getStatus(me),
       activity: store.getActivity(me),
+      customStatus: store.getCustomStatus(me),
       // What this server has turned on, so the app can show or hide it.
       features: { gifs: !!gifs, email: !!mail, push: !!push },
       unread: store.unreadFor(me, [
@@ -451,18 +452,42 @@ export function createApp({ db, webDist, ice = createIceProvider(), trustProxy =
 
   app.patch("/api/me/presence", requireAuth, (req, res) => {
     const me = req.user!.id;
-    const { status, activity } = req.body ?? {};
+    const { status, activity, custom } = req.body ?? {};
     if (status !== undefined) {
       if (!STATUSES.includes(status)) throw new HttpError(400, "Status inválido.");
       store.setStatus(me, status);
     }
-    if (activity !== undefined) {
-      realtime.setActivity(me, activity === null || activity === "" ? null : str(activity, "atividade", 1, 128));
-    } else {
-      realtime.broadcastPresence(me);
-    }
-    res.json({ status: store.getStatus(me), presence: realtime.presenceOf(me) });
+    // Checked before anything changes, so a bad one changes nothing.
+    const customStatus = custom === undefined ? undefined : parseCustomStatus(me, custom);
+    if (activity !== undefined) realtime.setActivity(me, activity === null || activity === "" ? null : str(activity, "atividade", 1, 128));
+    if (customStatus !== undefined) realtime.setCustomStatus(me, customStatus);
+    if (activity === undefined && customStatus === undefined) realtime.broadcastPresence(me);
+    res.json({ status: store.getStatus(me), presence: realtime.presenceOf(me), customStatus: store.getCustomStatus(me) });
   });
+
+  /** A custom status from the request: text and/or an emoji (one of the user's custom ones, or unicode). */
+  function parseCustomStatus(userId: string, body: unknown): CustomStatus | null {
+    if (body === null) return null;
+    if (typeof body !== "object") throw new HttpError(400, "Status personalizado inválido.");
+    const { text, emoji, expiresAt } = body as Record<string, unknown>;
+    const t = text === undefined || text === null || (typeof text === "string" && !text.trim()) ? null : str(text, "status", 1, 128);
+    let e: string | null = null;
+    if (emoji !== undefined && emoji !== null && emoji !== "") {
+      if (typeof emoji !== "string") throw new HttpError(400, "Emoji inválido.");
+      const m = CUSTOM_EMOJI.exec(emoji);
+      if (m) {
+        if (!store.emojisForUser(userId).some((x) => x.id === m[2])) throw new HttpError(400, "Emoji desconhecido.");
+      } else if (!isEmoji(emoji)) {
+        throw new HttpError(400, "Emoji inválido.");
+      }
+      e = emoji;
+    }
+    if (expiresAt !== undefined && expiresAt !== null && (typeof expiresAt !== "number" || !Number.isFinite(expiresAt) || expiresAt <= Date.now())) {
+      throw new HttpError(400, "Data de expiração inválida.");
+    }
+    if (!t && !e) return null;
+    return { text: t, emoji: e, expiresAt: (expiresAt as number | null | undefined) ?? null };
+  }
 
   // --- friends ----------------------------------------------------------------
   app.get("/api/friends", requireAuth, (req, res) => {

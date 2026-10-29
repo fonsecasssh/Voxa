@@ -168,7 +168,7 @@ describe("presence", () => {
 
     const invisible = next<P>(sb, "presence", forA);
     await api("PATCH", "/api/me/presence", { status: "invisible" }, a.token);
-    expect((await invisible).presence).toEqual({ status: "offline", activity: null });
+    expect((await invisible).presence).toEqual({ status: "offline", activity: null, custom: null });
     expect((await api("GET", "/api/me", undefined, a.token)).body.status).toBe("invisible");
     expect((await api("PATCH", "/api/me/presence", { status: "away" }, a.token)).status).toBe(400);
 
@@ -182,6 +182,49 @@ describe("presence", () => {
     const sa2 = await socketFor(a.token);
     expect((await back).presence.activity?.name).toBe("Valorant");
     sa2.close();
+    sb.close();
+  });
+});
+
+describe("custom status", () => {
+  it("sets, validates, shows and expires a custom status", async () => {
+    const a = await register("cs_a");
+    const b = await register("cs_b");
+    await api("POST", "/api/friends", { username: "cs_b" }, a.token);
+    await api("POST", `/api/friends/${a.user.id}/accept`, undefined, b.token);
+    const sa = await socketFor(a.token);
+    const sb = await socketFor(b.token);
+    type P = { userId: string; presence: { status: string; custom: { text: string | null; emoji: string | null; expiresAt: number | null } | null } };
+    const forA = (p: P) => p.userId === a.user.id;
+
+    const set = next<P>(sb, "presence", forA);
+    const r = await api("PATCH", "/api/me/presence", { custom: { text: "  Estudando  ", emoji: "📚" } }, a.token);
+    expect(r.status).toBe(200);
+    expect(r.body.customStatus).toEqual({ text: "Estudando", emoji: "📚", expiresAt: null });
+    expect((await set).presence.custom).toEqual({ text: "Estudando", emoji: "📚", expiresAt: null });
+    expect((await api("GET", "/api/me", undefined, a.token)).body.customStatus?.text).toBe("Estudando");
+    expect((await api("GET", "/api/friends", undefined, b.token)).body.presence[a.user.id].custom.emoji).toBe("📚");
+
+    // Bad input changes nothing.
+    for (const custom of [{ text: "x".repeat(129) }, { emoji: "abc" }, { emoji: `<:nope:${"0".repeat(8)}-0000-0000-0000-${"0".repeat(12)}>` }, { text: "a", expiresAt: Date.now() - 1 }, "texto"]) {
+      expect((await api("PATCH", "/api/me/presence", { custom }, a.token)).status).toBe(400);
+    }
+    expect((await api("GET", "/api/me", undefined, a.token)).body.customStatus?.text).toBe("Estudando");
+
+    // Emoji only is fine; empty is the same as clearing it.
+    expect((await api("PATCH", "/api/me/presence", { custom: { text: "", emoji: "🎮" } }, a.token)).body.customStatus).toEqual({ text: null, emoji: "🎮", expiresAt: null });
+    const cleared = next<P>(sb, "presence", (p) => forA(p) && p.presence.custom === null);
+    expect((await api("PATCH", "/api/me/presence", { custom: { text: " " } }, a.token)).body.customStatus).toBeNull();
+    await cleared;
+
+    // It goes away by itself when it expires, and everyone hears about it.
+    const shown = next<P>(sb, "presence", (p) => forA(p) && !!p.presence.custom);
+    await api("PATCH", "/api/me/presence", { custom: { text: "Já volto", expiresAt: Date.now() + 300 } }, a.token);
+    await shown;
+    const expired = next<P>(sb, "presence", (p) => forA(p) && p.presence.custom === null);
+    await expired;
+    expect((await api("GET", "/api/me", undefined, a.token)).body.customStatus).toBeNull();
+    sa.close();
     sb.close();
   });
 });

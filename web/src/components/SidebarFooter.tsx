@@ -2,7 +2,7 @@
 // mic / headphone toggles and the status menu.
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import type { Activity, User, UserStatus } from "../api.ts";
+import type { Activity, CustomStatus, User, UserStatus } from "../api.ts";
 import { navigate } from "../router.ts";
 import { useVoice } from "../voice/useVoice.ts";
 import { DOWNLOAD_URL, desktop } from "../desktop.ts";
@@ -12,11 +12,13 @@ import { useAudioSettings } from "../voice/useAudioSettings.ts";
 import { audioSettings, bindingLabel, type NoiseSuppression } from "../voice/audioSettings.ts";
 import { replay, useReplay } from "../replay/replay.ts";
 import { useReplaySettings } from "../replay/useReplaySettings.ts";
+import { CustomStatusModal, StatusEmoji, activeCustom } from "./CustomStatus.tsx";
 
 interface Props {
   user: User;
   status: UserStatus;
   activity: Activity | null;
+  customStatus: CustomStatus | null;
   /** Where the active voice connection is, e.g. "Geral / Squad", and its URL. */
   voiceLocation: { label: string; path: string } | null;
   setPresence: SetPresence;
@@ -27,15 +29,17 @@ interface Props {
   onLogout: () => void;
 }
 
-export type SetPresence = (patch: { status?: UserStatus; activity?: string | null }) => Promise<void>;
+export type SetPresence = (patch: { status?: UserStatus; activity?: string | null; custom?: CustomStatus | null }) => Promise<void>;
 
-export function SidebarFooter({ user, status, activity, voiceLocation, setPresence, onEditProfile, onVoiceSettings, onReplay, onAppSettings, onLogout }: Props) {
+export function SidebarFooter({ user, status, activity, customStatus, voiceLocation, setPresence, onEditProfile, onVoiceSettings, onReplay, onAppSettings, onLogout }: Props) {
   const [voice, vs] = useVoice();
   const rp = useReplay();
   const replaySettings = useReplaySettings();
   const replayOn = rp.status !== "off";
   const settings = useAudioSettings();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [editingCustom, setEditingCustom] = useState(false);
+  const custom = activeCustom(customStatus);
   const inVoice = vs.status !== "idle";
   const connected = vs.status === "connected";
   const micOff = vs.muted || vs.deafened;
@@ -158,11 +162,20 @@ export function SidebarFooter({ user, status, activity, voiceLocation, setPresen
         </section>
       )}
 
+      {editingCustom && (
+        <CustomStatusModal current={custom} onSave={(c) => setPresence({ custom: c })} onClose={() => setEditingCustom(false)} />
+      )}
+
       <footer className="user-panel">
         {menuOpen && (
           <StatusMenu
             status={status}
             activity={activity}
+            hasCustom={!!custom}
+            onCustom={() => {
+              setMenuOpen(false);
+              setEditingCustom(true);
+            }}
             setPresence={setPresence}
             onClose={() => setMenuOpen(false)}
             onLogout={onLogout}
@@ -184,7 +197,14 @@ export function SidebarFooter({ user, status, activity, voiceLocation, setPresen
           <Avatar name={user.displayName} id={user.id} size={32} status={status === "invisible" ? "offline" : status} src={user.avatar} />
           <span className="user-names">
             <strong className="ellipsis">{user.displayName}</strong>
-            <span className="muted small ellipsis">{activity ? `Jogando ${activity.name}` : STATUS_LABEL[status]}</span>
+            {custom ? (
+              <span className="muted small ellipsis custom-status">
+                {custom.emoji && <StatusEmoji emoji={custom.emoji} size={14} />}
+                {custom.text && <span className="ellipsis">{custom.text}</span>}
+              </span>
+            ) : (
+              <span className="muted small ellipsis">{activity ? `Jogando ${activity.name}` : STATUS_LABEL[status]}</span>
+            )}
           </span>
         </button>
         <div className={`split-btn ${micOff ? "off" : ""}`}>
@@ -231,6 +251,8 @@ const STATUS_OPTIONS: { value: UserStatus; hint?: string }[] = [
 function StatusMenu({
   status,
   activity,
+  hasCustom,
+  onCustom,
   setPresence,
   onClose,
   onLogout,
@@ -240,6 +262,8 @@ function StatusMenu({
 }: {
   status: UserStatus;
   activity: Activity | null;
+  hasCustom: boolean;
+  onCustom: () => void;
   setPresence: SetPresence;
   onClose: () => void;
   onLogout: () => void;
@@ -298,6 +322,11 @@ function StatusMenu({
           </span>
         </button>
       ))}
+      <hr />
+      <button className="status-option" onClick={onCustom}>
+        <span aria-hidden>🙂</span>
+        {hasCustom ? "Editar status personalizado" : "Definir status personalizado"}
+      </button>
       <hr />
       <form onSubmit={saveGame} className="game-form">
         <label>

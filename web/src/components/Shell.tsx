@@ -7,6 +7,7 @@ import {
   dmTitle,
   getToken,
   type Activity,
+  type CustomStatus,
   type DmSummary,
   type Friend,
   type Message,
@@ -82,6 +83,7 @@ interface Props {
   setUser: (user: User) => void;
   initialStatus: UserStatus;
   initialActivity: Activity | null;
+  initialCustomStatus: CustomStatus | null;
   initialUnread: Record<string, { mentions: number; serverId: string | null }>;
   initialNotify: NotifySettings;
   initialBlocked: string[];
@@ -126,6 +128,7 @@ export function Shell({
   setUser,
   initialStatus,
   initialActivity,
+  initialCustomStatus,
   initialUnread,
   initialNotify,
   initialBlocked,
@@ -190,6 +193,7 @@ export function Shell({
   );
   const [myStatus, setMyStatus] = useState<UserStatus>(initialStatus);
   const [myActivity, setMyActivity] = useState<Activity | null>(initialActivity);
+  const [myCustomStatus, setMyCustomStatus] = useState<CustomStatus | null>(initialCustomStatus);
   const [modal, setModal] = useState<ModalKind>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   /** A short message at the top of the window (e.g. "you were removed from the server"). */
@@ -411,7 +415,10 @@ export function Shell({
 
     socket.on("presence", ({ userId, presence: p }) => {
       applyPresenceEvent(userId, p);
-      if (userId === user.id && p.status !== "offline") setMyActivity(p.activity);
+      if (userId === user.id && p.status !== "offline") {
+        setMyActivity(p.activity);
+        setMyCustomStatus(p.custom ?? null);
+      }
     });
 
     socket.on("friend:update", ({ user: u, state, presence: p }) => {
@@ -728,6 +735,7 @@ export function Shell({
   const setPresence: SetPresence = async (patch) => {
     const r = await api.setPresence(patch);
     setMyStatus(r.status);
+    setMyCustomStatus(r.customStatus);
     // While invisible the server reports us as offline with no activity, but the activity is kept.
     if (patch.activity !== undefined) {
       setMyActivity(patch.activity ? (r.presence.activity ?? { name: patch.activity, startedAt: Date.now() }) : null);
@@ -757,6 +765,7 @@ export function Shell({
       user={user}
       status={myStatus}
       activity={myActivity}
+      customStatus={myCustomStatus}
       setPresence={setPresence}
       onEditProfile={() => setModal({ kind: "profile" })}
       onVoiceSettings={() => setModal({ kind: "voiceSettings" })}

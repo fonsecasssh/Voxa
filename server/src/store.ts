@@ -89,6 +89,13 @@ export interface Invite {
   createdAt: number;
 }
 
+/** Text and/or emoji (a unicode emoji or a custom emoji token) the user shows, until expiresAt. */
+export interface CustomStatus {
+  text: string | null;
+  emoji: string | null;
+  expiresAt: number | null;
+}
+
 export type UserStatus = "online" | "idle" | "dnd" | "invisible";
 
 export type FriendState = "accepted" | "incoming" | "outgoing";
@@ -640,6 +647,18 @@ export function createStore(db: DB) {
     setActivity(userId: string, activity: { name: string; startedAt: number } | null): void {
       db.prepare("UPDATE users SET activity_name = ?, activity_started_at = ? WHERE id = ?")
         .run(activity?.name ?? null, activity?.startedAt ?? null, userId);
+    },
+
+    /** The custom status, unless it has expired. */
+    getCustomStatus(userId: string): CustomStatus | null {
+      const r = db.prepare("SELECT custom_status FROM users WHERE id = ?").get(userId) as Row | undefined;
+      if (!r?.custom_status) return null;
+      const c = JSON.parse(r.custom_status as string) as CustomStatus;
+      return c.expiresAt !== null && c.expiresAt <= Date.now() ? null : c;
+    },
+
+    setCustomStatus(userId: string, custom: CustomStatus | null): void {
+      db.prepare("UPDATE users SET custom_status = ? WHERE id = ?").run(custom ? JSON.stringify(custom) : null, userId);
     },
 
     // --- friends ----------------------------------------------------------

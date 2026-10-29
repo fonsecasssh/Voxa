@@ -167,9 +167,17 @@ export interface Activity {
   startedAt: number;
 }
 
+/** Text and/or emoji (unicode, or a custom emoji token) shown under the name, until expiresAt. */
+export interface CustomStatus {
+  text: string | null;
+  emoji: string | null;
+  expiresAt: number | null;
+}
+
 export interface Presence {
   status: PresenceStatus;
   activity: Activity | null;
+  custom?: CustomStatus | null;
 }
 
 export type FriendState = "accepted" | "incoming" | "outgoing";
@@ -292,6 +300,7 @@ export const api = {
       servers: Server[];
       status: UserStatus;
       activity: Activity | null;
+      customStatus?: CustomStatus | null;
       features?: { gifs: boolean; email: boolean; push: boolean };
       /** Channels with unseen messages (and how many mention you). */
       unread: Record<string, { mentions: number; serverId: string | null }>;
@@ -329,8 +338,8 @@ export const api = {
   removeEmail: () => request<void>("DELETE", "/api/me/email"),
   gifs: (query: string, offset = 0) =>
     request<{ gifs: Gif[] }>("GET", `/api/gifs?${new URLSearchParams({ q: query, offset: String(offset) })}`),
-  setPresence: (patch: { status?: UserStatus; activity?: string | null }) =>
-    request<{ status: UserStatus; presence: Presence }>("PATCH", "/api/me/presence", patch),
+  setPresence: (patch: { status?: UserStatus; activity?: string | null; custom?: CustomStatus | null }) =>
+    request<{ status: UserStatus; presence: Presence; customStatus: CustomStatus | null }>("PATCH", "/api/me/presence", patch),
 
   friends: () => request<{ friends: Friend[]; presence: Record<string, Presence> }>("GET", "/api/friends"),
   addFriend: (username: string) => request<{ state: FriendState; user: User }>("POST", "/api/friends", { username }),

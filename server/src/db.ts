@@ -396,6 +396,11 @@ const MIGRATIONS: string[] = [
   CREATE INDEX channels_by_parent ON channels(parent_id) WHERE parent_id IS NOT NULL;
   CREATE INDEX channels_by_starter ON channels(starter_message_id) WHERE starter_message_id IS NOT NULL;
   `,
+
+  // 21: custom status ("Status personalizado"): JSON {text, emoji, expiresAt}.
+  `
+  ALTER TABLE users ADD COLUMN custom_status TEXT;
+  `,
 ];
 
 /** The schema version a fully migrated database has. */

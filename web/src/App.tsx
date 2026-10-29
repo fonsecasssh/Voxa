@@ -73,6 +73,7 @@ export function App() {
       setUser={setUser}
       initialStatus={session.status}
       initialActivity={session.activity}
+      initialCustomStatus={session.customStatus ?? null}
       initialUnread={session.unread}
       initialNotify={session.notify}
       initialBlocked={session.blocked}

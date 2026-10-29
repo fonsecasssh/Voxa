@@ -10,7 +10,7 @@
 // everyone who shares a server with the user, and to their friends.
 
 import type { Server as IOServer, Socket } from "socket.io";
-import type { Channel, PublicUser, Store } from "./store.ts";
+import type { Channel, CustomStatus, PublicUser, Store } from "./store.ts";
 import { createVoice } from "./voice.ts";
 import type { Sfu } from "./livekit.ts";
 
@@ -26,9 +26,10 @@ export interface Activity {
 export interface Presence {
   status: "online" | "idle" | "dnd" | "offline";
   activity: Activity | null;
+  custom: CustomStatus | null;
 }
 
-const OFFLINE: Presence = { status: "offline", activity: null };
+const OFFLINE: Presence = { status: "offline", activity: null, custom: null };
 
 export function registerRealtime(
   io: IOServer,
@@ -39,12 +40,14 @@ export function registerRealtime(
   const voice = createVoice(io, store, sfu, onRing);
   // Number of open sockets per user; a user is connected while this is > 0.
   const connections = new Map<string, number>();
+  // Tells everyone when a custom status runs out (presenceOf already hides an expired one).
+  const expiryTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
   const presenceOf = (userId: string): Presence => {
     if (!connections.has(userId)) return OFFLINE;
     const status = store.getStatus(userId);
     if (status === "invisible") return OFFLINE;
-    return { status, activity: store.getActivity(userId) };
+    return { status, activity: store.getActivity(userId), custom: store.getCustomStatus(userId) };
   };
 
   /** Rooms that should hear about this user's presence. */
@@ -127,6 +130,22 @@ export function registerRealtime(
       if (name === null) store.setActivity(userId, null);
       // Keep the start time when the same activity is reported again (the desktop app re-sends it).
       else if (current?.name !== name) store.setActivity(userId, { name, startedAt: Date.now() });
+      broadcastPresence(userId);
+    },
+    setCustomStatus(userId: string, custom: CustomStatus | null) {
+      store.setCustomStatus(userId, custom);
+      clearTimeout(expiryTimers.get(userId));
+      expiryTimers.delete(userId);
+      // setTimeout can't wait longer than ~24.8 days; a later expiry is caught by presenceOf.
+      const wait = custom?.expiresAt ? custom.expiresAt - Date.now() : 0;
+      if (wait > 0 && wait < 2 ** 31) {
+        const timer = setTimeout(() => {
+          expiryTimers.delete(userId);
+          broadcastPresence(userId);
+        }, wait + 50);
+        timer.unref?.();
+        expiryTimers.set(userId, timer);
+      }
       broadcastPresence(userId);
     },
     channelRooms,

@@ -4572,3 +4572,78 @@ kbd {
 .thread-parent::after {
   content: " ›";
 }
+
+/* --- custom status --------------------------------------------------------- */
+.custom-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  max-width: 100%;
+}
+.custom-status .custom-emoji,
+.custom-status .status-emoji {
+  flex-shrink: 0;
+}
+.status-emoji {
+  line-height: 1;
+}
+.custom-status-modal form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.custom-status-input {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  padding: 0 6px;
+  border-radius: 8px;
+  background: var(--bg-input);
+}
+.custom-status-input input {
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: normal;
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  background: transparent;
+  border: 0;
+}
+.custom-status-emoji-btn,
+.custom-status-clear {
+  flex-shrink: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 6px;
+  font-size: 18px;
+  color: var(--text-muted);
+}
+.custom-status-emoji-btn:hover,
+.custom-status-clear:hover {
+  background: var(--bg-hover);
+}
+.custom-status-clear {
+  font-size: 13px;
+}
+.custom-status-modal .emoji-picker {
+  position: relative;
+  right: auto;
+  bottom: auto;
+  width: 100%;
+  max-width: none;
+  height: 320px;
+  box-shadow: none;
+}
+.member-card .custom-status-line {
+  display: flex;
+  margin: 6px 0 0;
+}

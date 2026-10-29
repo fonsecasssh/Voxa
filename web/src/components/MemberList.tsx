@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from "re
 import { api, type Presence, type Role, type ServerDetails, type User } from "../api.ts";
 import { Permission, can, memberColor, memberName, memberRoles, myPermissions, myTop, outranks } from "../members.ts";
 import { Avatar, presenceText } from "./Avatar.tsx";
+import { PresenceLine, StatusEmoji, activeCustom } from "./CustomStatus.tsx";
 import { useBlocked } from "../blocking.ts";
 
 interface Props {
@@ -58,7 +59,7 @@ export function MemberList({ details, presence, selfId, onOpenDm }: Props) {
                       </span>
                     )}
                   </span>
-                  {p?.activity && <span className="muted small ellipsis">Jogando {p.activity.name}</span>}
+                  <PresenceLine presence={p} />
                 </span>
               </button>
             );
@@ -120,6 +121,7 @@ export function MemberCard({
   const canKick = !isSelf && can(perms, Permission.KICK_MEMBERS) && outranks(details, selfId, user.id);
   const canBan = !isSelf && can(perms, Permission.BAN_MEMBERS) && outranks(details, selfId, user.id);
   const isBlocked = useBlocked().has(user.id);
+  const custom = activeCustom(presence?.custom);
 
   // Keep the card inside the window.
   useLayoutEffect(() => {
@@ -169,6 +171,12 @@ export function MemberCard({
         <p className="muted small">
           {name !== user.displayName && <>{user.displayName} · </>}@{user.username}
         </p>
+        {custom && (
+          <p className="small custom-status custom-status-line">
+            {custom.emoji && <StatusEmoji emoji={custom.emoji} size={18} />}
+            {custom.text && <span>{custom.text}</span>}
+          </p>
+        )}
         {presence?.activity && <p className="small activity-line">{presenceText(presence)}</p>}
 
         {editingNick && (
