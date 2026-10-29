@@ -3,6 +3,7 @@
 import { THEMES, appSettings } from "../appSettings.ts";
 import { SOUND_LABELS, SOUND_STYLES, playSound, type SoundName } from "../sounds.ts";
 import { useAppSettings } from "../useAppSettings.ts";
+import { DEFAULT_SOUNDS, playBoardSound } from "../soundboard.ts";
 import { Icon } from "./Icon.tsx";
 import { Modal } from "./Modals.tsx";
 import { install, isIos, isStandalone, useCanInstall } from "../pwa.ts";
@@ -148,6 +149,21 @@ export function AppSettingsModal({ onClose }: { onClose: () => void }) {
           </button>
         ))}
       </div>
+
+      <label className="volume-row">
+        Soundboard
+        <input
+          type="range"
+          min={0}
+          max={1}
+          step={0.05}
+          value={settings.soundboardVolume}
+          onChange={(e) => appSettings.update({ soundboardVolume: Number(e.target.value) })}
+          onPointerUp={() => playBoardSound({ ...DEFAULT_SOUNDS[5], volume: 1, url: null })}
+          aria-label="Volume do soundboard"
+        />
+        <span className="muted small">{settings.soundboardVolume ? `${Math.round(settings.soundboardVolume * 100)}%` : "Desligado"}</span>
+      </label>
 
       <PushSection />
       <InstallSection />

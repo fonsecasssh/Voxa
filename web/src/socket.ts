@@ -1,6 +1,7 @@
 import { io, type Socket } from "socket.io-client";
-import type { Category, Channel, CustomEmoji, DmSummary, FriendState, MemberData, Message, Poll, Presence, Role, Server, User, Reaction } from "./api.ts";
+import type { Category, Channel, CustomEmoji, DmSummary, FriendState, MemberData, Message, Poll, Presence, Role, Server, Sound, User, Reaction } from "./api.ts";
 import type { VoiceMember } from "./voice/types.ts";
+import type { PlayedSound } from "./soundboard.ts";
 import type { NotifySettings } from "./notifications.ts";
 
 export interface ServerToClient {
@@ -41,6 +42,9 @@ export interface ServerToClient {
   "voice:update": (p: { serverId: string | null; channelId: string; members: VoiceMember[] }) => void;
   "voice:signal": (p: { from: string; data: unknown }) => void;
   "voice:replaced": () => void;
+  /** Someone in our voice channel played a soundboard sound. */
+  "soundboard:play": (p: { channelId: string; socketId: string; userId: string; sound: PlayedSound }) => void;
+  "sounds:update": (p: { serverId: string; sounds: Sound[] }) => void;
 }
 
 export type VoiceJoinResult =
@@ -54,6 +58,7 @@ export interface ClientToServer {
   "voice:leave": () => void;
   "voice:state": (p: { muted: boolean; deafened: boolean; screenStreamId: string | null; cameraStreamId: string | null }) => void;
   "voice:signal": (p: { to: string; data: unknown }) => void;
+  "soundboard:play": (p: { soundId: string }, ack: (r: { ok: true } | { error: string }) => void) => void;
 }
 
 export type AppSocket = Socket<ServerToClient, ClientToServer>;

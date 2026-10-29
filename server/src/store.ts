@@ -64,6 +64,17 @@ export interface CustomEmoji {
   url: string;
 }
 
+/** A soundboard sound of a server. */
+export interface Sound {
+  id: string;
+  serverId: string;
+  name: string;
+  emoji: string | null;
+  /** 0 to 1, applied on top of each listener's soundboard volume. */
+  volume: number;
+  url: string;
+}
+
 export interface Category {
   id: string;
   serverId: string;
@@ -325,6 +336,15 @@ const toEmoji = (r: Row): CustomEmoji => ({
   name: r.name as string,
   animated: r.animated === 1,
   url: `/api/emojis/${r.id as string}/image`,
+});
+
+const toSound = (r: Row): Sound => ({
+  id: r.id as string,
+  serverId: r.server_id as string,
+  name: r.name as string,
+  emoji: (r.emoji as string | null) ?? null,
+  volume: r.volume as number,
+  url: `/media/sounds/${r.file as string}`,
 });
 
 const toInvite = (r: Row): Invite => ({
@@ -1515,6 +1535,43 @@ export function createStore(db: DB) {
 
     deleteEmoji(id: string): void {
       db.prepare("DELETE FROM emojis WHERE id = ?").run(id);
+    },
+
+    // --- soundboard ----------------------------------------------------------
+    sounds(serverId: string): Sound[] {
+      return (db.prepare("SELECT * FROM sounds WHERE server_id = ? ORDER BY created_at").all(serverId) as Row[]).map(toSound);
+    },
+
+    soundById(id: string): (Sound & { file: string }) | null {
+      const r = db.prepare("SELECT * FROM sounds WHERE id = ?").get(id) as Row | undefined;
+      return r ? { ...toSound(r), file: r.file as string } : null;
+    },
+
+    soundNameTaken(serverId: string, name: string, exceptId = ""): boolean {
+      return db.prepare("SELECT 1 FROM sounds WHERE server_id = ? AND name = ? COLLATE NOCASE AND id != ?").get(serverId, name, exceptId) !== undefined;
+    },
+
+    addSound(serverId: string, sound: { name: string; emoji: string | null; file: string; volume: number }, creatorId: string): Sound {
+      const id = randomUUID();
+      db.prepare("INSERT INTO sounds (id, server_id, name, emoji, file, volume, creator_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").run(
+        id,
+        serverId,
+        sound.name,
+        sound.emoji,
+        sound.file,
+        sound.volume,
+        creatorId,
+        Date.now(),
+      );
+      return this.soundById(id)!;
+    },
+
+    updateSound(id: string, patch: { name: string; emoji: string | null; volume: number }): void {
+      db.prepare("UPDATE sounds SET name = ?, emoji = ?, volume = ? WHERE id = ?").run(patch.name, patch.emoji, patch.volume, id);
+    },
+
+    deleteSound(id: string): void {
+      db.prepare("DELETE FROM sounds WHERE id = ?").run(id);
     },
 
     /** Pins or unpins a message; false when the channel already has the maximum. */

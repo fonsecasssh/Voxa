@@ -8,7 +8,8 @@ import { hashPassword, verifyPassword } from "./auth.ts";
 import { HttpError, str } from "./http.ts";
 import type { registerRealtime } from "./realtime.ts";
 import type { ChannelType, Role, Server, Store } from "./store.ts";
-import { MAX_EMOJI_BYTES, MAX_GIF_BYTES, SERVER_IMAGE_KINDS, USER_IMAGE_KINDS, checkImage, detectImageType, type MediaStore } from "./media.ts";
+import { MAX_EMOJI_BYTES, MAX_GIF_BYTES, MAX_SOUND_BYTES, SERVER_IMAGE_KINDS, USER_IMAGE_KINDS, checkImage, detectImageType, detectSoundType, type MediaStore } from "./media.ts";
+import { isEmoji } from "./app.ts";
 
 interface Deps {
   app: Express;
@@ -555,6 +556,63 @@ export function registerAdminRoutes({ app, io, store, realtime, media, requireAu
     // Unless another emoji uses the same picture.
     if (!store.emojis(emoji.serverId).some((e) => store.emojiById(e.id)?.file === emoji.file)) media.remove("emoji", emoji.file);
     emitEmojis(emoji.serverId);
+    res.status(204).end();
+  });
+
+  // --- soundboard ---------------------------------------------------------------------
+  const MAX_SOUNDS = 30;
+  const soundFields = (raw: { name?: unknown; emoji?: unknown; volume?: unknown }) => {
+    const name = str(raw.name, "nome do som", 1, 32);
+    const emoji = raw.emoji === undefined || raw.emoji === null || raw.emoji === "" ? null : String(raw.emoji);
+    if (emoji !== null && !isEmoji(emoji)) throw new HttpError(400, "Emoji inválido.");
+    const volume = raw.volume === undefined || raw.volume === "" ? 1 : Number(raw.volume);
+    if (!Number.isFinite(volume) || volume < 0.05 || volume > 1) throw new HttpError(400, "Volume inválido.");
+    return { name, emoji, volume };
+  };
+  const emitSounds = (serverId: string) => io.to(`server:${serverId}`).emit("sounds:update", { serverId, sounds: store.sounds(serverId) });
+
+  app.get("/api/servers/:id/sounds", requireAuth, (req, res) => {
+    const server = requireMember(req, req.params.id as string);
+    res.json({ sounds: store.sounds(server.id) });
+  });
+
+  // The body is the audio file; name, emoji and volume travel in the query string.
+  app.post("/api/servers/:id/sounds", requireAuth, express.raw({ type: () => true, limit: MAX_SOUND_BYTES }), (req, res) => {
+    const { server, perms } = standing(req, req.params.id as string);
+    need(perms, Permission.MANAGE_EMOJIS, "Você não tem permissão para gerenciar os sons.");
+    const fields = soundFields(req.query);
+    if (store.sounds(server.id).length >= MAX_SOUNDS) throw new HttpError(400, `Um servidor pode ter até ${MAX_SOUNDS} sons.`);
+    if (store.soundNameTaken(server.id, fields.name)) throw new HttpError(409, `Já existe um som "${fields.name}" aqui.`);
+    const data = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+    const type = detectSoundType(data);
+    if (!type) throw new HttpError(400, "Envie um áudio MP3, OGG, WAV, WebM ou M4A.");
+    const sound = store.addSound(server.id, { ...fields, file: media.saveSound(server.id, data, type) }, req.user!.id);
+    emitSounds(server.id);
+    res.status(201).json({ sound });
+  });
+
+  const soundForManage = (req: Request) => {
+    const sound = store.soundById(req.params.id as string);
+    if (!sound) throw new HttpError(404, "Som não encontrado.");
+    const { perms } = standing(req, sound.serverId);
+    need(perms, Permission.MANAGE_EMOJIS, "Você não tem permissão para gerenciar os sons.");
+    return sound;
+  };
+
+  app.patch("/api/sounds/:id", requireAuth, (req, res) => {
+    const sound = soundForManage(req);
+    const fields = soundFields({ name: sound.name, emoji: sound.emoji, volume: sound.volume, ...req.body });
+    if (store.soundNameTaken(sound.serverId, fields.name, sound.id)) throw new HttpError(409, `Já existe um som "${fields.name}" aqui.`);
+    store.updateSound(sound.id, fields);
+    emitSounds(sound.serverId);
+    res.json({ sound: store.soundById(sound.id) });
+  });
+
+  app.delete("/api/sounds/:id", requireAuth, (req, res) => {
+    const sound = soundForManage(req);
+    store.deleteSound(sound.id);
+    if (!store.sounds(sound.serverId).some((x) => store.soundById(x.id)?.file === sound.file)) media.removeSound(sound.file);
+    emitSounds(sound.serverId);
     res.status(204).end();
   });
 }

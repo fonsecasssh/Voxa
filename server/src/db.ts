@@ -419,6 +419,21 @@ const MIGRATIONS: string[] = [
     PRIMARY KEY (message_id, user_id, option)
   );
   `,
+
+  // 23: soundboard: short sounds of a server, played into its voice channels.
+  `
+  CREATE TABLE sounds (
+    id         TEXT PRIMARY KEY,
+    server_id  TEXT NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+    name       TEXT NOT NULL,
+    emoji      TEXT,
+    file       TEXT NOT NULL,
+    volume     REAL NOT NULL DEFAULT 1,
+    creator_id TEXT,
+    created_at INTEGER NOT NULL
+  );
+  CREATE UNIQUE INDEX sounds_by_name ON sounds(server_id, name COLLATE NOCASE);
+  `,
 ];
 
 /** The schema version a fully migrated database has. */

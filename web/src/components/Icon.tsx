@@ -7,6 +7,7 @@ export type IconName =
   | "thread"
   | "pin"
   | "poll"
+  | "soundboard"
   | "search"
   | "bell"
   | "bellOff"
@@ -69,6 +70,13 @@ const ICONS: Record<IconName, ReactNode> = {
     <>
       <path d="M5 5h14v9H11l-4 3.5V14H5z" />
       <path d="M9 8.5h6M9 11h4" />
+    </>
+  ),
+  soundboard: (
+    <>
+      <path d="M4 9.5h3l4-3.5v12l-4-3.5H4z" />
+      <path d="M15 9a4 4 0 0 1 0 6" />
+      <path d="M18.5 4.5l.6 1.4 1.4.6-1.4.6-.6 1.4-.6-1.4-1.4-.6 1.4-.6z" />
     </>
   ),
   poll: <path d="M5 20V10M10 20V4M15 20v-7M20 20V8M3 20h18" />,

@@ -54,6 +54,17 @@ export interface CustomEmoji {
   url: string;
 }
 
+/** A soundboard sound of a server. */
+export interface Sound {
+  id: string;
+  serverId: string;
+  name: string;
+  emoji: string | null;
+  /** 0 to 1. */
+  volume: number;
+  url: string;
+}
+
 export interface LinkEmbed {
   url: string;
   kind: "link" | "image" | "youtube";
@@ -331,6 +342,15 @@ export const api = {
   addEmoji: (serverId: string, name: string, image: Blob) => request<{ emoji: CustomEmoji }>("POST", `/api/servers/${serverId}/emojis?name=${encodeURIComponent(name)}`, image),
   renameEmoji: (id: string, name: string) => request<{ emoji: CustomEmoji }>("PATCH", `/api/emojis/${id}`, { name }),
   deleteEmoji: (id: string) => request<void>("DELETE", `/api/emojis/${id}`),
+  sounds: (serverId: string) => request<{ sounds: Sound[] }>("GET", `/api/servers/${serverId}/sounds`),
+  addSound: (serverId: string, fields: { name: string; emoji: string | null; volume: number }, audio: Blob) =>
+    request<{ sound: Sound }>(
+      "POST",
+      `/api/servers/${serverId}/sounds?${new URLSearchParams({ name: fields.name, emoji: fields.emoji ?? "", volume: String(fields.volume) })}`,
+      audio,
+    ),
+  updateSound: (id: string, patch: { name?: string; emoji?: string | null; volume?: number }) => request<{ sound: Sound }>("PATCH", `/api/sounds/${id}`, patch),
+  deleteSound: (id: string) => request<void>("DELETE", `/api/sounds/${id}`),
   createThread: (channelId: string, name: string, messageId: string | null) =>
     request<{ channel: Channel }>("POST", `/api/channels/${channelId}/threads`, { name, messageId }),
   pins: (channelId: string) => request<{ messages: Message[] }>("GET", `/api/channels/${channelId}/pins`),

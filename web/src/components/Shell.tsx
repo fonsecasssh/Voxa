@@ -246,18 +246,28 @@ export function Shell({
     });
   }, [applyPresenceSnapshot]);
 
+  // Messages that arrive while a channel's latest page is loading: the page may have been read
+  // before they were sent, so they're added to it when it comes.
+  const arrivedWhileLoading = useRef(new Map<string, Message[]>());
   const loadMessages = useCallback(async (id: string, before?: number) => {
     const key = `messages:${id}:${before ?? "latest"}`;
     if (inFlight.current.has(key)) return;
     inFlight.current.add(key);
+    if (!before) arrivedWhileLoading.current.set(id, []);
     const { messages: page, lastReadAt } = await api.messages(id, before).finally(() => inFlight.current.delete(key));
+    const arrived = before ? [] : (arrivedWhileLoading.current.get(id) ?? []);
+    if (!before) arrivedWhileLoading.current.delete(id);
     setMessages((all) => {
-      const prev = before ? (all[id]?.items ?? []) : [];
-      const seen = new Set(prev.map((m) => m.id));
-      return {
-        ...all,
-        [id]: { items: [...page.filter((m) => !seen.has(m.id)), ...prev], hasMore: page.length >= 50, lastReadAt: lastReadAt ?? all[id]?.lastReadAt },
-      };
+      if (before) {
+        const prev = all[id]?.items ?? [];
+        const seen = new Set(prev.map((m) => m.id));
+        return { ...all, [id]: { items: [...page.filter((m) => !seen.has(m.id)), ...prev], hasMore: page.length >= 50, lastReadAt: lastReadAt ?? all[id]?.lastReadAt } };
+      }
+      const newest = page.at(-1)?.createdAt ?? -Infinity;
+      const seen = new Set(page.map((m) => m.id));
+      const live = [...arrived, ...(all[id]?.items ?? [])].filter((m) => m.createdAt >= newest && !seen.has(m.id) && (seen.add(m.id), true));
+      live.sort((a, b) => a.createdAt - b.createdAt);
+      return { ...all, [id]: { items: [...page, ...live], hasMore: page.length >= 50, lastReadAt: lastReadAt ?? all[id]?.lastReadAt } };
     });
   }, []);
 
@@ -294,6 +304,7 @@ export function Shell({
     });
 
     socket.on("message:new", (m) => {
+      arrivedWhileLoading.current.get(m.channelId)?.push(m);
       setMessages((all) => {
         const ch = all[m.channelId];
         // Looking at older messages: the new one shows when going back to the present.

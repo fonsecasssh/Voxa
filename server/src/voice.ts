@@ -13,6 +13,7 @@
 import type { Server as IOServer, Socket } from "socket.io";
 import type { PublicUser, Store } from "./store.ts";
 import type { Sfu } from "./livekit.ts";
+import { DEFAULT_SOUNDS, SOUNDBOARD_COOLDOWN_MS } from "../../shared/soundboard.ts";
 
 export interface VoiceMember {
   socketId: string;
@@ -38,6 +39,7 @@ export function createVoice(io: IOServer, store: Store, sfu: Sfu | null = null, 
   const bySocket = new Map<string, Session>();
   const byUser = new Map<string, string>(); // userId -> socketId
   const channels = new Map<string, Map<string, VoiceMember>>(); // channelId -> socketId -> member
+  const lastSound = new Map<string, number>(); // userId -> when they last played a soundboard sound
 
   const membersOf = (channelId: string) => [...(channels.get(channelId)?.values() ?? [])];
 
@@ -114,6 +116,27 @@ export function createVoice(io: IOServer, store: Store, sfu: Sfu | null = null, 
     });
 
     socket.on("voice:leave", () => leave(socket.id));
+
+    // Soundboard: a sound everyone in the channel plays (built-in, or one of the server's).
+    socket.on("soundboard:play", (payload: unknown, ack?: (r: unknown) => void) => {
+      const reply = typeof ack === "function" ? ack : () => {};
+      const session = bySocket.get(socket.id);
+      if (!session) return reply({ error: "Entre num canal de voz para usar o soundboard." });
+      if (session.member.deafened) return reply({ error: "Ative o áudio para usar o soundboard." });
+      const soundId = (payload as { soundId?: unknown })?.soundId;
+      const builtin = DEFAULT_SOUNDS.find((x) => x.id === soundId);
+      const custom = !builtin && typeof soundId === "string" ? store.soundById(soundId) : null;
+      if (!builtin && (!custom || custom.serverId !== session.serverId)) return reply({ error: "Som não encontrado." });
+      const userId = session.member.user.id;
+      const now = Date.now();
+      if (now - (lastSound.get(userId) ?? 0) < SOUNDBOARD_COOLDOWN_MS) return reply({ error: "Espere um pouco para tocar outro som." });
+      lastSound.set(userId, now);
+      const sound = builtin
+        ? { ...builtin, volume: 1, url: null }
+        : { id: custom!.id, name: custom!.name, emoji: custom!.emoji, volume: custom!.volume, url: custom!.url };
+      io.to(`voice:${session.channelId}`).emit("soundboard:play", { channelId: session.channelId, socketId: socket.id, userId, sound });
+      reply({ ok: true });
+    });
 
     socket.on("voice:state", (payload: unknown) => {
       const session = bySocket.get(socket.id);

@@ -47,12 +47,44 @@ export function detectImageType(buf: Buffer): ImageType | null {
   return null;
 }
 
+// --- soundboard -----------------------------------------------------------------------
+/** Soundboard sounds are short (the app checks they last at most 5 s). */
+export const MAX_SOUND_BYTES = 512 * 1024;
+type SoundType = "mp3" | "ogg" | "wav" | "webm" | "m4a";
+
+/** Recognizes an audio file by its first bytes. */
+export function detectSoundType(buf: Buffer): SoundType | null {
+  if (buf.length < 12) return null;
+  if (buf.toString("ascii", 0, 3) === "ID3" || (buf[0] === 0xff && (buf[1] & 0xe0) === 0xe0)) return "mp3";
+  if (buf.toString("ascii", 0, 4) === "OggS") return "ogg";
+  if (buf.toString("ascii", 0, 4) === "RIFF" && buf.toString("ascii", 8, 12) === "WAVE") return "wav";
+  if (buf.subarray(0, 4).equals(Buffer.from([0x1a, 0x45, 0xdf, 0xa3]))) return "webm";
+  if (buf.toString("ascii", 4, 8) === "ftyp") return "m4a";
+  return null;
+}
+
 export function createMediaStore(dir: string) {
   const dirs = Object.fromEntries(IMAGE_KINDS.map((k) => [k, path.join(dir, `${k}s`)])) as Record<ImageKind, string>;
   for (const d of Object.values(dirs)) mkdirSync(d, { recursive: true });
+  const soundsDir = path.join(dir, "sounds");
+  mkdirSync(soundsDir, { recursive: true });
 
   return {
     dirs,
+    soundsDir,
+
+    /** Saves a soundboard sound; like images, the name has a hash of the content. */
+    saveSound(serverId: string, data: Buffer, type: SoundType): string {
+      const hash = createHash("sha256").update(data).digest("hex").slice(0, 16);
+      const file = `${serverId}-${hash}.${type}`;
+      writeFileSync(path.join(soundsDir, file), data);
+      return file;
+    },
+
+    removeSound(file: string) {
+      if (file !== path.basename(file)) return;
+      rmSync(path.join(soundsDir, file), { force: true });
+    },
 
     /**
      * Saves an image and returns its file name. The name includes a hash of the content,

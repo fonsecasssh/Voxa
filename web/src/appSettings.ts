@@ -22,9 +22,11 @@ export interface AppSettings {
   soundStyle: "impacto" | "arcade" | "marimba" | "classic" | "voxa";
   /** Whether the style was picked by hand (otherwise new defaults apply). */
   soundStyleChosen?: boolean;
+  /** Soundboard sounds others play in the call, 0..1 (0 = don't play them). */
+  soundboardVolume: number;
 }
 
-export const DEFAULT_APP_SETTINGS: AppSettings = { theme: "galaxia", sounds: true, soundVolume: 0.6, soundStyle: "impacto" };
+export const DEFAULT_APP_SETTINGS: AppSettings = { theme: "galaxia", sounds: true, soundVolume: 0.6, soundStyle: "impacto", soundboardVolume: 0.7 };
 
 const KEY = "voxa.app";
 
@@ -39,6 +41,7 @@ function load(): AppSettings {
       s.soundStyleChosen = true;
     }
     if (typeof raw.soundVolume === "number") s.soundVolume = Math.min(1, Math.max(0, raw.soundVolume));
+    if (typeof raw.soundboardVolume === "number") s.soundboardVolume = Math.min(1, Math.max(0, raw.soundboardVolume));
     return s;
   } catch {
     return { ...DEFAULT_APP_SETTINGS };

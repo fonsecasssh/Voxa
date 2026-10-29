@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { PERMISSION_INFO, Permission as P } from "../../../shared/permissions.ts";
-import { api, type Ban, type Invite, type Presence, type Role, type ServerDetails, type ServerImageKind, type User } from "../api.ts";
+import { api, type Ban, type Invite, type Presence, type Role, type ServerDetails, type ServerImageKind, type Sound, type User } from "../api.ts";
+import { checkSoundFile, playBoardSound } from "../soundboard.ts";
 import { Permission, can, memberColor, memberName, memberRoles, myPermissions, myTop, outranks } from "../members.ts";
 import { navigate } from "../router.ts";
 import { Avatar, ServerIcon } from "./Avatar.tsx";
@@ -11,7 +12,7 @@ import { ImageCropper } from "./ImageCropper.tsx";
 import { inviteSummary } from "./ChannelModals.tsx";
 import { useCustomEmojis } from "../customEmojis.ts";
 
-type Tab = "overview" | "roles" | "members" | "emojis" | "invites" | "bans";
+type Tab = "overview" | "roles" | "members" | "emojis" | "sounds" | "invites" | "bans";
 
 const SWATCHES = ["#1abc9c", "#2ecc71", "#3498db", "#9b59b6", "#e91e63", "#f1c40f", "#e67e22", "#e74c3c", "#95a5a6", "#607d8b"];
 
@@ -29,6 +30,7 @@ export function ServerSettings({ details, selfId, presence, onClose }: Props) {
     { id: "roles", label: "Cargos", show: can(perms, Permission.MANAGE_ROLES) },
     { id: "members", label: "Membros", show: true },
     { id: "emojis", label: "Emojis", show: can(perms, Permission.MANAGE_EMOJIS) },
+    { id: "sounds", label: "Sons", show: can(perms, Permission.MANAGE_EMOJIS) },
     { id: "invites", label: "Convites", show: can(perms, Permission.MANAGE_SERVER) },
     { id: "bans", label: "Banimentos", show: can(perms, Permission.BAN_MEMBERS) },
   ];
@@ -59,6 +61,7 @@ export function ServerSettings({ details, selfId, presence, onClose }: Props) {
           {tab === "roles" && <Roles details={details} selfId={selfId} perms={perms} />}
           {tab === "members" && <Members details={details} selfId={selfId} perms={perms} presence={presence} />}
           {tab === "emojis" && <Emojis details={details} />}
+          {tab === "sounds" && <Sounds details={details} />}
           {tab === "invites" && <Invites details={details} />}
           {tab === "bans" && <Bans details={details} />}
         </div>
@@ -767,6 +770,156 @@ function Emojis({ details }: { details: ServerDetails }) {
             </button>
           </div>
         ))}
+      </div>
+    </>
+  );
+}
+
+// --- soundboard sounds ------------------------------------------------------------
+
+const MAX_SOUNDS = 30;
+
+function Sounds({ details }: { details: ServerDetails }) {
+  const sid = details.server.id;
+  const [sounds, setSounds] = useState<Sound[] | null>(null);
+  const input = useRef<HTMLInputElement>(null);
+  const { error, busy, run } = useAction();
+  const [draft, setDraft] = useState<{ file: File; url: string; name: string; emoji: string; volume: number } | null>(null);
+  const [editing, setEditing] = useState<{ id: string; name: string; emoji: string; volume: number } | null>(null);
+  const [fileError, setFileError] = useState<string | null>(null);
+
+  const reload = () => api.sounds(sid).then((r) => setSounds(r.sounds), () => setSounds([]));
+  useEffect(() => {
+    reload();
+  }, [sid]);
+  useEffect(
+    () => () => {
+      if (draft) URL.revokeObjectURL(draft.url);
+    },
+    [draft?.url],
+  );
+
+  const pick = async (file: File) => {
+    setFileError(null);
+    try {
+      await checkSoundFile(file);
+    } catch (err) {
+      return setFileError((err as Error).message);
+    }
+    setDraft({ file, url: URL.createObjectURL(file), name: file.name.replace(/\.[^.]+$/, "").slice(0, 32), emoji: "", volume: 1 });
+  };
+
+  const upload = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!draft) return;
+    const ok = await run(() => api.addSound(sid, { name: draft.name.trim(), emoji: draft.emoji.trim() || null, volume: draft.volume }, draft.file));
+    if (ok) {
+      setDraft(null);
+      reload();
+    }
+  };
+
+  return (
+    <>
+      <h2>Sons</h2>
+      <p className="muted">
+        Até {MAX_SOUNDS} sons para o soundboard: quem estiver num canal de voz do servidor toca para todos ali. MP3, OGG, WAV, WebM ou M4A, até 5 segundos e
+        512 KB.
+      </p>
+      <input
+        ref={input}
+        type="file"
+        accept="audio/*"
+        hidden
+        aria-label="Escolher áudio"
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          e.target.value = "";
+          if (f) pick(f);
+        }}
+      />
+      {!draft && (
+        <button className="btn primary" disabled={busy || (sounds?.length ?? 0) >= MAX_SOUNDS} onClick={() => input.current?.click()}>
+          Enviar som
+        </button>
+      )}
+      {fileError && <div className="form-error">{fileError}</div>}
+      {draft && (
+        <form className="sound-form" onSubmit={upload}>
+          <div className="sound-form-row">
+            <label className="sound-emoji-field">
+              Emoji
+              <input value={draft.emoji} onChange={(e) => setDraft({ ...draft, emoji: e.target.value })} placeholder="🔊" maxLength={16} />
+            </label>
+            <label>
+              Nome
+              <input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} maxLength={32} required autoFocus aria-label="Nome do som" />
+            </label>
+          </div>
+          <label className="volume-row">
+            Volume
+            <input type="range" min={0.05} max={1} step={0.05} value={draft.volume} onChange={(e) => setDraft({ ...draft, volume: Number(e.target.value) })} aria-label="Volume do som" />
+            <span className="muted small">{Math.round(draft.volume * 100)}%</span>
+          </label>
+          <div className="modal-actions">
+            <button type="button" className="btn subtle" onClick={() => playBoardSound({ id: "draft", name: draft.name, emoji: null, volume: draft.volume, url: draft.url }, 1)}>
+              ▶ Ouvir
+            </button>
+            <button type="button" className="btn subtle" onClick={() => setDraft(null)}>
+              Cancelar
+            </button>
+            <button className="btn primary" disabled={busy || !draft.name.trim()}>
+              Adicionar
+            </button>
+          </div>
+        </form>
+      )}
+      {error && <div className="form-error">{error}</div>}
+      <div className="settings-list">
+        {sounds?.length === 0 && <p className="muted">Nenhum som ainda. Os sons padrão do Voxa estão sempre disponíveis.</p>}
+        {sounds?.map((s) =>
+          editing?.id === s.id ? (
+            <form
+              key={s.id}
+              className="settings-list-row sound-row editing"
+              onSubmit={async (ev) => {
+                ev.preventDefault();
+                if (await run(() => api.updateSound(s.id, { name: editing.name.trim(), emoji: editing.emoji.trim() || null, volume: editing.volume }))) {
+                  setEditing(null);
+                  reload();
+                }
+              }}
+            >
+              <input className="sound-emoji-input" value={editing.emoji} onChange={(e) => setEditing({ ...editing, emoji: e.target.value })} placeholder="🔊" maxLength={16} aria-label="Emoji do som" />
+              <input value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} maxLength={32} autoFocus aria-label="Nome do som" />
+              <input type="range" min={0.05} max={1} step={0.05} value={editing.volume} onChange={(e) => setEditing({ ...editing, volume: Number(e.target.value) })} aria-label="Volume do som" />
+              <button className="btn primary small">Salvar</button>
+              <button type="button" className="btn subtle small" onClick={() => setEditing(null)}>
+                Cancelar
+              </button>
+            </form>
+          ) : (
+            <div key={s.id} className="settings-list-row sound-row">
+              <span className="sound-emoji">{s.emoji ?? "🔊"}</span>
+              <strong className="ellipsis">{s.name}</strong>
+              <span className="muted small">{Math.round(s.volume * 100)}%</span>
+              <button className="btn subtle small" title="Ouvir" aria-label={`Ouvir ${s.name}`} onClick={() => playBoardSound(s, 1)}>
+                ▶
+              </button>
+              <button className="btn subtle small" onClick={() => setEditing({ id: s.id, name: s.name, emoji: s.emoji ?? "", volume: s.volume })}>
+                Editar
+              </button>
+              <button
+                className="btn subtle danger small"
+                onClick={async () => {
+                  if (confirm(`Apagar o som "${s.name}"?`) && (await run(() => api.deleteSound(s.id)))) reload();
+                }}
+              >
+                Apagar
+              </button>
+            </div>
+          ),
+        )}
       </div>
     </>
   );

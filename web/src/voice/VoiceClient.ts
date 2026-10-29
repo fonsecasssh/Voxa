@@ -15,6 +15,7 @@
 
 import { api } from "../api.ts";
 import type { AppSocket } from "../socket.ts";
+import { playBoardSound as playLocally } from "../soundboard.ts";
 import { applyOutputDevice, audioSettings, type AudioSettings } from "./audioSettings.ts";
 import { buildMicPipeline, getAudioContext, openMic, type MicPipeline } from "./audioPipeline.ts";
 import { DEFAULT_USER_VOLUME, type UserVolume } from "./userVolumes.ts";
@@ -63,6 +64,8 @@ export interface VoiceSnapshot {
   watching: string[];
   /** socketId -> connection state, for diagnostics. */
   connections: Record<string, RTCPeerConnectionState>;
+  /** The last soundboard sound played in the call (for a moment on screen); `n` counts them. */
+  lastSound: { socketId: string; userId: string; name: string; emoji: string | null; n: number } | null;
   error: string | null;
 }
 
@@ -85,6 +88,7 @@ const initial: VoiceSnapshot = {
   speaking: [],
   watching: [],
   connections: {},
+  lastSound: null,
   error: null,
 };
 
@@ -123,6 +127,11 @@ export class VoiceClient {
       const live = new Set(members.filter((m) => m.screenStreamId).map((m) => m.socketId));
       const watching = this.snapshot.watching.filter((id) => live.has(id));
       if (watching.length !== this.snapshot.watching.length) this.set({ watching });
+    });
+    socket.on("soundboard:play", ({ channelId, socketId, userId, sound }) => {
+      if (channelId !== this.snapshot.channelId || this.snapshot.status === "idle") return;
+      if (!this.snapshot.deafened) playLocally(sound);
+      this.set({ lastSound: { socketId, userId, name: sound.name, emoji: sound.emoji, n: (this.snapshot.lastSound?.n ?? 0) + 1 } });
     });
     socket.on("voice:replaced", () => this.cleanup("Você entrou na voz em outra aba ou dispositivo."));
     socket.on("voice:kicked", ({ reason }) => this.cleanup(reason));
@@ -253,6 +262,13 @@ export class VoiceClient {
       peer.streams.set(name, stream);
     }
     this.syncRemote();
+  }
+
+  /** Plays a soundboard sound for everyone in the call; resolves with an error message, or null. */
+  async playBoardSound(soundId: string): Promise<string | null> {
+    if (this.snapshot.status === "idle") return "Entre num canal de voz para usar o soundboard.";
+    const r = await this.socket.timeout(5000).emitWithAck("soundboard:play", { soundId }).catch(() => ({ error: "O servidor não respondeu." }));
+    return "error" in r ? r.error : null;
   }
 
   leave() {

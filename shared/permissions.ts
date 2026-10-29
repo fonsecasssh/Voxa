@@ -39,7 +39,7 @@ export const PERMISSION_INFO: { key: PermissionName; label: string; description:
   { key: "KICK_MEMBERS", label: "Expulsar membros", description: "Remover membros com cargos abaixo do seu." },
   { key: "BAN_MEMBERS", label: "Banir membros", description: "Remover membros com cargos abaixo do seu e impedir que voltem." },
   { key: "CREATE_INVITE", label: "Criar convite", description: "Gerar links de convite para o servidor." },
-  { key: "MANAGE_EMOJIS", label: "Gerenciar emojis", description: "Enviar, renomear e apagar os emojis do servidor." },
+  { key: "MANAGE_EMOJIS", label: "Gerenciar emojis e sons", description: "Enviar, renomear e apagar os emojis e os sons do soundboard do servidor." },
   { key: "MANAGE_NICKNAMES", label: "Gerenciar apelidos", description: "Mudar o apelido de outros membros." },
   { key: "CHANGE_NICKNAME", label: "Alterar apelido", description: "Mudar o próprio apelido neste servidor." },
   { key: "MANAGE_MESSAGES", label: "Gerenciar mensagens", description: "Apagar mensagens de outros membros." },

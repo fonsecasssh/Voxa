@@ -133,6 +133,17 @@ export function createApp({ db, webDist, ice = createIceProvider(), trustProxy =
       express.static(media.dirs[kind], { immutable: true, maxAge: "1y", index: false, dotfiles: "deny", fallthrough: false }),
     );
   }
+  app.use(
+    "/media/sounds",
+    express.static(media.soundsDir, {
+      immutable: true,
+      maxAge: "1y",
+      index: false,
+      dotfiles: "deny",
+      fallthrough: false,
+      setHeaders: (res, file) => file.endsWith(".m4a") && res.setHeader("Content-Type", "audio/mp4"),
+    }),
+  );
   // Chat attachments, at /media/files/<id>/<name>. Only images and videos (recognized by their
   // bytes) display inline; anything else is a download, and none of it can run as a page.
   app.get(`${FILE_URL_PREFIX}:id/:name`, (req, res) => {

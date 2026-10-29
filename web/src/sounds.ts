@@ -452,7 +452,8 @@ export function renderSound(c: BaseAudioContext, out: AudioNode, name: SoundName
 let ctx: AudioContext | null = null;
 let sinkId: string | null = null;
 
-function context(): AudioContext | null {
+/** The app's audio context, on the chosen headphones (null where audio can't play). */
+export function context(): AudioContext | null {
   try {
     ctx ??= new AudioContext({ latencyHint: "interactive" });
   } catch {

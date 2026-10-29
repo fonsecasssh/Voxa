@@ -9,6 +9,7 @@ import { Avatar } from "./Avatar.tsx";
 import { Icon } from "./Icon.tsx";
 import { MobileNavButton } from "./MobileNav.tsx";
 import { useUserVolumeMenu, useUserVolumes } from "./UserVolumeMenu.tsx";
+import { SoundboardPanel } from "./Soundboard.tsx";
 
 interface Tile {
   key: string;
@@ -57,6 +58,15 @@ export function VoiceStage({ members, server, compact = false }: { members: Voic
   const [focused, setFocused] = useState<string | null>(null);
   const volumes = useUserVolumes();
   const menu = useUserVolumeMenu();
+  const [board, setBoard] = useState(false);
+  // The last soundboard sound shows over its player's tile for a moment.
+  const [bubble, setBubble] = useState<NonNullable<typeof vs.lastSound> | null>(null);
+  useEffect(() => {
+    if (!vs.lastSound) return;
+    setBubble(vs.lastSound);
+    const t = setTimeout(() => setBubble(null), 2500);
+    return () => clearTimeout(t);
+  }, [vs.lastSound]);
 
   const tiles: Tile[] = [];
   for (const m of members) {
@@ -128,6 +138,11 @@ export function VoiceStage({ members, server, compact = false }: { members: Voic
             <Avatar name={name} id={t.member.user.id} size={big ? 96 : 64} src={t.member.user.avatar} />
           )}
           {label}
+          {bubble?.socketId === t.member.socketId && (
+            <span key={bubble.n} className="sound-bubble" title={bubble.name}>
+              {bubble.emoji ?? "🔊"} <span className="ellipsis">{bubble.name}</span>
+            </span>
+          )}
         </div>
       );
     }
@@ -220,6 +235,18 @@ export function VoiceStage({ members, server, compact = false }: { members: Voic
         >
           <Icon name={vs.localScreen ? "screenOff" : "screen"} size={24} />
         </button>
+        <div className="soundboard-anchor">
+          <button
+            className={`round-btn soundboard-toggle ${board ? "on" : ""}`}
+            title="Soundboard"
+            aria-expanded={board}
+            disabled={vs.status !== "connected"}
+            onClick={() => setBoard((b) => !b)}
+          >
+            <Icon name="soundboard" size={24} />
+          </button>
+          {board && <SoundboardPanel serverId={server?.server.id ?? null} serverName={server?.server.name} onClose={() => setBoard(false)} />}
+        </div>
         <button className="round-btn danger" title="Desconectar" onClick={() => voice?.leave()}>
           <Icon name="hangup" size={26} />
         </button>
