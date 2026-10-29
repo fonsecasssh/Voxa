@@ -434,6 +434,12 @@ const MIGRATIONS: string[] = [
   );
   CREATE UNIQUE INDEX sounds_by_name ON sounds(server_id, name COLLATE NOCASE);
   `,
+
+  // 24: richer profiles: "Sobre mim" and a profile color.
+  `
+  ALTER TABLE users ADD COLUMN bio TEXT;
+  ALTER TABLE users ADD COLUMN profile_color TEXT;
+  `,
 ];
 
 /** The schema version a fully migrated database has. */

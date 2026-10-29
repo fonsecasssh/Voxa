@@ -11,6 +11,8 @@ export interface User {
   avatar: string | null;
   /** URL of the profile banner, or null. */
   banner: string | null;
+  /** Profile color (#rrggbb), or null. */
+  color?: string | null;
 }
 
 export type ProfileImageKind = "avatar" | "banner";
@@ -435,7 +437,9 @@ export const api = {
   moveCategory: (id: string, beforeId: string | null) => request<void>("POST", `/api/categories/${id}/move`, { beforeId }),
   deleteChannel: (id: string) => request<void>("DELETE", `/api/channels/${id}`),
 
-  updateProfile: (displayName: string) => request<{ user: User }>("PATCH", "/api/me", { displayName }),
+  updateProfile: (patch: { displayName?: string; bio?: string | null; color?: string | null }) =>
+    request<{ user: User; bio: string | null }>("PATCH", "/api/me", patch),
+  profile: (userId: string) => request<{ user: User; bio: string | null; createdAt: number }>("GET", `/api/users/${userId}/profile`),
   uploadProfileImage: (kind: ProfileImageKind, image: Blob) => request<{ user: User }>("PUT", `/api/me/${kind}`, image),
   removeProfileImage: (kind: ProfileImageKind) => request<{ user: User }>("DELETE", `/api/me/${kind}`),
   changePassword: (currentPassword: string, newPassword: string) =>

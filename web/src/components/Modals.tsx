@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
 import { api, type Category, type Channel, type ProfileImageKind, type Role, type Server, type ServerDetails, type User } from "../api.ts";
 import { Avatar } from "./Avatar.tsx";
 import { ImageCropper } from "./ImageCropper.tsx";
@@ -275,14 +275,43 @@ function EmailSection() {
   );
 }
 
+/** How your card will look to others. */
+function ProfilePreview({ user, bio }: { user: User; bio: string }) {
+  return (
+    <div className="pcard-preview" style={user.color ? ({ "--profile": user.color } as CSSProperties) : undefined}>
+      <span className="field-label">Prévia</span>
+      <div className={`pcard-card ${user.color ? "has-color" : ""}`}>
+        <div className="pcard-banner" style={user.banner ? { backgroundImage: `url(${user.banner})` } : undefined} />
+        <div className="pcard-body">
+          <span className="pcard-avatar">
+            <Avatar name={user.displayName} id={user.id} size={56} src={user.avatar} />
+          </span>
+          <strong>{user.displayName}</strong>
+          <span className="muted small">@{user.username}</span>
+          {bio.trim() && <p className="small profile-bio">{bio.trim()}</p>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /** Account settings: picture, banner, display name (shown everywhere) and password. */
+/** Profile colors to pick from (any other one through the color picker). */
+export const PROFILE_COLORS = ["#7c4dff", "#3a7bff", "#16a3b8", "#2ea86b", "#e0b020", "#ff6a3d", "#e0457b", "#9b59b6", "#5d6d7e"];
+
 export function ProfileModal({ user, onClose }: { user: User; onClose: () => void }) {
   const [displayName, setDisplayName] = useState(user.displayName);
+  const [bio, setBio] = useState<string | null>(null);
+  const [color, setColor] = useState<string | null>(user.color ?? null);
   const [saved, setSaved] = useState(false);
+  useEffect(() => {
+    api.profile(user.id).then((r) => setBio((b) => b ?? r.bio ?? ""), () => setBio((b) => b ?? ""));
+  }, [user.id]);
   const profile = useSubmit(
-    () => api.updateProfile(displayName),
+    () => api.updateProfile({ displayName, bio: bio ?? undefined, color }),
     () => setSaved(true),
   );
+  const changed = () => setSaved(false);
 
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
@@ -300,14 +329,14 @@ export function ProfileModal({ user, onClose }: { user: User; onClose: () => voi
     <Modal title="Meu perfil" onClose={onClose}>
       <ProfileImages user={user} />
       <hr />
-      <form onSubmit={profile.submit}>
+      <form onSubmit={profile.submit} className="profile-form">
         <label>
           Nome de exibição
           <input
             value={displayName}
             onChange={(e) => {
               setDisplayName(e.target.value);
-              setSaved(false);
+              changed();
             }}
             maxLength={32}
             required
@@ -317,11 +346,70 @@ export function ProfileModal({ user, onClose }: { user: User; onClose: () => voi
         <p className="muted small">
           Seu usuário é <strong>@{user.username}</strong> (é por ele que as pessoas te adicionam).
         </p>
+        <label>
+          Sobre mim
+          <textarea
+            value={bio ?? ""}
+            onChange={(e) => {
+              setBio(e.target.value);
+              changed();
+            }}
+            maxLength={190}
+            rows={3}
+            placeholder="Conte um pouco sobre você: jogos, horários, o que curte…"
+            disabled={bio === null}
+          />
+          <span className="muted small field-count">{(bio ?? "").length}/190</span>
+        </label>
+        <div>
+          <span className="field-label">Cor do perfil</span>
+          <div className="profile-colors" role="radiogroup" aria-label="Cor do perfil">
+            <button
+              type="button"
+              role="radio"
+              aria-checked={color === null}
+              className={`profile-color none ${color === null ? "picked" : ""}`}
+              title="Sem cor (usa a do tema)"
+              onClick={() => {
+                setColor(null);
+                changed();
+              }}
+            />
+            {PROFILE_COLORS.map((c) => (
+              <button
+                key={c}
+                type="button"
+                role="radio"
+                aria-checked={color === c}
+                aria-label={`Cor ${c}`}
+                className={`profile-color ${color === c ? "picked" : ""}`}
+                style={{ background: c }}
+                onClick={() => {
+                  setColor(c);
+                  changed();
+                }}
+              />
+            ))}
+            <label className={`profile-color custom ${color && !PROFILE_COLORS.includes(color) ? "picked" : ""}`} title="Outra cor">
+              <input
+                type="color"
+                value={color ?? "#7c4dff"}
+                onChange={(e) => {
+                  setColor(e.target.value);
+                  changed();
+                }}
+                aria-label="Escolher outra cor"
+              />
+            </label>
+          </div>
+          <p className="muted small">Aparece no seu cartão de perfil (no lugar do banner, se você não tiver um).</p>
+        </div>
+        <ProfilePreview user={{ ...user, displayName: displayName.trim() || user.displayName, color }} bio={bio ?? ""} />
         {profile.error && <div className="form-error">{profile.error}</div>}
-        {saved && <div className="form-ok">Nome atualizado.</div>}
+        {saved && <div className="form-ok">Perfil atualizado.</div>}
         <div className="modal-actions">
-          <button className="btn primary" disabled={profile.busy || !displayName.trim() || displayName.trim() === user.displayName}>
-            Salvar nome
+          <button className="btn primary" disabled={profile.busy || !displayName.trim() || bio === null}>
+            Salvar perfil
           </button>
         </div>
       </form>

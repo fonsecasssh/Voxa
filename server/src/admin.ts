@@ -76,11 +76,28 @@ export function registerAdminRoutes({ app, io, store, realtime, media, requireAu
 
   // --- profile --------------------------------------------------------------
   app.patch("/api/me", requireAuth, (req, res) => {
-    const displayName = str(req.body?.displayName, "nome de exibição", 1, 32);
-    store.setDisplayName(req.user!.id, displayName);
-    const user = { ...req.user!, displayName };
+    const me = req.user!.id;
+    const body = req.body ?? {};
+    // Everything is checked before anything is saved.
+    const displayName = body.displayName === undefined ? undefined : str(body.displayName, "nome de exibição", 1, 32);
+    const bio = body.bio === undefined ? undefined : body.bio === null || (typeof body.bio === "string" && !body.bio.trim()) ? null : str(body.bio, "sobre mim", 1, 190);
+    if (body.color !== undefined && body.color !== null && !(typeof body.color === "string" && /^#[0-9a-f]{6}$/i.test(body.color))) {
+      throw new HttpError(400, "Cor inválida.");
+    }
+    const color = body.color === undefined ? undefined : body.color === null ? null : (body.color as string).toLowerCase();
+    if (displayName !== undefined) store.setDisplayName(me, displayName);
+    store.setProfile(me, { bio, color });
+    const user = store.userById(me)!;
     realtime.updateUser(user);
-    res.json({ user });
+    res.json({ user, bio: store.profileOf(me)?.bio ?? null });
+  });
+
+  // A profile card's extras: "Sobre mim" and since when they're on Voxa.
+  app.get("/api/users/:id/profile", requireAuth, (req, res) => {
+    const user = store.userById(req.params.id as string);
+    const profile = user && store.profileOf(user.id);
+    if (!user || !profile) throw new HttpError(404, "Usuário não encontrado.");
+    res.json({ user, ...profile });
   });
 
   // Profile picture and banner: PUT /api/me/avatar|banner with the cropped image as the body, DELETE to remove.

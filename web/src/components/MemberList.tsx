@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import { api, type Presence, type Role, type ServerDetails, type User } from "../api.ts";
 import { Permission, can, memberColor, memberName, memberRoles, myPermissions, myTop, outranks } from "../members.ts";
 import { Avatar, presenceText } from "./Avatar.tsx";
@@ -122,12 +122,20 @@ export function MemberCard({
   const canBan = !isSelf && can(perms, Permission.BAN_MEMBERS) && outranks(details, selfId, user.id);
   const isBlocked = useBlocked().has(user.id);
   const custom = activeCustom(presence?.custom);
+  const [extra, setExtra] = useState<{ bio: string | null; createdAt: number } | null>(null);
+  useEffect(() => {
+    let live = true;
+    api.profile(user.id).then((r) => live && setExtra({ bio: r.bio, createdAt: r.createdAt }), () => {});
+    return () => {
+      live = false;
+    };
+  }, [user.id]);
 
   // Keep the card inside the window.
   useLayoutEffect(() => {
     const h = ref.current?.offsetHeight ?? 0;
     setTop(Math.max(8, Math.min(anchorTop, window.innerHeight - h - 8)));
-  }, [anchorTop, roles.length, picking, editingNick]);
+  }, [anchorTop, roles.length, picking, editingNick, extra]);
 
   useEffect(() => {
     const close = (e: MouseEvent) => {
@@ -158,26 +166,52 @@ export function MemberCard({
   const sid = details.server.id;
 
   return (
-    <div className="member-card" ref={ref} style={{ top }} role="dialog" aria-label={`Perfil de ${name}`}>
+    <div
+      className={`member-card ${user.color ? "has-color" : ""}`}
+      ref={ref}
+      style={{ top, ...(user.color ? ({ "--profile": user.color } as CSSProperties) : {}) }}
+      role="dialog"
+      aria-label={`Perfil de ${name}`}
+    >
       <div
         className={`member-card-banner ${user.banner ? "has-image" : ""}`}
-        style={user.banner ? { backgroundImage: `url(${user.banner})` } : { background: memberColor(details, user.id) ?? "var(--accent)" }}
+        style={
+          user.banner
+            ? { backgroundImage: `url(${user.banner})` }
+            : { background: user.color ?? memberColor(details, user.id) ?? "var(--accent)" }
+        }
       />
       <div className="member-card-body">
-        <div className="member-card-avatar">
-          <Avatar name={name} id={user.id} size={72} status={presence?.status ?? "offline"} src={user.avatar} />
+        <div className="member-card-top">
+          <div className="member-card-avatar">
+            <Avatar name={name} id={user.id} size={80} status={presence?.status ?? "offline"} src={user.avatar} />
+          </div>
+          {custom && (
+            <div className="status-bubble" title={custom.text ?? undefined}>
+              {custom.emoji && <StatusEmoji emoji={custom.emoji} size={18} />}
+              {custom.text && <span>{custom.text}</span>}
+            </div>
+          )}
         </div>
-        <h3 style={{ color: memberColor(details, user.id) }}>{name}</h3>
-        <p className="muted small">
-          {name !== user.displayName && <>{user.displayName} · </>}@{user.username}
-        </p>
-        {custom && (
-          <p className="small custom-status custom-status-line">
-            {custom.emoji && <StatusEmoji emoji={custom.emoji} size={18} />}
-            {custom.text && <span>{custom.text}</span>}
+        <div className="member-card-names">
+          <h3 style={{ color: memberColor(details, user.id) }}>{name}</h3>
+          <p className="muted small">
+            {name !== user.displayName && <>{user.displayName} · </>}@{user.username}
           </p>
+          {presence?.activity && <p className="small activity-line">{presenceText(presence)}</p>}
+        </div>
+        {extra?.bio && (
+          <>
+            <div className="card-section-label">Sobre mim</div>
+            <p className="small profile-bio">{extra.bio}</p>
+          </>
         )}
-        {presence?.activity && <p className="small activity-line">{presenceText(presence)}</p>}
+        {extra && (
+          <>
+            <div className="card-section-label">No Voxa desde</div>
+            <p className="small">{new Date(extra.createdAt).toLocaleDateString("pt-BR", { day: "numeric", month: "long", year: "numeric" })}</p>
+          </>
+        )}
 
         {editingNick && (
           <NicknameForm

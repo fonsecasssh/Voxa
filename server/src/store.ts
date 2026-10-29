@@ -16,6 +16,8 @@ export interface PublicUser {
   avatar: string | null;
   /** URL of the profile banner, or null. */
   banner: string | null;
+  /** Profile color (#rrggbb): the card's banner when there's no picture, and its accent. */
+  color: string | null;
 }
 
 export interface Server {
@@ -303,6 +305,7 @@ const toUser = (r: Row, id = r.id as string): PublicUser => ({
   displayName: r.display_name as string,
   avatar: r.avatar ? imageUrlPrefix("avatar") + (r.avatar as string) : null,
   banner: r.profile_banner ? imageUrlPrefix("profile-banner") + (r.profile_banner as string) : null,
+  color: (r.profile_color as string | null | undefined) ?? null,
 });
 
 const toServer = (r: Row): Server => ({
@@ -387,7 +390,7 @@ const toMessage = (r: Row): Message => ({
   poll: null,
 });
 
-const MESSAGE_SELECT = `SELECT m.*, u.username, u.display_name, u.avatar, u.profile_banner FROM messages m JOIN users u ON u.id = m.author_id`;
+const MESSAGE_SELECT = `SELECT m.*, u.username, u.display_name, u.avatar, u.profile_banner, u.profile_color FROM messages m JOIN users u ON u.id = m.author_id`;
 
 /** Rows of the reactions table -> per message, one entry per emoji (in the order first used). */
 function groupReactions(rows: Row[]): Map<string, Reaction[]> {
@@ -417,7 +420,7 @@ export function createStore(db: DB) {
       const id = randomUUID();
       db.prepare("INSERT INTO users (id, username, display_name, password_hash, created_at) VALUES (?, ?, ?, ?, ?)")
         .run(id, username, displayName, passwordHash, Date.now());
-      return { id, username, displayName, avatar: null, banner: null };
+      return { id, username, displayName, avatar: null, banner: null, color: null };
     },
 
     findUserForLogin(username: string): (PublicUser & { passwordHash: string }) | null {
@@ -467,6 +470,17 @@ export function createStore(db: DB) {
 
     setDisplayName(userId: string, displayName: string): void {
       db.prepare("UPDATE users SET display_name = ? WHERE id = ?").run(displayName, userId);
+    },
+
+    setProfile(userId: string, profile: { bio?: string | null; color?: string | null }): void {
+      if (profile.bio !== undefined) db.prepare("UPDATE users SET bio = ? WHERE id = ?").run(profile.bio, userId);
+      if (profile.color !== undefined) db.prepare("UPDATE users SET profile_color = ? WHERE id = ?").run(profile.color, userId);
+    },
+
+    /** What a profile card shows beyond the basics. */
+    profileOf(userId: string): { bio: string | null; createdAt: number } | null {
+      const r = db.prepare("SELECT bio, created_at FROM users WHERE id = ?").get(userId) as Row | undefined;
+      return r ? { bio: (r.bio as string | null) ?? null, createdAt: r.created_at as number } : null;
     },
 
     passwordHash(userId: string): string | null {
@@ -1739,7 +1753,7 @@ export function createStore(db: DB) {
     if (replyIds.length) {
       const rows = db
         .prepare(
-          `SELECT m.*, u.username, u.display_name, u.avatar, u.profile_banner,
+          `SELECT m.*, u.username, u.display_name, u.avatar, u.profile_banner, u.profile_color,
                   (SELECT COUNT(*) FROM attachments a WHERE a.message_id = m.id) AS nfiles,
                   (SELECT question FROM polls p WHERE p.message_id = m.id) AS poll_question
            FROM messages m JOIN users u ON u.id = m.author_id WHERE m.id IN (${replyIds.map(() => "?").join(",")})`,
