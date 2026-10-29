@@ -5,13 +5,17 @@ import { useEffect, useRef, useState } from "react";
 import { Modal } from "./Modals.tsx";
 import {
   AUTO_GATE,
+  PTT_RELEASE_RANGE,
   SENSITIVITY_RANGE,
+  bindingLabel,
   applyOutputDevice,
   audioSettings,
   canChooseOutput,
   gateThresholds,
   type NoiseSuppression,
+  type PttBinding,
 } from "../voice/audioSettings.ts";
+import { desktop } from "../desktop.ts";
 import { buildMicPipeline, getAudioContext, levelDb, openMic, type MicPipeline } from "../voice/audioPipeline.ts";
 import { useAudioSettings } from "../voice/useAudioSettings.ts";
 
@@ -34,6 +38,47 @@ function useDevices() {
 
 /** Maps dBFS to 0..100% of the meter. */
 const pct = (db: number) => ((Math.min(SENSITIVITY_RANGE.max, Math.max(SENSITIVITY_RANGE.min, db)) - SENSITIVITY_RANGE.min) / (SENSITIVITY_RANGE.max - SENSITIVITY_RANGE.min)) * 100;
+
+/** "Gravar atalho": the next key or mouse button (middle, back, forward) becomes push-to-talk. */
+function PttRecorder({ binding, onChange }: { binding: PttBinding; onChange: (b: PttBinding) => void }) {
+  const [recording, setRecording] = useState(false);
+  const change = useRef(onChange);
+  change.current = onChange;
+  useEffect(() => {
+    if (!recording) return;
+    const onChange = (b: PttBinding) => change.current(b);
+    const key = (e: KeyboardEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.code !== "Escape") {
+        const label = e.key.length === 1 && e.key !== " " ? e.key.toUpperCase() : undefined;
+        onChange(label ? { type: "key", code: e.code, label } : { type: "key", code: e.code });
+      }
+      setRecording(false);
+    };
+    const mouse = (e: MouseEvent) => {
+      if (e.button !== 1 && e.button !== 3 && e.button !== 4) return;
+      e.preventDefault();
+      e.stopPropagation();
+      onChange({ type: "mouse", button: e.button });
+      setRecording(false);
+    };
+    const stop = () => setRecording(false);
+    window.addEventListener("keydown", key, true);
+    window.addEventListener("mousedown", mouse, true);
+    window.addEventListener("blur", stop);
+    return () => {
+      window.removeEventListener("keydown", key, true);
+      window.removeEventListener("mousedown", mouse, true);
+      window.removeEventListener("blur", stop);
+    };
+  }, [recording]);
+  return (
+    <button type="button" className={`ptt-key ${recording ? "recording" : ""}`} onClick={() => setRecording((r) => !r)} aria-label="Gravar atalho">
+      {recording ? "Aperte uma tecla…" : <kbd>{bindingLabel(binding)}</kbd>}
+    </button>
+  );
+}
 
 export function VoiceSettingsModal({ onClose }: { onClose: () => void }) {
   const settings = useAudioSettings();
@@ -77,7 +122,7 @@ export function VoiceSettingsModal({ onClose }: { onClose: () => void }) {
       test.current = null;
     };
     // Only input-related settings rebuild the test mic.
-  }, [settings.inputDeviceId, settings.noiseSuppression, settings.echoCancellation, settings.autoSensitivity, settings.sensitivityDb]);
+  }, [settings.inputDeviceId, settings.noiseSuppression, settings.echoCancellation, settings.autoSensitivity, settings.sensitivityDb, settings.inputMode]);
 
   // Meter.
   useEffect(() => {
@@ -169,16 +214,68 @@ export function VoiceSettingsModal({ onClose }: { onClose: () => void }) {
         </div>
         <p className="muted small">{SUPPRESSION.find((o) => o.value === settings.noiseSuppression)?.hint}</p>
 
-        <div className="field-label">Sensibilidade de entrada</div>
-        <label className="toggle-row compact">
-          <span>Determinar automaticamente</span>
-          <input type="checkbox" checked={settings.autoSensitivity} onChange={(e) => audioSettings.update({ autoSensitivity: e.target.checked })} />
-        </label>
+        <div className="field-label">Modo de entrada</div>
+        <div className="segmented" role="radiogroup" aria-label="Modo de entrada">
+          {(
+            [
+              ["voice", "Detecção de voz"],
+              ["ptt", "Aperte para falar"],
+            ] as const
+          ).map(([value, label]) => (
+            <button
+              key={value}
+              role="radio"
+              aria-checked={settings.inputMode === value}
+              className={settings.inputMode === value ? "active" : ""}
+              onClick={() => audioSettings.update({ inputMode: value })}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        {settings.inputMode === "ptt" && (
+          <div className="ptt-settings">
+            <div className="ptt-row">
+              <span>Atalho</span>
+              <PttRecorder binding={settings.pttBinding} onChange={(pttBinding) => audioSettings.update({ pttBinding })} />
+            </div>
+            <label className="ptt-row">
+              <span>
+                Atraso ao soltar <span className="muted">{settings.pttReleaseMs} ms</span>
+              </span>
+              <input
+                type="range"
+                className="sensitivity-slider"
+                aria-label="Atraso ao soltar"
+                min={PTT_RELEASE_RANGE.min}
+                max={PTT_RELEASE_RANGE.max}
+                step={20}
+                value={settings.pttReleaseMs}
+                onChange={(e) => audioSettings.update({ pttReleaseMs: Number(e.target.value) })}
+              />
+            </label>
+            <p className="muted small">
+              {desktop?.ptt
+                ? "Funciona mesmo com o jogo em foco."
+                : desktop
+                  ? "Atualize o app desktop para o atalho funcionar com o jogo em foco; por enquanto, só com o Voxa em foco."
+                  : "No navegador o atalho só funciona com o Voxa em foco. Use o app desktop para falar durante o jogo."}
+            </p>
+          </div>
+        )}
+
+        <div className="field-label">{settings.inputMode === "ptt" ? "Nível do microfone" : "Sensibilidade de entrada"}</div>
+        {settings.inputMode === "voice" && (
+          <label className="toggle-row compact">
+            <span>Determinar automaticamente</span>
+            <input type="checkbox" checked={settings.autoSensitivity} onChange={(e) => audioSettings.update({ autoSensitivity: e.target.checked })} />
+          </label>
+        )}
         <div className="meter" aria-label="Nível do microfone">
           <div className={`meter-fill ${open ? "open" : ""}`} style={{ width: `${pct(level)}%` }} />
-          <div className="meter-threshold" style={{ left: `${pct(openDb)}%` }} title={`${openDb} dB`} />
+          {settings.inputMode === "voice" && <div className="meter-threshold" style={{ left: `${pct(openDb)}%` }} title={`${openDb} dB`} />}
         </div>
-        {!settings.autoSensitivity ? (
+        {settings.inputMode === "ptt" ? null : !settings.autoSensitivity ? (
           <input
             type="range"
             className="sensitivity-slider"
@@ -190,7 +287,7 @@ export function VoiceSettingsModal({ onClose }: { onClose: () => void }) {
             onChange={(e) => audioSettings.update({ sensitivityDb: Number(e.target.value) })}
           />
         ) : null}
-        <p className="muted small">
+        <p className="muted small" hidden={settings.inputMode === "ptt"}>
           {open ? "🟢 Transmitindo" : "⚪ Em silêncio"} — fale e veja a barra: só o que passa da linha
           {settings.autoSensitivity ? ` (automática, ${AUTO_GATE.openDb} dB)` : ` (${settings.sensitivityDb} dB)`} chega aos outros.
         </p>

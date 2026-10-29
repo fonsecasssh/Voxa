@@ -27,6 +27,11 @@ export const IPC = {
   /** renderer -> main: show a saved clip in Explorer. */
   replayShow: "voxa:replay:show",
 
+  /** renderer -> main: the push-to-talk key or mouse button (or null); returns whether it works globally. */
+  pttSet: "voxa:ptt:set",
+  /** main -> renderer: the push-to-talk key went down (true) or up (false). */
+  pttState: "voxa:ptt:state",
+
   /** picker -> main: sources to choose from. */
   pickerList: "voxa:picker:list",
   /** picker -> main: the choice, or null when cancelled. */

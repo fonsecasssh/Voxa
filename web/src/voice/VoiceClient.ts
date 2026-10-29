@@ -15,6 +15,7 @@ import { api } from "../api.ts";
 import type { AppSocket } from "../socket.ts";
 import { applyOutputDevice, audioSettings, type AudioSettings } from "./audioSettings.ts";
 import { buildMicPipeline, getAudioContext, openMic, type MicPipeline } from "./audioPipeline.ts";
+import { DEFAULT_USER_VOLUME, type UserVolume } from "./userVolumes.ts";
 
 type Signal = {
   description?: RTCSessionDescriptionInit;
@@ -33,6 +34,8 @@ interface Peer {
   streams: Map<string, MediaStream>;
   audio: HTMLAudioElement;
   analyser?: AnalyserNode;
+  /** Above 100%, the mic plays through a gain node instead (a media element can't go past 1). */
+  boost?: { el: HTMLAudioElement; gain: GainNode; source: MediaStreamAudioSourceNode };
 }
 
 export interface VoiceSnapshot {
@@ -43,6 +46,8 @@ export interface VoiceSnapshot {
   selfSocketId: string | null;
   muted: boolean;
   deafened: boolean;
+  /** Push-to-talk mode: whether the key is held (or within its release delay). */
+  pttActive: boolean;
   localScreen: MediaStream | null;
   /** socketId -> remote streams (by stream id). */
   remoteStreams: Record<string, Record<string, MediaStream>>;
@@ -67,6 +72,7 @@ const initial: VoiceSnapshot = {
   selfSocketId: null,
   muted: false,
   deafened: false,
+  pttActive: false,
   localScreen: null,
   remoteStreams: {},
   speaking: [],
@@ -90,6 +96,9 @@ export class VoiceClient {
   private watchers = new Set<string>();
   /** Bumped on every mic (re)open, so a slow, outdated one is discarded. */
   private micVersion = 0;
+  private pttRelease: ReturnType<typeof setTimeout> | null = null;
+  /** Per-person volume, by socket id (the page maps its per-user choices onto who is in the call). */
+  private volumes = new Map<string, UserVolume>();
 
   constructor(private socket: AppSocket) {
     socket.on("voice:signal", ({ from, data }) => this.onSignal(from, data as Signal));
@@ -183,6 +192,8 @@ export class VoiceClient {
     this.watchers.clear();
     if (this.speakingTimer) clearInterval(this.speakingTimer);
     this.speakingTimer = null;
+    if (this.pttRelease) clearTimeout(this.pttRelease);
+    this.pttRelease = null;
     this.set({ ...initial, muted: this.snapshot.muted, deafened: this.snapshot.deafened, error });
   }
 
@@ -199,10 +210,89 @@ export class VoiceClient {
     this.applyLocalState();
   }
 
+  /** Push-to-talk key down/up. Releasing keeps the mic open for the configured delay. */
+  setPushToTalk(down: boolean) {
+    if (this.pttRelease) clearTimeout(this.pttRelease);
+    this.pttRelease = null;
+    if (down) {
+      if (!this.snapshot.pttActive) this.set({ pttActive: true });
+    } else if (this.snapshot.pttActive) {
+      this.pttRelease = setTimeout(() => {
+        this.pttRelease = null;
+        this.set({ pttActive: false });
+        this.applyTransmit();
+      }, this.settings.pttReleaseMs);
+    }
+    this.applyTransmit();
+  }
+
+  /** Whether our mic reaches the others right now. */
+  private transmitting() {
+    const { muted, deafened, pttActive } = this.snapshot;
+    return !muted && !deafened && (this.settings.inputMode === "voice" || pttActive);
+  }
+
+  private applyTransmit() {
+    if (this.pipeline) this.pipeline.track.enabled = this.transmitting();
+  }
+
+  /** How loud someone in the call is for us (0–2), or silenced for us only. */
+  setPeerVolume(socketId: string, v: UserVolume) {
+    const prev = this.volumes.get(socketId) ?? DEFAULT_USER_VOLUME;
+    if (prev.volume === v.volume && prev.muted === v.muted) return;
+    this.volumes.set(socketId, v);
+    const peer = this.peers.get(socketId);
+    if (peer) this.applyPeerAudio(peer);
+  }
+
+  private applyPeerAudio(peer: Peer) {
+    const { volume, muted } = this.volumes.get(peer.socketId) ?? DEFAULT_USER_VOLUME;
+    const silent = this.snapshot.deafened || muted;
+    const stream = peer.audio.srcObject as MediaStream | null;
+    if (volume > 1 && stream) {
+      if (!peer.boost) {
+        try {
+          const ctx = getAudioContext();
+          const source = ctx.createMediaStreamSource(stream);
+          const gain = ctx.createGain();
+          const dest = ctx.createMediaStreamDestination();
+          source.connect(gain).connect(dest);
+          const el = new Audio();
+          el.autoplay = true;
+          el.srcObject = dest.stream;
+          applyOutputDevice(el, this.settings.outputDeviceId);
+          el.play().catch(() => {});
+          peer.boost = { el, gain, source };
+        } catch {
+          // No Web Audio: stay at 100%.
+        }
+      }
+    } else if (peer.boost) {
+      this.dropBoost(peer);
+    }
+    if (peer.boost) {
+      peer.boost.gain.gain.value = volume;
+      peer.boost.el.muted = silent;
+      // The raw element must keep playing (muted) or Chrome delivers no audio to Web Audio.
+      peer.audio.volume = 1;
+      peer.audio.muted = true;
+    } else {
+      peer.audio.volume = Math.min(1, volume);
+      peer.audio.muted = silent;
+    }
+  }
+
+  private dropBoost(peer: Peer) {
+    if (!peer.boost) return;
+    peer.boost.source.disconnect();
+    peer.boost.el.pause();
+    peer.boost.el.srcObject = null;
+    peer.boost = undefined;
+  }
+
   private applyLocalState() {
-    const { muted, deafened } = this.snapshot;
-    if (this.pipeline) this.pipeline.track.enabled = !muted && !deafened;
-    for (const p of this.peers.values()) p.audio.muted = deafened;
+    this.applyTransmit();
+    for (const p of this.peers.values()) this.applyPeerAudio(p);
     this.emitState();
   }
 
@@ -225,8 +315,7 @@ export class VoiceClient {
       raw.getTracks().forEach((t) => t.stop());
       return;
     }
-    const { muted, deafened } = this.snapshot;
-    pipeline.track.enabled = !muted && !deafened;
+    pipeline.track.enabled = this.transmitting();
     const old = this.pipeline;
     for (const p of this.peers.values()) {
       const sender = p.pc.getSenders().find((x) => x.track && x.track === old?.track);
@@ -242,14 +331,24 @@ export class VoiceClient {
     const prev = this.settings;
     this.settings = next;
     if (next.outputDeviceId !== prev.outputDeviceId) {
-      for (const p of this.peers.values()) applyOutputDevice(p.audio, next.outputDeviceId);
+      for (const p of this.peers.values()) {
+        applyOutputDevice(p.audio, next.outputDeviceId);
+        if (p.boost) applyOutputDevice(p.boost.el, next.outputDeviceId);
+      }
+    }
+    if (next.inputMode !== prev.inputMode) {
+      if (this.pttRelease) clearTimeout(this.pttRelease);
+      this.pttRelease = null;
+      this.set({ pttActive: false });
+      this.applyTransmit();
     }
     const inputChanged =
       next.inputDeviceId !== prev.inputDeviceId ||
       next.echoCancellation !== prev.echoCancellation ||
       next.noiseSuppression !== prev.noiseSuppression ||
       next.autoSensitivity !== prev.autoSensitivity ||
-      next.sensitivityDb !== prev.sensitivityDb;
+      next.sensitivityDb !== prev.sensitivityDb ||
+      next.inputMode !== prev.inputMode;
     if (inputChanged && this.pipeline) {
       this.openMic().catch(() => this.set({ error: "Não foi possível usar o microfone escolhido." }));
     }
@@ -342,7 +441,6 @@ export class VoiceClient {
     const pc = new RTCPeerConnection({ iceServers: this.iceServers ?? [] });
     const audio = new Audio();
     audio.autoplay = true;
-    audio.muted = this.snapshot.deafened;
     applyOutputDevice(audio, this.settings.outputDeviceId);
 
     const peer: Peer = {
@@ -356,6 +454,7 @@ export class VoiceClient {
       audio,
     };
     this.peers.set(socketId, peer);
+    this.applyPeerAudio(peer);
 
     const send = (data: Signal) => this.socket.emit("voice:signal", { to: socketId, data });
 
@@ -390,6 +489,7 @@ export class VoiceClient {
         peer.audio.srcObject = stream;
         peer.audio.play().catch(() => {});
         peer.analyser = this.analyse(stream);
+        this.applyPeerAudio(peer);
       }
       this.syncRemote();
     };
@@ -406,6 +506,7 @@ export class VoiceClient {
     this.watchers.delete(socketId);
     if (this.snapshot.watching.includes(socketId)) this.set({ watching: this.snapshot.watching.filter((id) => id !== socketId) });
     p.pc.close();
+    this.dropBoost(p);
     p.audio.srcObject = null;
     this.peers.delete(socketId);
     this.syncRemote();
@@ -471,10 +572,10 @@ export class VoiceClient {
     const lastLoud = new Map<string, number>();
     this.speakingTimer = setInterval(() => {
       const now = Date.now();
-      const { muted, deafened } = this.snapshot;
-      // Our own indicator follows what is actually sent (after noise suppression and the gate).
-      if (!muted && !deafened && level(this.pipeline?.outputAnalyser) > SPEAKING_THRESHOLD) lastLoud.set("self", now);
-      if (muted || deafened) lastLoud.delete("self");
+      // Our own indicator follows what is actually sent (after noise suppression, the gate and push-to-talk).
+      const sending = this.transmitting();
+      if (sending && level(this.pipeline?.outputAnalyser) > SPEAKING_THRESHOLD) lastLoud.set("self", now);
+      if (!sending) lastLoud.delete("self");
       for (const [id, p] of this.peers) if (level(p.analyser) > SPEAKING_THRESHOLD) lastLoud.set(id, now);
       for (const id of lastLoud.keys()) if (id !== "self" && !this.peers.has(id)) lastLoud.delete(id);
       const speaking = [...lastLoud].filter(([, t]) => now - t < SPEAKING_HOLD_MS).map(([id]) => id).sort();

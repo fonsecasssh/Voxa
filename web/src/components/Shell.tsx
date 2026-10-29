@@ -22,6 +22,8 @@ import { connectSocket, type AppSocket } from "../socket.ts";
 import { VoiceClient } from "../voice/VoiceClient.ts";
 import { VoiceContext, useVoiceSnapshot } from "../voice/useVoice.ts";
 import { useVoiceSounds } from "../voice/useVoiceSounds.ts";
+import { usePushToTalk } from "../voice/usePushToTalk.ts";
+import { useUserVolumes } from "./UserVolumeMenu.tsx";
 import { playSound } from "../sounds.ts";
 import { ServerRail } from "./ServerRail.tsx";
 import { ChannelSidebar } from "./ChannelSidebar.tsx";
@@ -100,6 +102,15 @@ export function Shell({ user, setUser, initialStatus, initialActivity, servers, 
   const [details, setDetails] = useState<Record<string, ServerDetails>>({});
   const myVoiceMembers = voiceState.serverId && voiceState.channelId ? details[voiceState.serverId]?.voice[voiceState.channelId] : undefined;
   useVoiceSounds(voiceState, myVoiceMembers);
+  usePushToTalk(voice);
+  // Each person's volume for us follows them across reconnects (stored by user, applied by socket).
+  const volumes = useUserVolumes();
+  useEffect(() => {
+    if (!voice || !myVoiceMembers) return;
+    for (const m of myVoiceMembers) {
+      if (m.socketId !== voiceState.selfSocketId) voice.setPeerVolume(m.socketId, volumes[m.user.id] ?? { volume: 1, muted: false });
+    }
+  }, [voice, myVoiceMembers, volumes, voiceState.selfSocketId]);
   const [messages, setMessages] = useState<Record<string, ChannelMessages>>({});
   const [typing, setTyping] = useState<Record<string, Record<string, { user: User; until: number }>>>({});
   const [presence, setPresenceMap] = useState<Record<string, Presence>>({});

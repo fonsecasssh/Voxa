@@ -16,6 +16,12 @@ export interface VoxaDesktop {
   setSettings(patch: Partial<DesktopSettings>): Promise<DesktopSettings>;
   onUpdateReady(cb: (version: string) => void): () => void;
   installUpdate(): void;
+  /** Global push-to-talk (works while a game has focus); missing before 0.3.0. */
+  ptt?: {
+    /** Resolves false when the global hook isn't available: then push-to-talk only works while Voxa has focus. */
+    set(binding: { type: "key"; code: string } | { type: "mouse"; button: number } | null): Promise<boolean>;
+    onState(cb: (down: boolean) => void): () => void;
+  };
   /** Instant replay helpers; missing in desktop versions older than 0.2.0. */
   replay?: {
     /** Registers the global shortcut (works while a game has focus); false if another program owns it. */

@@ -6,6 +6,7 @@ import { useVoice } from "../voice/useVoice.ts";
 import type { VoiceMember } from "../voice/types.ts";
 import { Avatar } from "./Avatar.tsx";
 import { Icon } from "./Icon.tsx";
+import { useUserVolumeMenu, useUserVolumes } from "./UserVolumeMenu.tsx";
 
 interface Props {
   details: ServerDetails;
@@ -82,6 +83,7 @@ export function ChannelSidebar(props: Props) {
                       members={details.voice[c.id] ?? []}
                       speaking={vs.speaking}
                       selfSocketId={vs.selfSocketId}
+                      selfId={selfId}
                     />
                   )}
                 </div>
@@ -162,20 +164,26 @@ function VoiceMembers({
   members,
   speaking,
   selfSocketId,
+  selfId,
 }: {
   details: ServerDetails;
   members: VoiceMember[];
   speaking: string[];
   selfSocketId: string | null;
+  selfId: string;
 }) {
+  const volumes = useUserVolumes();
+  const menu = useUserVolumeMenu();
   if (members.length === 0) return null;
   return (
     <ul className="voice-members">
+      {menu.menu}
       {members.map((m) => {
         const isSpeaking = speaking.includes(m.socketId === selfSocketId ? "self" : m.socketId);
         const name = memberName(details, m.user);
+        const mutedForMe = volumes[m.user.id]?.muted;
         return (
-          <li key={m.socketId}>
+          <li key={m.socketId} onContextMenu={m.user.id === selfId ? undefined : (e) => menu.open(e, m.user.id, name)}>
             <span className={`speak-ring ${isSpeaking ? "speaking" : ""}`}>
               <Avatar name={name} id={m.user.id} size={22} src={m.user.avatar} />
             </span>
@@ -183,6 +191,11 @@ function VoiceMembers({
               {name}
             </span>
             {m.screenStreamId && <span className="live-badge">AO VIVO</span>}
+            {mutedForMe && (
+              <span className="state-icon" title="Silenciado para você">
+                <Icon name="speakerOff" size={15} />
+              </span>
+            )}
             {m.deafened ? (
               <span className="state-icon" title="Áudio desativado">
                 <Icon name="headphonesOff" size={15} />

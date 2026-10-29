@@ -23,6 +23,7 @@ import { IPC, type DesktopSettings } from "./channels.ts";
 import { APP_URL, PROTOCOL, deepLinkToPath, isAppUrl } from "./config.ts";
 import { registerPicker } from "./picker.ts";
 import { registerReplayIpc } from "./replay.ts";
+import { registerPttIpc } from "./ptt.ts";
 import { getSettings, isFirstRun, updateSettings } from "./settings.ts";
 import { announcePendingUpdate, initUpdater, installUpdate } from "./updater.ts";
 
@@ -122,7 +123,10 @@ function createWindow(startHidden: boolean) {
   });
   // A reload or navigation ends any replay recording, so its global shortcut is freed too.
   win.webContents.on("did-start-navigation", (details) => {
-    if (details.isMainFrame && !details.isSameDocument) replay?.release();
+    if (details.isMainFrame && !details.isSameDocument) {
+      replay?.release();
+      ptt?.release();
+    }
   });
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (isAppUrl(url)) win.loadURL(url);
@@ -319,9 +323,11 @@ function registerIpc() {
     installUpdate();
   });
   replay = registerReplayIpc(() => mainWindow, fromApp);
+  ptt = registerPttIpc(() => mainWindow, fromApp);
 }
 
 let replay: ReturnType<typeof registerReplayIpc> | null = null;
+let ptt: ReturnType<typeof registerPttIpc> | null = null;
 
 // --- startup ----------------------------------------------------------------------------------
 

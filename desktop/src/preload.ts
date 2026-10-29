@@ -51,6 +51,12 @@ contextBridge.exposeInMainWorld("voxaDesktop", {
   onUpdateReady: (cb: (version: string) => void) => subscribe(IPC.updateReady, cb),
   installUpdate: () => ipcRenderer.send(IPC.updateInstall),
 
+  ptt: {
+    /** A key (KeyboardEvent.code) or mouse button (MouseEvent.button); resolves true when it works with games in focus. */
+    set: (binding: { type: "key"; code: string } | { type: "mouse"; button: number } | null): Promise<boolean> => ipcRenderer.invoke(IPC.pttSet, binding),
+    onState: (cb: (down: boolean) => void) => subscribe(IPC.pttState, cb),
+  },
+
   replay: {
     setHotkey: (accelerator: string | null): Promise<boolean> => ipcRenderer.invoke(IPC.replaySetHotkey, accelerator),
     onHotkey: (cb: () => void) => subscribe(IPC.replayHotkey, cb),

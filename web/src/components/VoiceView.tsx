@@ -7,6 +7,7 @@ import { applyOutputDevice } from "../voice/audioSettings.ts";
 import type { VoiceMember } from "../voice/types.ts";
 import { Avatar } from "./Avatar.tsx";
 import { Icon } from "./Icon.tsx";
+import { useUserVolumeMenu, useUserVolumes } from "./UserVolumeMenu.tsx";
 
 interface Tile {
   key: string;
@@ -21,6 +22,8 @@ interface Tile {
 export function VoiceView({ channel, members, server }: { channel: Channel; members: VoiceMember[]; server?: ServerDetails }) {
   const [voice, vs] = useVoice();
   const [focused, setFocused] = useState<string | null>(null);
+  const volumes = useUserVolumes();
+  const menu = useUserVolumeMenu();
   const inThisChannel = vs.status !== "idle" && vs.channelId === channel.id;
 
   const tiles: Tile[] = [];
@@ -60,6 +63,11 @@ export function VoiceView({ channel, members, server }: { channel: Channel; memb
           {name}
           {t.isSelf && " (você)"}
         </span>
+        {t.kind === "user" && !t.isSelf && volumes[t.member.user.id]?.muted && (
+          <span className="state-icon" title="Silenciado para você">
+            <Icon name="speakerOff" size={15} />
+          </span>
+        )}
         {t.kind === "user" && (t.member.deafened || t.member.muted) && (
           <span className="state-icon" title={t.member.deafened ? "Áudio desativado" : "Microfone desativado"}>
             <Icon name={t.member.deafened ? "headphonesOff" : "micOff"} size={15} />
@@ -70,7 +78,12 @@ export function VoiceView({ channel, members, server }: { channel: Channel; memb
 
     if (t.kind === "user") {
       return (
-        <div key={t.key} className={`tile user ${speaking ? "speaking" : ""} ${big ? "big" : ""}`}>
+        <div
+          key={t.key}
+          className={`tile user ${speaking ? "speaking" : ""} ${big ? "big" : ""}`}
+          onContextMenu={t.isSelf ? undefined : (e) => menu.open(e, t.member.user.id, name)}
+          title={t.isSelf ? undefined : "Clique com o botão direito para ajustar o volume"}
+        >
           <Avatar name={name} id={t.member.user.id} size={big ? 96 : 64} src={t.member.user.avatar} />
           {label}
         </div>
@@ -125,6 +138,7 @@ export function VoiceView({ channel, members, server }: { channel: Channel; memb
 
   return (
     <main className="main voice-view">
+      {menu.menu}
       <header className="chat-header">
         <span className="channel-icon">🔊</span>
         <strong>{channel.name}</strong>

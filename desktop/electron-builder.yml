@@ -9,6 +9,11 @@ files:
   - dist/**/*
   - "!dist/**/*.map"
   - package.json
+# Native code (global push-to-talk hook) must be a real file to load.
+# It is copied into dist/ by scripts/build.mjs with its prebuilt binaries, so nothing to rebuild.
+asarUnpack:
+  - dist/node_modules/**
+npmRebuild: false
 protocols:
   - name: Voxa
     schemes: [voxa]

@@ -9,7 +9,7 @@ import { DOWNLOAD_URL, desktop } from "../desktop.ts";
 import { Avatar, STATUS_LABEL } from "./Avatar.tsx";
 import { Icon } from "./Icon.tsx";
 import { useAudioSettings } from "../voice/useAudioSettings.ts";
-import { audioSettings, type NoiseSuppression } from "../voice/audioSettings.ts";
+import { audioSettings, bindingLabel, type NoiseSuppression } from "../voice/audioSettings.ts";
 import { replay, useReplay } from "../replay/replay.ts";
 import { useReplaySettings } from "../replay/useReplaySettings.ts";
 
@@ -111,6 +111,18 @@ export function SidebarFooter({ user, status, activity, voiceLocation, setPresen
               <Icon name="hangup" />
             </button>
           </div>
+          {settings.inputMode === "ptt" && (
+            <div className={`ptt-hint ${vs.pttActive ? "live" : ""}`} aria-live="polite">
+              <span className="ptt-dot" aria-hidden="true" />
+              {vs.pttActive ? (
+                "Transmitindo"
+              ) : (
+                <span>
+                  Segure <kbd>{bindingLabel(settings.pttBinding)}</kbd> para falar
+                </span>
+              )}
+            </div>
+          )}
           <div className="voice-card-actions">
             <button
               className={`action-btn ${vs.localScreen ? "live" : ""}`}

@@ -3496,3 +3496,128 @@ video.media-item {
   max-width: 100%;
   max-height: 300px;
 }
+
+/* --- Push-to-talk ---------------------------------------------------------------- */
+.ptt-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 10px;
+  background: var(--bg-sunken, rgba(0, 0, 0, 0.18));
+}
+.ptt-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  font-size: 14px;
+}
+.ptt-row .sensitivity-slider {
+  flex: 1;
+  max-width: 260px;
+}
+.ptt-key {
+  min-width: 140px;
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-float);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+.ptt-key:hover {
+  border-color: var(--grad-1);
+}
+.ptt-key.recording {
+  border-color: var(--grad-2);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--grad-2) 25%, transparent);
+  color: var(--grad-2);
+}
+kbd {
+  display: inline-block;
+  min-width: 1.6em;
+  padding: 1px 6px;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  background: var(--bg-float);
+  font: 600 12px/1.5 var(--font-display, inherit);
+  text-align: center;
+}
+.ptt-hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 2px 2px 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.ptt-hint kbd {
+  font-size: 11px;
+}
+.ptt-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  opacity: 0.5;
+}
+.ptt-hint.live {
+  color: var(--text);
+}
+.ptt-hint.live .ptt-dot {
+  opacity: 1;
+  background: var(--grad);
+  box-shadow: 0 0 8px var(--grad-2);
+}
+
+/* --- Per-user volume menu (right-click on someone in voice) --------------------- */
+.user-menu {
+  position: fixed;
+  z-index: 300;
+  width: 240px;
+  padding: 8px;
+  border-radius: 10px;
+  background: var(--bg-float);
+  border: 1px solid var(--border);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+  font-size: 14px;
+}
+.user-menu-title {
+  padding: 4px 8px 8px;
+  font-weight: 600;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 6px;
+}
+.user-menu-volume {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 6px 8px 10px;
+}
+.user-menu-volume input[type="range"] {
+  width: 100%;
+  accent-color: var(--grad-1);
+}
+.user-menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 7px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--text);
+  background: none;
+  border: 0;
+  font: inherit;
+  text-align: left;
+}
+.user-menu-item:hover {
+  background: var(--bg-hover, rgba(255, 255, 255, 0.06));
+}
+.user-menu-item.link-like {
+  color: var(--link);
+}

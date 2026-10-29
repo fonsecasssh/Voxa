@@ -25,6 +25,7 @@
     "electron-builder": "^25.1.8",
     "esbuild": "^0.24.0",
     "typescript": "^5.7.2",
+    "uiohook-napi": "^1.5.5",
     "vitest": "^3.0.0"
   }
 }
