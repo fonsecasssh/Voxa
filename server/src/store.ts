@@ -160,6 +160,19 @@ export interface Message {
   embeds: LinkEmbed[];
   /** The thread started from this message, if any. */
   thread: { id: string; name: string; count: number; lastAt: number | null } | null;
+  poll: Poll | null;
+}
+
+/** A poll ("enquete") sent as a message. It's closed once expiresAt has passed. */
+export interface Poll {
+  question: string;
+  /** Each answer, with who chose it. */
+  options: { text: string; userIds: string[] }[];
+  /** Whether each person may pick more than one answer. */
+  multi: boolean;
+  expiresAt: number;
+  /** Already over when this was sent (so a client with a clock behind still sees it closed). */
+  closed: boolean;
 }
 
 export interface ReplyPreview {
@@ -351,6 +364,7 @@ const toMessage = (r: Row): Message => ({
   pinnedAt: (r.pinned_at as number | null) ?? null,
   embeds: [],
   thread: null,
+  poll: null,
 });
 
 const MESSAGE_SELECT = `SELECT m.*, u.username, u.display_name, u.avatar, u.profile_banner FROM messages m JOIN users u ON u.id = m.author_id`;
@@ -1305,6 +1319,36 @@ export function createStore(db: DB) {
       db.prepare("UPDATE messages SET mentions = ?, mention_everyone = ? WHERE id = ?").run(userIds.length ? JSON.stringify(userIds) : null, everyone ? 1 : 0, id);
     },
 
+    // --- polls --------------------------------------------------------------
+    createPoll(messageId: string, poll: { question: string; options: string[]; multi: boolean; expiresAt: number }): void {
+      db.prepare("INSERT INTO polls (message_id, question, options, multi, expires_at) VALUES (?, ?, ?, ?, ?)")
+        .run(messageId, poll.question, JSON.stringify(poll.options), poll.multi ? 1 : 0, poll.expiresAt);
+    },
+
+    pollOf(messageId: string): Poll | null {
+      return pollsFor([messageId]).get(messageId) ?? null;
+    },
+
+    /** Replaces someone's answers (none takes the vote back). */
+    setVotes(messageId: string, userId: string, options: number[]): void {
+      db.exec("BEGIN");
+      try {
+        db.prepare("DELETE FROM poll_votes WHERE message_id = ? AND user_id = ?").run(messageId, userId);
+        const add = db.prepare("INSERT INTO poll_votes (message_id, user_id, option, created_at) VALUES (?, ?, ?, ?)");
+        const now = Date.now();
+        for (const o of options) add.run(messageId, userId, o, now);
+        db.exec("COMMIT");
+      } catch (err) {
+        db.exec("ROLLBACK");
+        throw err;
+      }
+    },
+
+    /** Closes a poll now. */
+    endPoll(messageId: string): void {
+      db.prepare("UPDATE polls SET expires_at = ? WHERE message_id = ? AND expires_at > ?").run(Date.now(), messageId, Date.now());
+    },
+
     /** Ids of the people who can read a channel among these usernames (server members, or the DM's two). */
     audienceByUsernames(channel: Channel, usernames: string[]): string[] {
       if (usernames.length === 0) return [];
@@ -1568,8 +1612,31 @@ export function createStore(db: DB) {
   };
 
   /** Fills in what lives in other tables (files), for a page of messages at once. */
+  function pollsFor(ids: string[]): Map<string, Poll> {
+    const out = new Map<string, Poll>();
+    if (!ids.length) return out;
+    const marks = ids.map(() => "?").join(",");
+    for (const r of db.prepare(`SELECT * FROM polls WHERE message_id IN (${marks})`).all(...ids) as Row[]) {
+      out.set(r.message_id as string, {
+        question: r.question as string,
+        options: (JSON.parse(r.options as string) as string[]).map((text) => ({ text, userIds: [] })),
+        multi: r.multi === 1,
+        expiresAt: r.expires_at as number,
+        closed: (r.expires_at as number) <= Date.now(),
+      });
+    }
+    if (out.size) {
+      for (const v of db.prepare(`SELECT * FROM poll_votes WHERE message_id IN (${marks}) ORDER BY created_at`).all(...ids) as Row[]) {
+        out.get(v.message_id as string)?.options[v.option as number]?.userIds.push(v.user_id as string);
+      }
+    }
+    return out;
+  }
+
   function hydrate(msgs: Message[]): Message[] {
     if (msgs.length === 0) return msgs;
+    const polls = pollsFor(msgs.map((m) => m.id));
+    for (const m of msgs) m.poll = polls.get(m.id) ?? null;
     const marks = msgs.map(() => "?").join(",");
     const files = db
       .prepare(`SELECT * FROM attachments WHERE message_id IN (${marks}) ORDER BY position`)
@@ -1616,7 +1683,8 @@ export function createStore(db: DB) {
       const rows = db
         .prepare(
           `SELECT m.*, u.username, u.display_name, u.avatar, u.profile_banner,
-                  (SELECT COUNT(*) FROM attachments a WHERE a.message_id = m.id) AS nfiles
+                  (SELECT COUNT(*) FROM attachments a WHERE a.message_id = m.id) AS nfiles,
+                  (SELECT question FROM polls p WHERE p.message_id = m.id) AS poll_question
            FROM messages m JOIN users u ON u.id = m.author_id WHERE m.id IN (${replyIds.map(() => "?").join(",")})`,
         )
         .all(...replyIds) as Row[];
@@ -1628,7 +1696,7 @@ export function createStore(db: DB) {
         m.replyTo = {
           id: o.id as string,
           author: toUser(o, o.author_id as string),
-          content: (o.content as string).slice(0, 200),
+          content: ((o.content as string) || (o.poll_question ? `📊 ${o.poll_question}` : "")).slice(0, 200),
           hasFiles: (o.nfiles as number) > 0 || o.attachment !== null,
         };
       }

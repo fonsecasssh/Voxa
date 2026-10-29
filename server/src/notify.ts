@@ -12,7 +12,7 @@ export interface Notifier {
 }
 
 const preview = (m: Message) =>
-  m.content.slice(0, 140) || (m.attachment ? "Enviou um replay 🎬" : m.files.length ? `Enviou ${m.files.length === 1 ? "um arquivo" : `${m.files.length} arquivos`} 📎` : "");
+  m.content.slice(0, 140) || (m.poll ? `📊 ${m.poll.question}`.slice(0, 140) : m.attachment ? "Enviou um replay 🎬" : m.files.length ? `Enviou ${m.files.length === 1 ? "um arquivo" : `${m.files.length} arquivos`} 📎` : "");
 
 export function createNotifier(store: Store, isOnline: (userId: string) => boolean, push: PushSender | null): Notifier {
   const deliver = (userId: string, payload: PushPayload) => {

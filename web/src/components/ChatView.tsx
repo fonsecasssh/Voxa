@@ -1,5 +1,5 @@
 import { useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
-import { MAX_FILES_PER_MESSAGE, dmTitle, type DmSummary, type Channel, type FileAttachment, type Message, type User, type ServerDetails } from "../api.ts";
+import { MAX_FILES_PER_MESSAGE, api, dmTitle, type DmSummary, type Channel, type FileAttachment, type Message, type User, type ServerDetails } from "../api.ts";
 import { Lightbox, PendingTray, usePendingFiles } from "./Attachments.tsx";
 import { Avatar } from "./Avatar.tsx";
 import { DmAvatar } from "./DmParts.tsx";
@@ -8,6 +8,7 @@ import { EmojiPicker } from "./EmojiPicker.tsx";
 import { Icon } from "./Icon.tsx";
 import { MobileNavButton } from "./MobileNav.tsx";
 import { MessageItem } from "./MessageItem.tsx";
+import { PollModal } from "./Poll.tsx";
 import { memberName } from "../members.ts";
 
 const GROUP_WINDOW_MS = 5 * 60_000;
@@ -139,6 +140,7 @@ export function ChatView(props: Props) {
   const [lightbox, setLightbox] = useState<FileAttachment | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const [emojiOpen, setEmojiOpen] = useState(false);
+  const [pollOpen, setPollOpen] = useState(false);
   const textarea = useRef<HTMLTextAreaElement>(null);
 
   /** Puts an emoji where the cursor is (or replaces the selection), keeping the cursor after it. */
@@ -348,7 +350,7 @@ export function ChatView(props: Props) {
       setReplyingTo(null);
     } else if (e.key === "ArrowUp" && !draft && messages) {
       // Like Discord: ↑ in an empty box edits your last message.
-      const last = [...messages].reverse().find((m) => m.author.id === selfId && (m.content || m.files.length === 0));
+      const last = [...messages].reverse().find((m) => m.author.id === selfId && (m.content || (m.files.length === 0 && !m.poll)));
       if (last) {
         e.preventDefault();
         setEditingId(last.id);
@@ -393,6 +395,16 @@ export function ChatView(props: Props) {
         </div>
       )}
       {lightbox && <Lightbox file={lightbox} onClose={() => setLightbox(null)} />}
+      {pollOpen && (
+        <PollModal
+          where={target}
+          onClose={() => setPollOpen(false)}
+          onSubmit={async (poll) => {
+            stickToBottom.current = true;
+            await api.sendPoll(channel.id, poll);
+          }}
+        />
+      )}
       {reactionPicker && (
         <EmojiPicker
           style={pickerPosition(reactionPicker.anchor)}
@@ -646,6 +658,9 @@ export function ChatView(props: Props) {
             }}
             autoFocus
           />
+          <button type="button" className="poll-toggle" title="Criar enquete" aria-label="Criar enquete" onClick={() => setPollOpen(true)}>
+            <Icon name="poll" size={20} />
+          </button>
           <button
             type="button"
             className={`emoji-toggle ${emojiOpen ? "active" : ""}`}

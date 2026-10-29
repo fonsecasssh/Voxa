@@ -6,6 +6,7 @@ export type IconName =
   | "mic"
   | "thread"
   | "pin"
+  | "poll"
   | "search"
   | "bell"
   | "bellOff"
@@ -70,6 +71,7 @@ const ICONS: Record<IconName, ReactNode> = {
       <path d="M9 8.5h6M9 11h4" />
     </>
   ),
+  poll: <path d="M5 20V10M10 20V4M15 20v-7M20 20V8M3 20h18" />,
   pin: <path d="M9 4h6l-1 5 3.5 3.5V14H13v6l-1 1-1-1v-6H6.5v-1.5L10 9z" />,
   search: (
     <>

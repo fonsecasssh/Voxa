@@ -123,7 +123,7 @@ export function SearchPanel({
                 <span className="muted small">{formatTime(m.createdAt)}</span>
               </span>
               <span className="search-result-text">
-                <Highlighted text={m.content || (m.files.length ? `📎 ${m.files.map((f) => f.name).join(", ")}` : m.attachment ? "🎬 Replay" : "")} terms={terms} />
+                <Highlighted text={m.content || (m.poll ? `📊 ${m.poll.question}` : m.files.length ? `📎 ${m.files.map((f) => f.name).join(", ")}` : m.attachment ? "🎬 Replay" : "")} terms={terms} />
               </span>
             </button>
           );

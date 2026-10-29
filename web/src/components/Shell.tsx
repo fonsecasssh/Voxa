@@ -327,7 +327,7 @@ export function Shell({
           if (document.visibilityState !== "visible" || !document.hasFocus()) {
             const body =
               m.content.slice(0, 200) ||
-              (m.attachment ? "Enviou um replay 🎬" : m.files.length ? `Enviou ${m.files.length === 1 ? "um arquivo" : `${m.files.length} arquivos`} 📎` : "");
+              (m.poll ? `📊 ${m.poll.question}` : m.attachment ? "Enviou um replay 🎬" : m.files.length ? `Enviou ${m.files.length === 1 ? "um arquivo" : `${m.files.length} arquivos`} 📎` : "");
             const title = mentioned && !isDm ? `${m.author.displayName} mencionou você` : m.author.displayName;
             notify(title, body, m.channelId, () => navigate(`/channels/${m.serverId ?? HOME}/${m.channelId}`));
             desktop?.flash();
@@ -363,6 +363,14 @@ export function Shell({
         const ch = all[cid];
         if (!ch) return all;
         return { ...all, [cid]: { ...ch, items: ch.items.map((x) => (x.id === messageId ? { ...x, reactions } : x)) } };
+      });
+    });
+
+    socket.on("message:poll", ({ channelId: cid, messageId, poll }) => {
+      setMessages((all) => {
+        const ch = all[cid];
+        if (!ch) return all;
+        return { ...all, [cid]: { ...ch, items: ch.items.map((x) => (x.id === messageId ? { ...x, poll } : x)) } };
       });
     });
 

@@ -1,5 +1,5 @@
 import { io, type Socket } from "socket.io-client";
-import type { Category, Channel, CustomEmoji, DmSummary, FriendState, MemberData, Message, Presence, Role, Server, User, Reaction } from "./api.ts";
+import type { Category, Channel, CustomEmoji, DmSummary, FriendState, MemberData, Message, Poll, Presence, Role, Server, User, Reaction } from "./api.ts";
 import type { VoiceMember } from "./voice/types.ts";
 import type { NotifySettings } from "./notifications.ts";
 
@@ -8,6 +8,7 @@ export interface ServerToClient {
   "message:update": (m: Message) => void;
   "message:delete": (e: { channelId: string; id: string }) => void;
   "message:reactions": (e: { channelId: string; messageId: string; reactions: Reaction[] }) => void;
+  "message:poll": (e: { channelId: string; messageId: string; poll: Poll }) => void;
   "channel:new": (c: Channel) => void;
   /** The channels (and categories) of a server that you see, after any change to them. */
   "channels:update": (p: { serverId: string; channels: Channel[]; categories: Category[] }) => void;

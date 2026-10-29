@@ -46,6 +46,10 @@ export const MAX_REACTION_KINDS = 20;
 
 /** One emoji (with its modifiers and joiners): a picture, a flag or a keycap, never plain text. */
 /** A server's emoji in a message or reaction: <:name:id>, or <a:name:id> when animated. */
+export const MAX_POLL_OPTIONS = 10;
+/** How long a poll may stay open, in hours (1 h to a week). */
+export const POLL_HOURS = [1, 4, 8, 24, 72, 168];
+
 export const CUSTOM_EMOJI = /^<a?:([a-zA-Z0-9_]{2,32}):([0-9a-f-]{36})>$/;
 
 export function isEmoji(s: string): boolean {
@@ -812,8 +816,10 @@ export function createApp({ db, webDist, ice = createIceProvider(), trustProxy =
     if (!Array.isArray(uploads) || uploads.length > MAX_FILES_PER_MESSAGE || !uploads.every((u) => typeof u === "string")) {
       throw new HttpError(400, `Envie no máximo ${MAX_FILES_PER_MESSAGE} arquivos por mensagem.`);
     }
-    // A message may be only files; otherwise it needs text.
-    const content = str(req.body?.content ?? "", "mensagem", uploads.length ? 0 : 1, 4000);
+    const poll = req.body?.poll === undefined || req.body?.poll === null ? null : parsePoll(req.body.poll);
+    if (poll && uploads.length) throw new HttpError(400, "Uma enquete não leva arquivos.");
+    // A message may be only files (or a poll); otherwise it needs text.
+    const content = str(req.body?.content ?? "", "mensagem", uploads.length || poll ? 0 : 1, 4000);
     // A 1:1 DM with someone who blocked you (or whom you blocked) doesn't take messages.
     if (!channel.serverId && !store.groupDm(channel.id)) {
       const other = store.dmParticipants(channel.id)?.find((id) => id !== req.user!.id);
@@ -828,6 +834,7 @@ export function createApp({ db, webDist, ice = createIceProvider(), trustProxy =
     try {
       store.insertMessage(channel.id, req.user!, content, undefined, id, replyTo);
       if (!store.attachUploads(id, req.user!.id, uploads as string[])) throw new HttpError(400, "Um dos arquivos não está mais disponível. Envie de novo.");
+      if (poll) store.createPoll(id, poll);
       db.exec("COMMIT");
     } catch (err) {
       db.exec("ROLLBACK");
@@ -845,6 +852,54 @@ export function createApp({ db, webDist, ice = createIceProvider(), trustProxy =
     }
     refreshPreviews(channel, message.id, message.content);
     res.status(201).json({ message });
+  });
+
+  /** A new poll from the request: a question, 2 to 10 answers, and how many hours it stays open. */
+  function parsePoll(body: unknown) {
+    if (typeof body !== "object" || body === null) throw new HttpError(400, "Enquete inválida.");
+    const b = body as Record<string, unknown>;
+    const question = str(b.question, "pergunta", 1, 300);
+    if (!Array.isArray(b.options) || b.options.length < 2 || b.options.length > MAX_POLL_OPTIONS) {
+      throw new HttpError(400, `Uma enquete tem de 2 a ${MAX_POLL_OPTIONS} respostas.`);
+    }
+    const options = b.options.map((o) => str(o, "resposta", 1, 55));
+    const hours = b.hours ?? 24;
+    if (typeof hours !== "number" || !POLL_HOURS.includes(hours)) throw new HttpError(400, "Duração inválida.");
+    return { question, options, multi: b.multi === true, expiresAt: Date.now() + hours * 3_600_000 };
+  }
+
+  // Polls: PUT your answers (the indexes chosen; [] takes the vote back); the author can end it early.
+  const pollTarget = (req: Request) => {
+    const channel = requireChannelAccess(req, req.params.id as string);
+    const id = req.params.messageId as string;
+    const poll = store.messageInfo(id)?.channelId === channel.id ? store.pollOf(id) : null;
+    if (!poll) throw new HttpError(404, "Enquete não encontrada.");
+    if (poll.expiresAt <= Date.now()) throw new HttpError(400, "Essa enquete já terminou.");
+    return { channel, id, poll };
+  };
+  const publishPoll = (channel: Channel, id: string) =>
+    io.to(realtime.channelRooms(channel)).emit("message:poll", { channelId: channel.id, messageId: id, poll: store.pollOf(id) });
+  app.put("/api/channels/:id/messages/:messageId/poll", requireAuth, (req, res) => {
+    const { channel, id, poll } = pollTarget(req);
+    const chosen: unknown = req.body?.options;
+    if (
+      !Array.isArray(chosen) ||
+      !chosen.every((o) => Number.isInteger(o) && o >= 0 && o < poll.options.length) ||
+      new Set(chosen).size !== chosen.length ||
+      (!poll.multi && chosen.length > 1)
+    ) {
+      throw new HttpError(400, "Resposta inválida.");
+    }
+    store.setVotes(id, req.user!.id, chosen as number[]);
+    publishPoll(channel, id);
+    res.json({ poll: store.pollOf(id) });
+  });
+  app.post("/api/channels/:id/messages/:messageId/poll/end", requireAuth, (req, res) => {
+    const { channel, id } = pollTarget(req);
+    if (store.messageInfo(id)?.authorId !== req.user!.id) throw new HttpError(403, "Só quem criou a enquete pode encerrá-la.");
+    store.endPoll(id);
+    publishPoll(channel, id);
+    res.json({ poll: store.pollOf(id) });
   });
 
   // Link previews: fetched after a message is sent or edited (a few at a time, each URL

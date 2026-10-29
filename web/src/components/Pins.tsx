@@ -74,7 +74,7 @@ export function PinsButton({
                     <strong>{memberName(server, m.author)}</strong>
                     <span className="muted small">{formatTime(m.createdAt)}</span>
                   </div>
-                  <p className="pin-text">{m.content || (m.files.length ? `📎 ${m.files.map((f) => f.name).join(", ")}` : "🎬 Replay")}</p>
+                  <p className="pin-text">{m.content || (m.poll ? `📊 ${m.poll.question}` : m.files.length ? `📎 ${m.files.map((f) => f.name).join(", ")}` : "🎬 Replay")}</p>
                   <div className="pin-actions">
                     <button
                       className="link"

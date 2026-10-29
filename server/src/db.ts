@@ -401,6 +401,24 @@ const MIGRATIONS: string[] = [
   `
   ALTER TABLE users ADD COLUMN custom_status TEXT;
   `,
+
+  // 22: polls ("enquetes"): a message can carry one; options are a JSON array of strings.
+  `
+  CREATE TABLE polls (
+    message_id TEXT PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,
+    question   TEXT NOT NULL,
+    options    TEXT NOT NULL,
+    multi      INTEGER NOT NULL DEFAULT 0,
+    expires_at INTEGER NOT NULL
+  );
+  CREATE TABLE poll_votes (
+    message_id TEXT NOT NULL REFERENCES polls(message_id) ON DELETE CASCADE,
+    user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    option     INTEGER NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (message_id, user_id, option)
+  );
+  `,
 ];
 
 /** The schema version a fully migrated database has. */

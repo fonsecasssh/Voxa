@@ -89,6 +89,24 @@ export interface Ban {
   createdAt: number;
 }
 
+/** A poll sent as a message; closed once expiresAt has passed. */
+export interface Poll {
+  question: string;
+  options: { text: string; userIds: string[] }[];
+  multi: boolean;
+  expiresAt: number;
+  /** Already over when the server sent it. */
+  closed: boolean;
+}
+
+export interface PollInput {
+  question: string;
+  options: string[];
+  multi: boolean;
+  /** How long it stays open: 1, 4, 8, 24, 72 or 168. */
+  hours: number;
+}
+
 export interface Message {
   id: string;
   channelId: string;
@@ -110,6 +128,7 @@ export interface Message {
   embeds: LinkEmbed[];
   /** The thread started from this message. */
   thread: { id: string; name: string; count: number; lastAt: number | null } | null;
+  poll: Poll | null;
   /** Only on live "message:new" events: the server of the channel (null in DMs). */
   serverId?: string | null;
 }
@@ -415,6 +434,10 @@ export const api = {
     request<{ messages: Message[]; lastReadAt?: number }>("GET", `/api/channels/${channelId}/messages${before ? `?before=${before}` : ""}`),
   sendMessage: (channelId: string, content: string, uploads: string[] = [], replyTo: string | null = null) =>
     request<{ message: Message }>("POST", `/api/channels/${channelId}/messages`, { content, uploads, replyTo }),
+  sendPoll: (channelId: string, poll: PollInput) => request<{ message: Message }>("POST", `/api/channels/${channelId}/messages`, { poll }),
+  votePoll: (channelId: string, messageId: string, options: number[]) =>
+    request<{ poll: Poll }>("PUT", `/api/channels/${channelId}/messages/${messageId}/poll`, { options }),
+  endPoll: (channelId: string, messageId: string) => request<{ poll: Poll }>("POST", `/api/channels/${channelId}/messages/${messageId}/poll/end`),
   editMessage: (channelId: string, messageId: string, content: string) =>
     request<{ message: Message }>("PATCH", `/api/channels/${channelId}/messages/${messageId}`, { content }),
   react: (channelId: string, messageId: string, emoji: string, add: boolean) =>

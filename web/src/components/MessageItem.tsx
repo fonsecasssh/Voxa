@@ -9,6 +9,7 @@ import { MessageFiles } from "./Attachments.tsx";
 import { Avatar } from "./Avatar.tsx";
 import { Icon } from "./Icon.tsx";
 import { LinkEmbeds } from "./LinkEmbeds.tsx";
+import { PollView } from "./Poll.tsx";
 import { GIPHY_MEDIA } from "../features.ts";
 import { CustomEmojiImg, Markdown, type MentionTarget } from "./Markdown.tsx";
 import { CUSTOM_EMOJI } from "../customEmojis.ts";
@@ -149,6 +150,7 @@ export function MessageItem(p: MessageItemProps) {
       ) : (
         m.content && <MessageText content={m.content} edited={m.editedAt} selfId={p.selfId} resolveUsername={p.resolveUsername} />
       )}
+      {m.poll && <PollView message={m} selfId={p.selfId} resolveName={p.resolveName} />}
       {m.thread && (
         <button type="button" className="thread-chip" onClick={() => p.onOpenThread(m.thread!.id)}>
           <Icon name="thread" size={14} />
@@ -212,7 +214,7 @@ export function MessageItem(p: MessageItemProps) {
           <Icon name="pin" size={16} />
         </button>
       )}
-      {mine && (
+      {mine && !(m.poll && !m.content) && (
         <button className="msg-action" title="Editar" aria-label="Editar mensagem" onClick={p.onStartEdit}>
           <Icon name="pencil" size={16} />
         </button>
