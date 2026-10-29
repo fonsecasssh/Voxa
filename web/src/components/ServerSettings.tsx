@@ -2,13 +2,14 @@
 
 import { EmptyState } from "./EmptyState.tsx";
 import { ListSkeleton } from "./Skeleton.tsx";
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { PERMISSION_INFO, Permission as P } from "../../../shared/permissions.ts";
 import { api, type Ban, type Invite, type Presence, type Role, type ServerDetails, type ServerImageKind, type Sound, type User } from "../api.ts";
 import { checkSoundFile, playBoardSound } from "../soundboard.ts";
 import { Permission, can, memberColor, memberName, memberRoles, myPermissions, myTop, outranks } from "../members.ts";
 import { navigate } from "../router.ts";
-import { Avatar, ServerIcon } from "./Avatar.tsx";
+import { Avatar, ServerIcon, serverGradient } from "./Avatar.tsx";
+import { Icon, type IconName } from "./Icon.tsx";
 import { NicknameForm } from "./MemberList.tsx";
 import { ImageCropper } from "./ImageCropper.tsx";
 import { inviteSummary } from "./ChannelModals.tsx";
@@ -24,6 +25,39 @@ interface Props {
   presence: Record<string, Presence>;
   onClose: () => void;
 }
+
+/** Each tab's icon and what it's for (shown at the top of the page). */
+const TAB_INFO: Record<Tab, { icon: IconName; title: string; hint: ReactNode }> = {
+  overview: { icon: "gear", title: "Visão geral", hint: "Nome, ícone e banner: como o servidor aparece para todos." },
+  roles: {
+    icon: "shield",
+    title: "Cargos",
+    hint: (
+      <>
+        Cargos organizam os membros e definem o que cada um pode fazer. Quem tem um cargo só gerencia os cargos <strong>abaixo</strong> do seu cargo mais
+        alto.
+      </>
+    ),
+  },
+  members: { icon: "users", title: "Membros", hint: "Quem está no servidor. Dê cargos pelo +, mude apelidos, expulse ou bana." },
+  emojis: {
+    icon: "smile",
+    title: "Emojis",
+    hint: (
+      <>
+        Até 50 por servidor. Todos aqui podem usar com <code>:nome:</code> nas mensagens, no seletor de emojis e nas reações (PNG, JPEG, WebP ou GIF
+        animado, até 512 KB).
+      </>
+    ),
+  },
+  sounds: {
+    icon: "soundboard",
+    title: "Sons",
+    hint: "Até 30 sons para o soundboard: quem estiver num canal de voz do servidor toca para todos ali. MP3, OGG, WAV, WebM ou M4A, até 5 segundos e 512 KB.",
+  },
+  invites: { icon: "userPlus", title: "Convites", hint: "Links que ainda funcionam. Revogue um link para ele parar de funcionar na hora." },
+  bans: { icon: "ban", title: "Banimentos", hint: "Pessoas banidas não conseguem voltar ao servidor com nenhum convite até o banimento ser revogado." },
+};
 
 export function ServerSettings({ details, selfId, presence, onClose }: Props) {
   const perms = myPermissions(details, selfId);
@@ -52,6 +86,7 @@ export function ServerSettings({ details, selfId, presence, onClose }: Props) {
           <div className="group-label">{details.server.name}</div>
           {visible.map((t) => (
             <button key={t.id} className={`settings-tab ${tab === t.id ? "active" : ""}`} onClick={() => setTab(t.id)}>
+              <Icon name={TAB_INFO[t.id].icon} size={18} />
               {t.label}
             </button>
           ))}
@@ -59,6 +94,15 @@ export function ServerSettings({ details, selfId, presence, onClose }: Props) {
       </nav>
       <div className="settings-content">
         <div className="settings-content-inner">
+          <header className="settings-head">
+            <span className="settings-head-icon">
+              <Icon name={TAB_INFO[tab].icon} size={22} />
+            </span>
+            <div>
+              <h2>{TAB_INFO[tab].title}</h2>
+              <p className="muted">{TAB_INFO[tab].hint}</p>
+            </div>
+          </header>
           {tab === "overview" && <Overview details={details} selfId={selfId} perms={perms} onClose={onClose} />}
           {tab === "roles" && <Roles details={details} selfId={selfId} perms={perms} />}
           {tab === "members" && <Members details={details} selfId={selfId} perms={perms} presence={presence} />}
@@ -109,9 +153,9 @@ function Overview({ details, selfId, perms, onClose }: { details: ServerDetails;
 
   return (
     <>
-      <h2>Visão geral do servidor</h2>
+      <ServerHero details={details} />
       {can(perms, Permission.MANAGE_SERVER) && (
-        <form className="settings-form" onSubmit={save}>
+        <form className="settings-form settings-card" onSubmit={save}>
           <label>
             Nome do servidor
             <input
@@ -142,7 +186,7 @@ function Overview({ details, selfId, perms, onClose }: { details: ServerDetails;
       )}
 
       {isOwner && (
-        <section className="danger-zone">
+        <section className="danger-zone settings-card">
           <h3>Excluir servidor</h3>
           <p className="muted">Apaga o servidor, todos os canais e mensagens. Não dá para desfazer.</p>
           <button
@@ -161,6 +205,30 @@ function Overview({ details, selfId, perms, onClose }: { details: ServerDetails;
         </section>
       )}
     </>
+  );
+}
+
+/** How the server looks to others: its banner (or gradient), icon, name and a few numbers. */
+function ServerHero({ details }: { details: ServerDetails }) {
+  const { server } = details;
+  const text = details.channels.filter((c) => c.type === "text").length;
+  const voice = details.channels.filter((c) => c.type === "voice").length;
+  return (
+    <div className="server-hero settings-card">
+      <div className="server-hero-banner" style={{ background: server.banner ? `center / cover url(${server.banner})` : serverGradient(server.id) }} />
+      <div className="server-hero-body">
+        <span className="server-hero-icon">
+          <ServerIcon server={server} size={72} />
+        </span>
+        <div className="server-hero-text">
+          <strong className="ellipsis">{server.name}</strong>
+          <span className="muted small">
+            {details.members.length} {details.members.length === 1 ? "membro" : "membros"} · {text} {text === 1 ? "canal de texto" : "canais de texto"} · {voice}{" "}
+            {voice === 1 ? "canal de voz" : "canais de voz"}
+          </span>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -189,9 +257,11 @@ function ServerImageSection({ details, kind }: { details: ServerDetails; kind: S
   const text = IMAGE_TEXT[kind];
 
   return (
-    <section className={`image-section ${kind}`}>
-      <h3>{text.title}</h3>
-      <p className="muted small">{text.hint}</p>
+    <section className={`image-section settings-card ${kind}`}>
+      <div className="image-section-text">
+        <h3>{text.title}</h3>
+        <p className="muted small">{text.hint}</p>
+      </div>
       {kind === "banner" ? (
         <div className="banner-preview" style={current ? { backgroundImage: `url(${current})` } : undefined}>
           {!current && <span className="muted">{text.empty}</span>}
@@ -260,11 +330,6 @@ function Roles({ details, selfId, perms }: { details: ServerDetails; selfId: str
 
   return (
     <>
-      <h2>Cargos</h2>
-      <p className="muted">
-        Cargos organizam os membros e definem o que cada um pode fazer. Quem tem um cargo só gerencia os cargos <strong>abaixo</strong> do
-        seu cargo mais alto.
-      </p>
       {error && <div className="form-error">{error}</div>}
       <div className="roles-layout">
         <div className="roles-list">
@@ -462,8 +527,12 @@ function Members({
 
   return (
     <>
-      <h2>Membros — {details.members.length}</h2>
-      <input className="search" placeholder="Buscar membros" value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Buscar membros" />
+      <div className="settings-toolbar">
+        <input className="search" placeholder="Buscar membros" value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Buscar membros" />
+        <span className="muted small">
+          {details.members.length} {details.members.length === 1 ? "membro" : "membros"}
+        </span>
+      </div>
       <div className="members-table">
         {list.map((m) => (
           <MemberRow key={m.id} details={details} user={m} selfId={selfId} perms={perms} presence={presence[m.id]} />
@@ -603,8 +672,6 @@ function Invites({ details }: { details: ServerDetails }) {
 
   return (
     <>
-      <h2>Convites</h2>
-      <p className="muted">Links que ainda funcionam. Revogue um link para ele parar de funcionar na hora.</p>
       {error && <div className="form-error">{error}</div>}
       {invites === null ? (
         <ListSkeleton count={4} twoLines />
@@ -636,21 +703,23 @@ function Invites({ details }: { details: ServerDetails }) {
           ))}
         </div>
       )}
-      <h3>Link original do servidor</h3>
-      <p className="muted small">
-        Servidores criados antes dos convites com validade têm um link permanente. Se ele foi compartilhado demais, desative-o: quem já está no servidor
-        continua.
-      </p>
-      {notice && <div className="form-ok">{notice}</div>}
-      <button
-        className="btn subtle danger"
-        onClick={async () => {
-          if (!confirm("Desativar o link original deste servidor? Quem tiver esse link não vai mais conseguir entrar.")) return;
-          if (await run(() => api.resetServerInvite(sid))) setNotice("Link original desativado.");
-        }}
-      >
-        Desativar link original
-      </button>
+      <section className="settings-card">
+        <h3>Link original do servidor</h3>
+        <p className="muted small">
+          Servidores criados antes dos convites com validade têm um link permanente. Se ele foi compartilhado demais, desative-o: quem já está no servidor
+          continua.
+        </p>
+        {notice && <div className="form-ok">{notice}</div>}
+        <button
+          className="btn subtle danger"
+          onClick={async () => {
+            if (!confirm("Desativar o link original deste servidor? Quem tiver esse link não vai mais conseguir entrar.")) return;
+            if (await run(() => api.resetServerInvite(sid))) setNotice("Link original desativado.");
+          }}
+        >
+          Desativar link original
+        </button>
+      </section>
     </>
   );
 }
@@ -668,13 +737,13 @@ function Bans({ details }: { details: ServerDetails }) {
 
   return (
     <>
-      <h2>Banimentos</h2>
-      <p className="muted">Pessoas banidas não conseguem voltar ao servidor com nenhum convite até o banimento ser revogado.</p>
       {error && <div className="form-error">{error}</div>}
       {bans === null ? (
         <ListSkeleton count={4} twoLines />
       ) : bans.length === 0 ? (
-        <p className="muted">Ninguém banido.</p>
+        <EmptyState icon="ban" title="Ninguém banido" compact>
+          Quem for banido aparece aqui, com o motivo, para você revogar se quiser.
+        </EmptyState>
       ) : (
         <div className="settings-list">
           {bans.map((b) => (
@@ -725,10 +794,6 @@ function Emojis({ details }: { details: ServerDetails }) {
 
   return (
     <>
-      <h2>Emojis</h2>
-      <p className="muted">
-        Até 50 por servidor. Todos aqui podem usar com <code>:nome:</code> nas mensagens, no seletor de emojis e nas reações (PNG, JPEG, WebP ou GIF animado, até 512 KB).
-      </p>
       <input
         ref={input}
         type="file"
@@ -744,7 +809,7 @@ function Emojis({ details }: { details: ServerDetails }) {
         Enviar emoji
       </button>
       {error && <div className="form-error">{error}</div>}
-      <div className="settings-list">
+      <div className="settings-list tile-grid">
         {all.length === 0 && (
           <EmptyState icon="smile" title="Nenhum emoji ainda" compact>
             Envie uma imagem para criar o primeiro emoji do servidor.
@@ -829,11 +894,6 @@ function Sounds({ details }: { details: ServerDetails }) {
 
   return (
     <>
-      <h2>Sons</h2>
-      <p className="muted">
-        Até {MAX_SOUNDS} sons para o soundboard: quem estiver num canal de voz do servidor toca para todos ali. MP3, OGG, WAV, WebM ou M4A, até 5 segundos e
-        512 KB.
-      </p>
       <input
         ref={input}
         type="file"

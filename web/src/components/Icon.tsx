@@ -7,6 +7,8 @@ export type IconName =
   | "thread"
   | "pin"
   | "poll"
+  | "shield"
+  | "ban"
   | "soundboard"
   | "search"
   | "bell"
@@ -77,6 +79,13 @@ const ICONS: Record<IconName, ReactNode> = {
       <path d="M4 9.5h3l4-3.5v12l-4-3.5H4z" />
       <path d="M15 9a4 4 0 0 1 0 6" />
       <path d="M18.5 4.5l.6 1.4 1.4.6-1.4.6-.6 1.4-.6-1.4-1.4-.6 1.4-.6z" />
+    </>
+  ),
+  shield: <path d="M12 3l7 3v5c0 4.5-3 8.2-7 10-4-1.8-7-5.5-7-10V6z" />,
+  ban: (
+    <>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M6 6l12 12" />
     </>
   ),
   poll: <path d="M5 20V10M10 20V4M15 20v-7M20 20V8M3 20h18" />,

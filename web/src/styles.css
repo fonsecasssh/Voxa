@@ -5271,3 +5271,216 @@ button.poll-option:hover,
     opacity: 0;
   }
 }
+
+/* --- server settings as cards ----------------------------------------------------- */
+.settings-tab {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+}
+.settings-tab svg {
+  flex-shrink: 0;
+  opacity: 0.8;
+}
+.settings-tab.active svg {
+  color: var(--grad-1);
+  opacity: 1;
+}
+.settings-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  margin-bottom: 22px;
+  padding-right: 56px; /* clear of the close button */
+}
+.settings-head-icon {
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  background: var(--grad);
+  color: var(--on-grad);
+  box-shadow: 0 6px 18px -6px var(--grad-1);
+}
+.settings-head h2 {
+  margin: 0 0 4px;
+}
+.settings-head p {
+  margin: 0;
+  font-size: 14px;
+}
+.settings-card {
+  max-width: none;
+  margin: 0 0 14px;
+  padding: 16px 18px;
+  border-radius: 14px;
+  background: var(--bg-sidebar);
+  border: 1px solid var(--border);
+}
+.settings-card h3 {
+  font-size: 15px;
+}
+.settings-form.settings-card {
+  max-width: none;
+}
+.settings-form.settings-card .modal-actions {
+  margin-top: -4px;
+}
+/* Icon: picture on the left, words and buttons on the right. */
+.image-section.settings-card.icon {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-areas: "pic text" "pic actions";
+  column-gap: 18px;
+  align-items: center;
+}
+.image-section.icon .image-section-text {
+  grid-area: text;
+}
+.image-section.icon .icon-preview {
+  grid-area: pic;
+  margin: 0;
+}
+.image-section.icon .modal-actions {
+  grid-area: actions;
+  margin-top: 8px;
+}
+.image-section.icon .form-error {
+  grid-column: 1 / -1;
+}
+.image-section.settings-card.banner .banner-preview {
+  max-width: 440px;
+  margin: 12px 0;
+}
+.danger-zone.settings-card {
+  max-width: none;
+  margin-top: 28px;
+  border-color: rgba(237, 66, 69, 0.45);
+  background: linear-gradient(180deg, rgba(237, 66, 69, 0.07), transparent 70%), var(--bg-sidebar);
+}
+/* The server as others see it. */
+.server-hero {
+  padding: 0;
+  overflow: hidden;
+}
+.server-hero-banner {
+  height: 110px;
+}
+.server-hero-body {
+  display: flex;
+  align-items: flex-end;
+  gap: 14px;
+  padding: 0 18px 16px;
+  margin-top: -36px;
+}
+.server-hero-icon {
+  border-radius: 22px;
+  padding: 4px;
+  background: var(--bg-sidebar);
+  display: inline-flex;
+}
+.server-hero-icon .avatar {
+  border-radius: 18px;
+}
+.server-hero-text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-bottom: 4px;
+}
+.server-hero-text strong {
+  font-size: 18px;
+}
+/* Lists: every row a card. */
+.settings-list-row,
+.member-row {
+  background: var(--bg-sidebar);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 14px;
+  transition: border-color 0.15s, background 0.15s;
+}
+.settings-list-row:hover,
+.member-row:hover {
+  border-color: color-mix(in srgb, var(--grad-1) 45%, var(--border));
+}
+.members-table {
+  gap: 8px;
+  margin-top: 4px;
+}
+.member-row {
+  border-top: 1px solid var(--border);
+}
+.member-row .presence-dot {
+  border-color: var(--bg-sidebar);
+}
+.settings-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.settings-toolbar .search {
+  flex: 1;
+  max-width: 360px;
+  margin: 0;
+}
+.invite-code {
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--grad-1) 14%, transparent);
+}
+/* Emojis: a grid of tiles. */
+.settings-list.tile-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px;
+}
+.settings-list.tile-grid > .empty-state-box {
+  grid-column: 1 / -1;
+}
+.settings-list.tile-grid .settings-list-row {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 6px;
+  padding: 16px 10px 12px;
+}
+.settings-list.tile-grid .custom-emoji.big {
+  width: 56px;
+  height: 56px;
+  object-fit: contain;
+}
+.settings-list.tile-grid .settings-list-row > .muted:empty {
+  display: none;
+}
+.settings-list.tile-grid .emoji-rename {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+}
+/* Roles: the list and the editor as two cards. */
+.roles-list {
+  padding: 10px;
+  border-radius: 14px;
+  background: var(--bg-sidebar);
+  border: 1px solid var(--border);
+}
+.roles-layout {
+  margin-top: 0;
+}
+.role-editor {
+  padding: 16px 18px;
+  border-radius: 14px;
+  background: var(--bg-sidebar);
+  border: 1px solid var(--border);
+}
+.settings-card > h3:first-child {
+  margin-top: 0;
+}
