@@ -14,6 +14,8 @@ import { HttpError } from "./http.ts";
 export const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
 /** Animated GIFs (profile picture, server icon) are uploaded as they are, so they may be bigger. */
 export const MAX_GIF_BYTES = 8 * 1024 * 1024;
+/** Server emojis are small pictures (the app shrinks still images to 128 px). */
+export const MAX_EMOJI_BYTES = 512 * 1024;
 
 /** Checks an upload's real type and size; returns the type. */
 export function checkImage(data: Buffer): ImageType {
@@ -25,7 +27,7 @@ export function checkImage(data: Buffer): ImageType {
 
 export const SERVER_IMAGE_KINDS = ["banner", "icon"] as const;
 export const USER_IMAGE_KINDS = ["avatar", "profile-banner"] as const;
-export const IMAGE_KINDS = [...SERVER_IMAGE_KINDS, ...USER_IMAGE_KINDS] as const;
+export const IMAGE_KINDS = [...SERVER_IMAGE_KINDS, ...USER_IMAGE_KINDS, "emoji"] as const;
 export type ServerImageKind = (typeof SERVER_IMAGE_KINDS)[number];
 export type UserImageKind = (typeof USER_IMAGE_KINDS)[number];
 export type ImageKind = (typeof IMAGE_KINDS)[number];

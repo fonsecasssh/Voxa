@@ -8,7 +8,7 @@ import { hashPassword, verifyPassword } from "./auth.ts";
 import { HttpError, str } from "./http.ts";
 import type { registerRealtime } from "./realtime.ts";
 import type { ChannelType, Role, Server, Store } from "./store.ts";
-import { MAX_GIF_BYTES, SERVER_IMAGE_KINDS, USER_IMAGE_KINDS, checkImage, type MediaStore } from "./media.ts";
+import { MAX_EMOJI_BYTES, MAX_GIF_BYTES, SERVER_IMAGE_KINDS, USER_IMAGE_KINDS, checkImage, detectImageType, type MediaStore } from "./media.ts";
 
 interface Deps {
   app: Express;
@@ -501,6 +501,57 @@ export function registerAdminRoutes({ app, io, store, realtime, media, requireAu
     const { server, perms } = standing(req, req.params.id as string);
     need(perms, Permission.MANAGE_SERVER, "Você não tem permissão para gerenciar os convites.");
     store.resetServerInvite(server.id);
+    res.status(204).end();
+  });
+
+  // --- custom emojis ------------------------------------------------------------------
+  const MAX_EMOJIS = 50;
+  const EMOJI_NAME = /^[a-zA-Z0-9_]{2,32}$/;
+  const emojiName = (raw: unknown) => {
+    const name = typeof raw === "string" ? raw.trim().replace(/^:|:$/g, "") : "";
+    if (!EMOJI_NAME.test(name)) throw new HttpError(400, "O nome do emoji pode ter de 2 a 32 letras, números ou _.");
+    return name;
+  };
+  const emitEmojis = (serverId: string) => io.to(`server:${serverId}`).emit("emojis:update", { serverId, emojis: store.emojis(serverId) });
+
+  app.post("/api/servers/:id/emojis", requireAuth, express.raw({ type: () => true, limit: MAX_EMOJI_BYTES }), (req, res) => {
+    const { server, perms } = standing(req, req.params.id as string);
+    need(perms, Permission.MANAGE_EMOJIS, "Você não tem permissão para gerenciar emojis.");
+    const name = emojiName(req.query.name);
+    if (store.emojis(server.id).length >= MAX_EMOJIS) throw new HttpError(400, `Um servidor pode ter até ${MAX_EMOJIS} emojis.`);
+    if (store.emojiNameTaken(server.id, name)) throw new HttpError(409, `Já existe um emoji :${name}: aqui.`);
+    const data = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+    const type = detectImageType(data);
+    if (!type) throw new HttpError(400, "Envie uma imagem PNG, JPEG, WebP ou GIF.");
+    if (data.length > MAX_EMOJI_BYTES) throw new HttpError(413, "O emoji passa de 512 KB.");
+    const emoji = store.addEmoji(server.id, name, media.save("emoji", server.id, data, type), type === "gif", req.user!.id);
+    emitEmojis(server.id);
+    res.status(201).json({ emoji });
+  });
+
+  const emojiForManage = (req: Request) => {
+    const emoji = store.emojiById(req.params.id as string);
+    if (!emoji) throw new HttpError(404, "Emoji não encontrado.");
+    const { perms } = standing(req, emoji.serverId);
+    need(perms, Permission.MANAGE_EMOJIS, "Você não tem permissão para gerenciar emojis.");
+    return emoji;
+  };
+
+  app.patch("/api/emojis/:id", requireAuth, (req, res) => {
+    const emoji = emojiForManage(req);
+    const name = emojiName(req.body?.name);
+    if (store.emojiNameTaken(emoji.serverId, name, emoji.id)) throw new HttpError(409, `Já existe um emoji :${name}: aqui.`);
+    store.renameEmoji(emoji.id, name);
+    emitEmojis(emoji.serverId);
+    res.json({ emoji: store.emojiById(emoji.id) });
+  });
+
+  app.delete("/api/emojis/:id", requireAuth, (req, res) => {
+    const emoji = emojiForManage(req);
+    store.deleteEmoji(emoji.id);
+    // Unless another emoji uses the same picture.
+    if (!store.emojis(emoji.serverId).some((e) => store.emojiById(e.id)?.file === emoji.file)) media.remove("emoji", emoji.file);
+    emitEmojis(emoji.serverId);
     res.status(204).end();
   });
 }

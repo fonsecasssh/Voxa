@@ -50,6 +50,8 @@ import { NotifyModal, type NotifyTarget } from "./NotifyModal.tsx";
 import { BlockedContext } from "../blocking.ts";
 import { SearchBox, SearchPanel, type SearchScope } from "./Search.tsx";
 import { PinsButton } from "./Pins.tsx";
+import { CustomEmojiContext } from "../customEmojis.ts";
+import type { CustomEmoji } from "../api.ts";
 
 const TYPING_MS = 4000;
 const HOME = "@me";
@@ -142,6 +144,10 @@ export function Shell({
   /** An incoming DM call we haven't answered or declined. */
   const [ringing, setRinging] = useState<{ channelId: string; from: User } | null>(null);
   const [showGroupMembers, setShowGroupMembers] = useState(true);
+  const [customEmojis, setCustomEmojis] = useState<CustomEmoji[]>([]);
+  useEffect(() => {
+    api.myEmojis().then((r) => setCustomEmojis(r.emojis), () => {});
+  }, [servers.length]);
   const [search, setSearch] = useState<{ scope: SearchScope; q: string } | null>(null);
   const [focus, setFocus] = useState<{ channelId: string; id: string; n: number } | null>(null);
   /** Phones: the server and channel lists are showing (instead of the conversation). */
@@ -336,6 +342,9 @@ export function Shell({
       setMentionCounts(({ [cid]: _, ...rest }) => rest);
       setMessages((all) => (all[cid] && (all[cid].lastReadAt ?? 0) < at ? { ...all, [cid]: { ...all[cid], lastReadAt: at } } : all));
     });
+    socket.on("emojis:update", ({ serverId: sid, emojis }) =>
+      setCustomEmojis((all) => [...all.filter((e) => e.serverId !== sid), ...emojis]),
+    );
     socket.on("notify:update", (settings) => {
       setNotifySettings(settings);
       // Muting something hides its unread marks right away.
@@ -870,6 +879,11 @@ export function Shell({
     />
   );
 
+  const emojiSet = useMemo(
+    () => ({ emojis: customEmojis, serverNames: Object.fromEntries(servers.map((x) => [x.id, x.name])), currentServerId: current?.server.id ?? null }),
+    [customEmojis, servers, current?.server.id],
+  );
+
   const searchPanel = search && (
     <SearchPanel
       scope={search.scope}
@@ -961,6 +975,7 @@ export function Shell({
     <VoiceContext.Provider value={voice}>
       <MobileNavContext.Provider value={openNav}>
       <BlockedContext.Provider value={blocked}>
+      <CustomEmojiContext.Provider value={emojiSet}>
       {ringing &&
         (() => {
           const d = dms?.find((x) => x.channel.id === ringing.channelId);
@@ -1084,6 +1099,7 @@ export function Shell({
           <ServerSettings details={current} selfId={user.id} presence={presence} onClose={() => setModal(null)} />
         )}
       </div>
+      </CustomEmojiContext.Provider>
       </BlockedContext.Provider>
       </MobileNavContext.Provider>
     </VoiceContext.Provider>

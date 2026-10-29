@@ -51,6 +51,15 @@ export interface PushSubscriptionRow {
   auth: string;
 }
 
+export interface CustomEmoji {
+  id: string;
+  serverId: string;
+  name: string;
+  animated: boolean;
+  /** The picture (by id, so it works wherever the emoji is used). */
+  url: string;
+}
+
 export interface Category {
   id: string;
   serverId: string;
@@ -280,6 +289,14 @@ const toChannel = (r: Row): Channel => ({
 
 /** Channels with the roles a private one is open to (comma-separated). */
 const CHANNEL_SELECT = `SELECT c.*, (SELECT group_concat(role_id) FROM channel_roles cr WHERE cr.channel_id = c.id) AS role_ids FROM channels c`;
+
+const toEmoji = (r: Row): CustomEmoji => ({
+  id: r.id as string,
+  serverId: r.server_id as string,
+  name: r.name as string,
+  animated: r.animated === 1,
+  url: `/api/emojis/${r.id as string}/image`,
+});
 
 const toInvite = (r: Row): Invite => ({
   code: r.code as string,
@@ -1361,6 +1378,49 @@ export function createStore(db: DB) {
     },
 
     /** Newest `limit` messages older than `before`, returned oldest first. */
+    // --- custom emojis -----------------------------------------------------
+    emojis(serverId: string): CustomEmoji[] {
+      return (db.prepare("SELECT * FROM emojis WHERE server_id = ? ORDER BY created_at").all(serverId) as Row[]).map(toEmoji);
+    },
+
+    /** Every emoji of the servers this person is in (they can use them anywhere). */
+    emojisForUser(userId: string): CustomEmoji[] {
+      return (
+        db.prepare("SELECT e.* FROM emojis e JOIN members m ON m.server_id = e.server_id WHERE m.user_id = ? ORDER BY m.joined_at, e.created_at").all(userId) as Row[]
+      ).map(toEmoji);
+    },
+
+    emojiById(id: string): (CustomEmoji & { file: string }) | null {
+      const r = db.prepare("SELECT * FROM emojis WHERE id = ?").get(id) as Row | undefined;
+      return r ? { ...toEmoji(r), file: r.file as string } : null;
+    },
+
+    emojiNameTaken(serverId: string, name: string, exceptId = ""): boolean {
+      return db.prepare("SELECT 1 FROM emojis WHERE server_id = ? AND name = ? COLLATE NOCASE AND id != ?").get(serverId, name, exceptId) !== undefined;
+    },
+
+    addEmoji(serverId: string, name: string, file: string, animated: boolean, creatorId: string): CustomEmoji {
+      const id = randomUUID();
+      db.prepare("INSERT INTO emojis (id, server_id, name, file, animated, creator_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)").run(
+        id,
+        serverId,
+        name,
+        file,
+        animated ? 1 : 0,
+        creatorId,
+        Date.now(),
+      );
+      return this.emojiById(id)!;
+    },
+
+    renameEmoji(id: string, name: string): void {
+      db.prepare("UPDATE emojis SET name = ? WHERE id = ?").run(name, id);
+    },
+
+    deleteEmoji(id: string): void {
+      db.prepare("DELETE FROM emojis WHERE id = ?").run(id);
+    },
+
     /** Pins or unpins a message; false when the channel already has the maximum. */
     setPinned(messageId: string, pinned: boolean, max: number): boolean {
       if (pinned) {

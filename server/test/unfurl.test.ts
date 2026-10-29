@@ -75,7 +75,7 @@ describe("previews in chat", () => {
     const created = await post("/api/servers", { name: "Embeds" }, me.token);
     const ch = created.channels.find((c: { type: string }) => c.type === "text").id;
     const s = connect(base, { auth: { token: me.token }, transports: ["websocket"] });
-    await new Promise((r) => s.on("connect", r));
+    await new Promise<void>((r) => s.on("connect", () => r()));
     const updated = new Promise<{ embeds: { title: string; url: string }[] }>((r) => s.on("message:update", r));
     const sent = await post(`/api/channels/${ch}/messages`, { content: `olha ${siteUrl}/ir` }, me.token);
     expect(sent.message.embeds).toEqual([]);

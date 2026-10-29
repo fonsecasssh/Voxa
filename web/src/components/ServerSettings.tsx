@@ -9,8 +9,9 @@ import { Avatar, ServerIcon } from "./Avatar.tsx";
 import { NicknameForm } from "./MemberList.tsx";
 import { ImageCropper } from "./ImageCropper.tsx";
 import { inviteSummary } from "./ChannelModals.tsx";
+import { useCustomEmojis } from "../customEmojis.ts";
 
-type Tab = "overview" | "roles" | "members" | "invites" | "bans";
+type Tab = "overview" | "roles" | "members" | "emojis" | "invites" | "bans";
 
 const SWATCHES = ["#1abc9c", "#2ecc71", "#3498db", "#9b59b6", "#e91e63", "#f1c40f", "#e67e22", "#e74c3c", "#95a5a6", "#607d8b"];
 
@@ -27,6 +28,7 @@ export function ServerSettings({ details, selfId, presence, onClose }: Props) {
     { id: "overview", label: "Visão geral", show: can(perms, Permission.MANAGE_SERVER) || details.server.ownerId === selfId },
     { id: "roles", label: "Cargos", show: can(perms, Permission.MANAGE_ROLES) },
     { id: "members", label: "Membros", show: true },
+    { id: "emojis", label: "Emojis", show: can(perms, Permission.MANAGE_EMOJIS) },
     { id: "invites", label: "Convites", show: can(perms, Permission.MANAGE_SERVER) },
     { id: "bans", label: "Banimentos", show: can(perms, Permission.BAN_MEMBERS) },
   ];
@@ -56,6 +58,7 @@ export function ServerSettings({ details, selfId, presence, onClose }: Props) {
           {tab === "overview" && <Overview details={details} selfId={selfId} perms={perms} onClose={onClose} />}
           {tab === "roles" && <Roles details={details} selfId={selfId} perms={perms} />}
           {tab === "members" && <Members details={details} selfId={selfId} perms={perms} presence={presence} />}
+          {tab === "emojis" && <Emojis details={details} />}
           {tab === "invites" && <Invites details={details} />}
           {tab === "bans" && <Bans details={details} />}
         </div>
@@ -681,6 +684,90 @@ function Bans({ details }: { details: ServerDetails }) {
           ))}
         </div>
       )}
+    </>
+  );
+}
+
+// --- emojis ----------------------------------------------------------------------
+
+/** Still images are shrunk to 128 px squares (kept whole, centered); GIFs go as they are. */
+async function prepareEmoji(file: File): Promise<Blob> {
+  if (file.type === "image/gif") return file;
+  const img = await createImageBitmap(file);
+  const size = 128;
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = size;
+  const scale = Math.min(size / img.width, size / img.height, 1);
+  const w = img.width * scale;
+  const h = img.height * scale;
+  canvas.getContext("2d")!.drawImage(img, (size - w) / 2, (size - h) / 2, w, h);
+  return new Promise((resolve, reject) => canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("Imagem inválida."))), "image/png"));
+}
+
+function Emojis({ details }: { details: ServerDetails }) {
+  const sid = details.server.id;
+  const all = useCustomEmojis().emojis.filter((e) => e.serverId === sid);
+  const input = useRef<HTMLInputElement>(null);
+  const { error, busy, run } = useAction();
+  const [editing, setEditing] = useState<{ id: string; name: string } | null>(null);
+
+  const upload = async (file: File) => {
+    const name = file.name.replace(/\.[^.]+$/, "").replace(/[^a-zA-Z0-9_]/g, "_").slice(0, 32).padEnd(2, "_");
+    await run(async () => api.addEmoji(sid, name, await prepareEmoji(file)));
+  };
+
+  return (
+    <>
+      <h2>Emojis</h2>
+      <p className="muted">
+        Até 50 por servidor. Todos aqui podem usar com <code>:nome:</code> nas mensagens, no seletor de emojis e nas reações (PNG, JPEG, WebP ou GIF animado, até 512 KB).
+      </p>
+      <input
+        ref={input}
+        type="file"
+        accept="image/png,image/jpeg,image/webp,image/gif"
+        hidden
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          e.target.value = "";
+          if (f) upload(f);
+        }}
+      />
+      <button className="btn primary" disabled={busy || all.length >= 50} onClick={() => input.current?.click()}>
+        Enviar emoji
+      </button>
+      {error && <div className="form-error">{error}</div>}
+      <div className="settings-list">
+        {all.length === 0 && <p className="muted">Nenhum emoji ainda.</p>}
+        {all.map((e) => (
+          <div key={e.id} className="settings-list-row emoji-row">
+            <img src={e.url} alt="" className="custom-emoji big" />
+            {editing?.id === e.id ? (
+              <form
+                className="emoji-rename"
+                onSubmit={async (ev) => {
+                  ev.preventDefault();
+                  if (await run(() => api.renameEmoji(e.id, editing.name))) setEditing(null);
+                }}
+              >
+                <input value={editing.name} onChange={(ev) => setEditing({ id: e.id, name: ev.target.value })} maxLength={32} autoFocus aria-label="Nome do emoji" />
+                <button className="btn primary small">Salvar</button>
+              </form>
+            ) : (
+              <button className="link ellipsis" title="Renomear" onClick={() => setEditing({ id: e.id, name: e.name })}>
+                :{e.name}:
+              </button>
+            )}
+            <span className="muted small">{e.animated ? "Animado" : ""}</span>
+            <button
+              className="btn subtle danger small"
+              onClick={() => confirm(`Apagar :${e.name}:? Onde ele foi usado aparece só o nome.`) && run(() => api.deleteEmoji(e.id))}
+            >
+              Apagar
+            </button>
+          </div>
+        ))}
+      </div>
     </>
   );
 }

@@ -2,6 +2,7 @@
 
 import { useState, type ReactNode } from "react";
 import { parseMarkdown, type MdNode } from "../../../shared/markdown.ts";
+import { emojiImageUrl } from "../customEmojis.ts";
 
 export interface MentionTarget {
   id: string;
@@ -14,6 +15,23 @@ interface Props {
   selfId: string;
   /** Who an @username refers to here, or null when nobody by that name can read it. */
   resolveUsername: (username: string) => MentionTarget | null;
+}
+
+/** A server emoji; if it was deleted, its :name: as text. */
+export function CustomEmojiImg({ id, name, size }: { id: string; name: string; size?: number }) {
+  const [broken, setBroken] = useState(false);
+  if (broken) return <>:{name}:</>;
+  return (
+    <img
+      className="custom-emoji"
+      src={emojiImageUrl(id)}
+      alt={`:${name}:`}
+      title={`:${name}:`}
+      draggable={false}
+      style={size ? { width: size, height: size } : undefined}
+      onError={() => setBroken(true)}
+    />
+  );
 }
 
 /** Hidden until clicked, like Discord's ||spoiler||. */
@@ -69,6 +87,8 @@ export function Markdown({ content, selfId, resolveUsername }: Props) {
               {n.text}
             </a>
           );
+        case "emoji":
+          return <CustomEmojiImg key={i} id={n.id} name={n.name} />;
         case "mention": {
           if (n.name === "everyone") {
             return (

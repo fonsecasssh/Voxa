@@ -5,6 +5,8 @@
 
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { api, type Gif } from "../api.ts";
+import { emojiToken, useCustomEmojis } from "../customEmojis.ts";
+import type { CustomEmoji } from "../api.ts";
 import { getFeatures } from "../features.ts";
 
 interface Emoji {
@@ -157,6 +159,30 @@ export function EmojiPicker({ onPick, onClose, style, ignore = ".emoji-toggle", 
   const [recent] = useState(readRecent);
   const ref = useRef<HTMLDivElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
+  const custom = useCustomEmojis();
+  // The server being viewed first, then the others.
+  const customGroups = useMemo(() => {
+    const groups = new Map<string, CustomEmoji[]>();
+    for (const e of custom.emojis) groups.set(e.serverId, [...(groups.get(e.serverId) ?? []), e]);
+    return [...groups].sort(([a], [b]) => (a === custom.currentServerId ? -1 : b === custom.currentServerId ? 1 : 0));
+  }, [custom]);
+  const customResults = useMemo(() => {
+    const q = normalize(query.trim()).replace(/:/g, "");
+    return q ? custom.emojis.filter((e) => e.name.toLowerCase().includes(q)).slice(0, 40) : null;
+  }, [custom, query]);
+  const pickCustom = (e: CustomEmoji, keepOpen: boolean) => {
+    onPick(emojiToken(e));
+    if (!keepOpen) onClose();
+  };
+  const customGrid = (list: CustomEmoji[]) => (
+    <div className="emoji-grid">
+      {list.map((e) => (
+        <button key={e.id} type="button" className="emoji-btn" title={`:${e.name}:`} aria-label={`:${e.name}:`} onClick={(ev) => pickCustom(e, ev.shiftKey)}>
+          <img src={e.url} alt="" className="custom-emoji" />
+        </button>
+      ))}
+    </div>
+  );
 
   useEffect(() => {
     loadEmojis().then(setAll, () => setFailed(true));
@@ -286,13 +312,22 @@ export function EmojiPicker({ onPick, onClose, style, ignore = ".emoji-toggle", 
         ) : !all ? (
           <p className="muted small pad">Carregando emojis…</p>
         ) : results ? (
-          results.length ? (
-            grid(results)
+          results.length || customResults?.length ? (
+            <>
+              {!!customResults?.length && customGrid(customResults)}
+              {grid(results)}
+            </>
           ) : (
             <p className="muted small pad">Nenhum emoji encontrado para “{query}”.</p>
           )
         ) : (
           <>
+            {customGroups.map(([sid, list]) => (
+              <section key={sid}>
+                <div className="emoji-group-label">{custom.serverNames[sid] ?? "Servidor"}</div>
+                {customGrid(list)}
+              </section>
+            ))}
             {recentEmojis.length > 0 && (
               <section>
                 <div className="emoji-group-label">Usados recentemente</div>

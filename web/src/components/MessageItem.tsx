@@ -10,7 +10,14 @@ import { Avatar } from "./Avatar.tsx";
 import { Icon } from "./Icon.tsx";
 import { LinkEmbeds } from "./LinkEmbeds.tsx";
 import { GIPHY_MEDIA } from "../features.ts";
-import { Markdown, type MentionTarget } from "./Markdown.tsx";
+import { CustomEmojiImg, Markdown, type MentionTarget } from "./Markdown.tsx";
+import { CUSTOM_EMOJI } from "../customEmojis.ts";
+
+/** A reaction's emoji: a character, or a server emoji's picture. */
+const reactionFace = (emoji: string) => {
+  const m = emoji.match(CUSTOM_EMOJI);
+  return m ? <CustomEmojiImg id={m[3]} name={m[2]} size={18} /> : emoji;
+};
 import { formatDuration, formatSize } from "./ReplayModal.tsx";
 
 export function formatTime(ts: number): string {
@@ -46,8 +53,13 @@ function ClipView({ clip }: { clip: ClipAttachment }) {
 
 /** Message text with its formatting, mentions and links (opened in a new tab, or the browser in the desktop app). */
 function MessageText({ content, edited, selfId, resolveUsername }: { content: string; edited: number | null; selfId: string; resolveUsername: (u: string) => MentionTarget | null }) {
+  // Only emojis (up to 27, like Discord): shown big.
+  const onlyEmojis =
+    content.length < 1200 &&
+    content.replace(/<a?:[a-zA-Z0-9_]{2,32}:[0-9a-f-]{36}>|\p{Extended_Pictographic}|\p{Emoji_Modifier}|\p{Regional_Indicator}|[\u200d\ufe0f\s]/gu, "") === "" &&
+    (content.match(/<a?:[a-zA-Z0-9_]{2,32}:[0-9a-f-]{36}>|\p{Extended_Pictographic}|\p{Regional_Indicator}/gu)?.length ?? 0) <= 27;
   return (
-    <div className="message-content">
+    <div className={`message-content ${onlyEmojis ? "jumbo" : ""}`}>
       <Markdown content={content} selfId={selfId} resolveUsername={resolveUsername} />
       {edited && (
         <span className="edited" title={`Editada ${formatTime(edited).toLowerCase()}`}>
@@ -154,7 +166,7 @@ export function MessageItem(p: MessageItemProps) {
             title={`${names.slice(0, 5).join(", ")}${names.length > 5 ? ` e mais ${names.length - 5}` : ""} reagiu com ${r.emoji}`}
             onClick={() => p.onToggleReaction(r.emoji, !reacted)}
           >
-            <span className="reaction-emoji">{r.emoji}</span>
+            <span className="reaction-emoji">{reactionFace(r.emoji)}</span>
             <span>{r.userIds.length}</span>
           </button>
         );

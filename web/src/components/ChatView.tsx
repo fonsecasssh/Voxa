@@ -3,6 +3,7 @@ import { MAX_FILES_PER_MESSAGE, dmTitle, type DmSummary, type Channel, type File
 import { Lightbox, PendingTray, usePendingFiles } from "./Attachments.tsx";
 import { Avatar } from "./Avatar.tsx";
 import { DmAvatar } from "./DmParts.tsx";
+import { resolveEmojiNames, useCustomEmojis } from "../customEmojis.ts";
 import { EmojiPicker } from "./EmojiPicker.tsx";
 import { Icon } from "./Icon.tsx";
 import { MobileNavButton } from "./MobileNav.tsx";
@@ -280,8 +281,10 @@ export function ChatView(props: Props) {
   // Messages go out one after another, in the order they were written, without waiting for
   // the previous one to finish (only a message with files waits for its uploads).
   const queue = useRef(Promise.resolve());
+  const customEmojis = useCustomEmojis();
   const send = () => {
-    const content = draft.trim();
+    // :name: of a server emoji becomes that emoji.
+    const content = resolveEmojiNames(draft.trim(), customEmojis);
     const withFiles = pending.items.length > 0;
     if ((!content && !withFiles) || (withFiles && sending)) return;
     const replyTo = replyingTo?.id ?? null;

@@ -20,6 +20,7 @@ export const Permission = {
   MENTION_EVERYONE: 1 << 8,
   BAN_MEMBERS: 1 << 9,
   CREATE_INVITE: 1 << 10,
+  MANAGE_EMOJIS: 1 << 11,
 } as const;
 
 export type PermissionName = keyof typeof Permission;
@@ -38,6 +39,7 @@ export const PERMISSION_INFO: { key: PermissionName; label: string; description:
   { key: "KICK_MEMBERS", label: "Expulsar membros", description: "Remover membros com cargos abaixo do seu." },
   { key: "BAN_MEMBERS", label: "Banir membros", description: "Remover membros com cargos abaixo do seu e impedir que voltem." },
   { key: "CREATE_INVITE", label: "Criar convite", description: "Gerar links de convite para o servidor." },
+  { key: "MANAGE_EMOJIS", label: "Gerenciar emojis", description: "Enviar, renomear e apagar os emojis do servidor." },
   { key: "MANAGE_NICKNAMES", label: "Gerenciar apelidos", description: "Mudar o apelido de outros membros." },
   { key: "CHANGE_NICKNAME", label: "Alterar apelido", description: "Mudar o próprio apelido neste servidor." },
   { key: "MANAGE_MESSAGES", label: "Gerenciar mensagens", description: "Apagar mensagens de outros membros." },

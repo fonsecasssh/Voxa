@@ -16,10 +16,14 @@ export type MdNode =
   | { t: "codeblock"; lang: string; v: string }
   | { t: "quote"; c: MdNode[] }
   | { t: "link"; text: string; href: string }
-  | { t: "mention"; name: string };
+  | { t: "mention"; name: string }
+  /** A server's custom emoji: <:name:id> (<a:name:id> animated). */
+  | { t: "emoji"; name: string; id: string; animated: boolean };
 
 /** @username (3–32 letters, digits, _ or .) or @everyone, not glued to a word or an e-mail. */
 const MENTION = /(^|[^a-zA-Z0-9_.@])@(everyone|[a-zA-Z0-9_.]{3,32})/g;
+
+const CUSTOM = /<(a?):([a-zA-Z0-9_]{2,32}):([0-9a-f-]{36})>/;
 
 // Links are swapped for placeholders (private-use characters) while formatting is parsed.
 const L_OPEN = "";
@@ -49,14 +53,21 @@ function parseInline(s: string, links: { text: string; href: string }[]): MdNode
         out.push({ t: "link", text: l.text, href: l.href });
         return;
       }
-      let last = 0;
-      for (const m of part.matchAll(MENTION)) {
-        const at = m.index + m[1].length;
-        if (at > last) out.push({ t: "text", v: part.slice(last, at) });
-        out.push({ t: "mention", name: m[2] });
-        last = at + 1 + m[2].length;
-      }
-      if (last < part.length) out.push({ t: "text", v: part.slice(last) });
+      part.split(CUSTOM).forEach((piece, j) => {
+        if (j % 4 === 1) out.push({ t: "emoji", animated: piece === "a", name: "", id: "" });
+        else if (j % 4 === 2) (out[out.length - 1] as { name: string }).name = piece;
+        else if (j % 4 === 3) (out[out.length - 1] as { id: string }).id = piece;
+        else {
+          let last = 0;
+          for (const m of piece.matchAll(MENTION)) {
+            const at = m.index + m[1].length;
+            if (at > last) out.push({ t: "text", v: piece.slice(last, at) });
+            out.push({ t: "mention", name: m[2] });
+            last = at + 1 + m[2].length;
+          }
+          if (last < piece.length) out.push({ t: "text", v: piece.slice(last) });
+        }
+      });
     });
     text = "";
   };

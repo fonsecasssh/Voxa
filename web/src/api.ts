@@ -42,6 +42,14 @@ export interface Channel {
   roleIds: string[];
 }
 
+export interface CustomEmoji {
+  id: string;
+  serverId: string;
+  name: string;
+  animated: boolean;
+  url: string;
+}
+
 export interface LinkEmbed {
   url: string;
   kind: "link" | "image" | "youtube";
@@ -285,6 +293,10 @@ export const api = {
       /** People you blocked. */
       blocked: string[];
     }>("GET", "/api/me"),
+  myEmojis: () => request<{ emojis: CustomEmoji[] }>("GET", "/api/me/emojis"),
+  addEmoji: (serverId: string, name: string, image: Blob) => request<{ emoji: CustomEmoji }>("POST", `/api/servers/${serverId}/emojis?name=${encodeURIComponent(name)}`, image),
+  renameEmoji: (id: string, name: string) => request<{ emoji: CustomEmoji }>("PATCH", `/api/emojis/${id}`, { name }),
+  deleteEmoji: (id: string) => request<void>("DELETE", `/api/emojis/${id}`),
   pins: (channelId: string) => request<{ messages: Message[] }>("GET", `/api/channels/${channelId}/pins`),
   pin: (channelId: string, messageId: string, pinned: boolean) =>
     request<{ message: Message }>(pinned ? "PUT" : "DELETE", `/api/channels/${channelId}/pins/${messageId}`),

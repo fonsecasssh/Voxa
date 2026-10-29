@@ -1,5 +1,5 @@
 import { io, type Socket } from "socket.io-client";
-import type { Category, Channel, DmSummary, FriendState, MemberData, Message, Presence, Role, Server, User, Reaction } from "./api.ts";
+import type { Category, Channel, CustomEmoji, DmSummary, FriendState, MemberData, Message, Presence, Role, Server, User, Reaction } from "./api.ts";
 import type { VoiceMember } from "./voice/types.ts";
 import type { NotifySettings } from "./notifications.ts";
 
@@ -19,6 +19,7 @@ export interface ServerToClient {
   "channel:read": (p: { channelId: string; at: number }) => void;
   "notify:update": (settings: NotifySettings) => void;
   "blocks:update": (p: { blocked: string[] }) => void;
+  "emojis:update": (p: { serverId: string; emojis: CustomEmoji[] }) => void;
   "dm:update": (dm: DmSummary) => void;
   /** We left or were removed from a group DM (or it was deleted). */
   "dm:remove": (p: { channelId: string }) => void;

@@ -45,6 +45,9 @@ export const MAX_FILES_PER_MESSAGE = 10;
 export const MAX_REACTION_KINDS = 20;
 
 /** One emoji (with its modifiers and joiners): a picture, a flag or a keycap, never plain text. */
+/** A server's emoji in a message or reaction: <:name:id>, or <a:name:id> when animated. */
+export const CUSTOM_EMOJI = /^<a?:([a-zA-Z0-9_]{2,32}):([0-9a-f-]{36})>$/;
+
 export function isEmoji(s: string): boolean {
   return s.length > 0 && s.length <= 32 && !/[\s<>]/.test(s) && /^(?:\p{Extended_Pictographic}|\p{Regional_Indicator}|[#*0-9]\uFE0F?\u20E3)/u.test(s) && !/[\p{L}\p{N}]{2}/u.test(s);
 }
@@ -595,6 +598,18 @@ export function createApp({ db, webDist, ice = createIceProvider(), trustProxy =
     res.status(201).json({ server, channels, categories, roles, inviteCode });
   });
 
+  // A custom emoji's picture, by id (public: emojis show wherever they're used).
+  app.get("/api/emojis/:id/image", (req, res) => {
+    const emoji = store.emojiById(req.params.id as string);
+    if (!emoji) throw new HttpError(404, "Emoji não encontrado.");
+    res.setHeader("Cache-Control", "public, max-age=3600");
+    res.redirect(302, imageUrlPrefix("emoji") + emoji.file);
+  });
+
+  app.get("/api/me/emojis", requireAuth, (req, res) => {
+    res.json({ emojis: store.emojisForUser(req.user!.id) });
+  });
+
   app.get("/api/servers/:id", requireAuth, (req, res) => {
     const server = requireMember(req, req.params.id as string);
     res.json({
@@ -936,7 +951,8 @@ export function createApp({ db, webDist, ice = createIceProvider(), trustProxy =
     const id = req.params.messageId as string;
     if (store.messageInfo(id)?.channelId !== channel.id) throw new HttpError(404, "Mensagem não encontrada.");
     const emoji = String(req.params.emoji ?? "");
-    if (!isEmoji(emoji)) throw new HttpError(400, "Reação inválida.");
+    const custom = emoji.match(CUSTOM_EMOJI);
+    if (custom ? !store.emojiById(custom[2]) : !isEmoji(emoji)) throw new HttpError(400, "Reação inválida.");
     return { channel, id, emoji };
   };
   const publishReactions = (channel: Channel, id: string) =>

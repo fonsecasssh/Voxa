@@ -44,6 +44,7 @@ export function canOpenSettings(d: ServerDetails, userId: string): boolean {
     can(p, Permission.MANAGE_ROLES) ||
     can(p, Permission.KICK_MEMBERS) ||
     can(p, Permission.BAN_MEMBERS) ||
+    can(p, Permission.MANAGE_EMOJIS) ||
     can(p, Permission.MANAGE_NICKNAMES)
   );
 }

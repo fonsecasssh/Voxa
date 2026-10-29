@@ -355,6 +355,20 @@ const MIGRATIONS: string[] = [
     fetched_at INTEGER NOT NULL
   );
   `,
+
+  // 19: custom emojis, per server. Messages write them as <:name:id> (<a:name:id> animated).
+  `
+  CREATE TABLE emojis (
+    id         TEXT PRIMARY KEY,
+    server_id  TEXT NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+    name       TEXT NOT NULL,
+    file       TEXT NOT NULL,
+    animated   INTEGER NOT NULL DEFAULT 0,
+    creator_id TEXT,
+    created_at INTEGER NOT NULL
+  );
+  CREATE UNIQUE INDEX emojis_by_name ON emojis(server_id, name COLLATE NOCASE);
+  `,
 ];
 
 /** The schema version a fully migrated database has. */
