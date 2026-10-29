@@ -5174,3 +5174,100 @@ button.poll-option:hover,
     animation: none;
   }
 }
+
+/* --- motion: short and subtle, only for people who haven't asked for less ----------- */
+@media (prefers-reduced-motion: no-preference) {
+  /* A message slides in when it arrives (and a channel's messages fade in when you open it). */
+  .messages .message,
+  .messages .channel-intro {
+    animation: msg-in 0.18s ease-out both;
+  }
+  /* Your reaction pops when you add it. */
+  .reaction.mine {
+    animation: reaction-pop 0.28s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  .reaction:active {
+    transform: scale(0.92);
+  }
+  .reaction {
+    transition: transform 0.1s, background 0.15s, border-color 0.15s;
+  }
+  .modal-backdrop {
+    animation: fade-in 0.14s ease-out both;
+  }
+  .modal {
+    animation: pop-in 0.18s cubic-bezier(0.2, 0.9, 0.3, 1.1) both;
+  }
+  .dropdown,
+  .status-menu,
+  .member-card,
+  .emoji-picker,
+  .soundboard,
+  .pins-popover,
+  .mention-popup {
+    animation: float-in 0.14s ease-out both;
+  }
+  .soundboard:not(.from-panel) {
+    animation-name: float-in-centered;
+  }
+  .badge {
+    animation: badge-pop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  }
+  .channel,
+  .rail-item,
+  .member,
+  .dm-row,
+  .friend-row,
+  .settings-tab {
+    transition: background 0.12s, color 0.12s;
+  }
+}
+@keyframes msg-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+@keyframes reaction-pop {
+  0% {
+    transform: scale(0.7);
+  }
+  60% {
+    transform: scale(1.15);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.97);
+  }
+}
+@keyframes float-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+@keyframes float-in-centered {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 6px);
+  }
+  to {
+    transform: translate(-50%, 0);
+  }
+}
+@keyframes badge-pop {
+  from {
+    transform: scale(0.4);
+    opacity: 0;
+  }
+}
